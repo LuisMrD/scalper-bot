@@ -1,0 +1,6 @@
+trading:
+  execution:
+    mode: TESTNET
+# Etapa 1: modos de execucao nao implementam envio de ordens.
+# TRADING_ORDERS_ENABLED=true sempre bloqueia a inicializacao.
+# Prefixo de streams publico atual; para endpoint legado, usar MARKET_DATA_WS_PATH=/stream.
