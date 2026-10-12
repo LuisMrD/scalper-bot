@@ -74,3 +74,15 @@ price-action:
   trend-body-min-ratio: ${PRICE_ACTION_TREND_BODY_MIN:0.60}
   doji-body-max-ratio: ${PRICE_ACTION_DOJI_BODY_MAX:0.25}
   rejection-wick-min-ratio: ${PRICE_ACTION_REJECTION_WICK_MIN:0.50}
+
+# Etapa 4: thresholds empiricos do VPA. Nao sao regras prescritas por Coulling.
+volume-analysis:
+  lookback: ${VOLUME_LOOKBACK:20}
+  recent-count: ${VOLUME_RECENT_COUNT:20}
+  high-volume-ratio: ${VOLUME_HIGH_RATIO:1.8}
+  low-volume-ratio: ${VOLUME_LOW_RATIO:0.6}
+  wide-spread-ratio: ${VOLUME_WIDE_SPREAD_RATIO:1.5}
+  narrow-spread-ratio: ${VOLUME_NARROW_SPREAD_RATIO:0.7}
+  strong-taker-share: ${VOLUME_TAKER_SHARE:0.6}
+  min-body-ratio: ${VOLUME_MIN_BODY_RATIO:0.55}
+  extreme-close-ratio: ${VOLUME_EXTREME_CLOSE_RATIO:0.75}
