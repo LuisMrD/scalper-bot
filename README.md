@@ -140,3 +140,13 @@ algoritmo e cuidados contra **lookahead bias** estao em [`docs/PRICE_ACTION_RULE
 
 **As regras numericas ainda sao prototipos testaveis**, nao um sistema comprovadamente
 lucrativo. A etapa de Volume Price Analysis (Anna Coulling) sera feita separadamente.
+
+## Etapa 4 — Volume Price Analysis (Coulling)
+
+O endpoint descritivo de volume pode ser consultado apos a coleta de candles:
+
+```http
+GET /api/v1/analysis/volume?symbol=BTCUSDT&interval=5m&limit=150
+```
+
+Exige ao menos `VOLUME_LOOKBACK + 1` candles consecutivos e fechados. A media de referencia usa somente candles anteriores (sem lookahead). O resultado nao constitui sinal para abrir ordens. Os parametros estao em `application.yml` e a metodologia em [`docs/VOLUME_PRICE_ANALYSIS_RULES.md`](docs/VOLUME_PRICE_ANALYSIS_RULES.md).

@@ -6,9 +6,9 @@
 
     <groupId>br.com.tradingbot</groupId>
     <artifactId>binance-scalping-bot</artifactId>
-    <version>0.3.0-SNAPSHOT</version>
+    <version>0.4.0-SNAPSHOT</version>
     <name>binance-scalping-bot</name>
-    <description>Etapa 3: price action deterministico sobre market data Binance USD-M Futures</description>
+    <description>Etapa 4: VPA descritiva sobre market data Binance USD-M Futures</description>
 
     <parent>
         <groupId>org.springframework.boot</groupId>
