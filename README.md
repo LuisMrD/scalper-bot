@@ -16,6 +16,28 @@ mvn spring-boot:run
 
 `http://127.0.0.1:8080/actuator/health`
 
+## Executar com os parametros locais recomendados para backtesting
+
+As configuracoes financeiras globais de `application.yml` continuam **sem defaults**.
+Para reproduzir o experimento de BTCUSDT com US$ 300, risco de 0.5%, stop diario
+de 3%, alavancagem 1x, taxa 0.05% e slippage 0.02% por lado, alinhamento de
+timeframes desligado e filtro de custo/risco 30%, use:
+
+```powershell
+docker compose up -d mysql
+.\scripts\start-backtest.ps1
+```
+
+Luna, envio de ordens e coleta automatica de mercado permanecem desligados.
+O perfil de execucao e `backtest`. Para verificar as variaveis sem iniciar Maven:
+
+```powershell
+.\scripts\start-backtest.ps1 -PrintOnly
+```
+
+Veja [configuracao local para backtest](docs/LOCAL_BACKTEST_CONFIGURATION.md)
+e [como comparar 0 vs 30%](docs/BACKTEST_RULES.md).
+
 ## Etapa 2: Market Data publico, somente leitura
 
 - `BinancePublicClient`: GET `/fapi/v1/exchangeInfo` e GET `/fapi/v1/klines` (sem API key).
