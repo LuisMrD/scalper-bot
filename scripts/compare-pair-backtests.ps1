@@ -29,6 +29,9 @@ param(
     [ValidateScript({ $_.Count -gt 0 -and @($_ | Where-Object { $_ -lt 0 -or $_ -gt 100 }).Count -eq 0 })]
     [int[]]$CostLimits = @(0, 30, 50, 75, 100),
 
+    [ValidateScript({ $_.Count -gt 0 -and @($_ | Where-Object { $_ -lt 0 -or $_ -gt 3000 }).Count -eq 0 })]
+    [int[]]$HoldingLimits = @(0),
+
     [ValidateRange(0, [long]::MaxValue)]
     [long]$AsOf = 0,
 
@@ -50,6 +53,7 @@ $BaseUrl = $BaseUrl.TrimEnd('/')
 if ($PrintOnly) {
     Write-Output "SYMBOLS=$($Symbols -join ',')"
     Write-Output "COST_LIMITS=$($CostLimits -join ',')"
+    Write-Output "HOLDING_LIMITS=$($HoldingLimits -join ',')"
     Write-Output "STEPS=$Steps"
     Write-Output "CONTEXT_LIMIT=$ContextLimit"
     Write-Output 'LUNA=false'
@@ -166,6 +170,7 @@ try {
     $results = @()
     foreach ($filter in $filters) {
         foreach ($limit in $CostLimits) {
+          foreach ($holding in $HoldingLimits) {
             $payload = @{
                 symbol = $filter.symbol
                 intervals = @('1m','5m','15m')
@@ -179,9 +184,10 @@ try {
                 minimumNotionalUsdt = $filter.minimumNotionalUsdt
                 breakEvenTriggerROverride = '1.0'
                 maxCostToInitialRiskPctOverride = $limit
+                maxHoldingCandles = $(if ($holding -gt 0) { $holding } else { $null })
             } | ConvertTo-Json -Depth 8
 
-            Write-Host "Testing $($filter.symbol), cost/risk $limit% ..."
+            Write-Host "Testing $($filter.symbol), cost/risk $limit%, max holding $(if ($holding) {$holding} else {'none'}) candles ..."
             try {
                 $run = Invoke-RestMethod -Method Post -Uri "$BaseUrl/api/v1/backtest/run" `
                     -ContentType 'application/json' -Body $payload `
@@ -195,9 +201,20 @@ try {
                 $results += [PSCustomObject]@{
                     Pair = $filter.symbol
                     LimitPct = $limit
+                    MaxHoldingCandles = $holding
                     AsOf = $AsOf
                     ReturnPct = [math]::Round([double]$p.totalReturnPct, 4)
                     DrawdownPct = [math]::Round([double]$p.maxDrawdownPct, 4)
+                    NetClosedUsdt = [math]::Round([double](($p.trades |
+                        Measure-Object -Property netPnlUsdt -Sum).Sum), 4)
+                    NetOpenUsdt = $(if ($p.openPositionDiagnostics) {
+                        [math]::Round([double]$p.openPositionDiagnostics.unrealizedNetPnlUsdt, 4)
+                    } else { 0 })
+                    AvgDurationCandles = $(if ($p.tradesClosed -gt 0) {
+                        [math]::Round([double](($p.trades |
+                            Measure-Object -Property durationCandles -Average).Average), 1)
+                    } else { $null })
+                    TimeExits = @($p.trades | Where-Object { $_.exitReason -eq 'TIME_LIMIT' }).Count
                     EntrySignals = $p.entrySignals
                     Blocked = $p.entriesBlocked
                     BlockedByCostAtDecision = $costBlocked
@@ -214,13 +231,17 @@ try {
                 if ($_.ErrorDetails -and $_.ErrorDetails.Message) {
                     $message += ' ' + $_.ErrorDetails.Message
                 }
-                Write-Warning "Backtest failed for $($filter.symbol), cost $limit%: $message"
+                Write-Warning "Backtest failed for $($filter.symbol), cost $limit%, holding $holding: $message"
                 $results += [PSCustomObject]@{
                     Pair = $filter.symbol
                     LimitPct = $limit
                     AsOf = $AsOf
                     ReturnPct = $null
                     DrawdownPct = $null
+                    NetClosedUsdt = $null
+                    NetOpenUsdt = $null
+                    AvgDurationCandles = $null
+                    TimeExits = $null
                     EntrySignals = $null
                     Blocked = $null
                     BlockedByCostAtDecision = $null
@@ -232,17 +253,21 @@ try {
                     Error = $message
                 }
             }
+          }
         }
     }
 
-    $results | Format-Table Pair, LimitPct, ReturnPct, DrawdownPct, EntrySignals,
-        Blocked, Closed, Wins, Losses, Open, Status -AutoSize
+    $results | Format-Table Pair, LimitPct, MaxHoldingCandles, ReturnPct, DrawdownPct, NetClosedUsdt, NetOpenUsdt,
+        Closed, Wins, Losses, TimeExits, AvgDurationCandles, Status -AutoSize
 
     if (-not $NoCsv) {
         $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
         $outputDir = Join-Path $repoRoot 'results'
         New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
-        $output = Join-Path $outputDir ("pair-comparison-{0}.csv" -f $AsOf)
+        $filePrefix = if (@($HoldingLimits | Where-Object { $_ -gt 0 }).Count -gt 0) {
+            "exit-comparison"
+        } else { "pair-comparison" }
+        $output = Join-Path $outputDir ("{0}-{1}.csv" -f $filePrefix, $AsOf)
         $results | Export-Csv -Path $output -NoTypeInformation -Encoding UTF8
         Write-Host "CSV saved: $output"
     }
