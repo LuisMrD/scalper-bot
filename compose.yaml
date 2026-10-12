@@ -1,0 +1,24 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: trading-bot-mysql-local
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: trading_bot
+      MYSQL_USER: trading
+      MYSQL_PASSWORD: trading_local_only
+      MYSQL_ROOT_PASSWORD: root_local_only
+      TZ: UTC
+    ports:
+      - "127.0.0.1:3307:3306"
+    volumes:
+      - trading_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
+
+volumes:
+  trading_mysql_data:
