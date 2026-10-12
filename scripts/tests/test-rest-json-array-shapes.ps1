@@ -72,9 +72,12 @@ function Invoke-RestMethod {
         if ($req.symbol -ne 'SOLUSDT' -or $req.includeLuna) {
             throw 'Unexpected pair or paid Luna enabled'
         }
-        if ($req.priceTick -ne '0.01' -or $req.quantityStep -ne '0.1' -or
-                $req.minimumNotionalUsdt -ne '5') {
-            throw 'Unexpected contract filters in replay request'
+        $culture = [System.Globalization.CultureInfo]::InvariantCulture
+        $tick = [decimal]::Parse([string]$req.priceTick, $culture)
+        $step = [decimal]::Parse([string]$req.quantityStep, $culture)
+        $notional = [decimal]::Parse([string]$req.minimumNotionalUsdt, $culture)
+        if ($tick -ne 0.01 -or $step -ne 0.1 -or $notional -ne 5) {
+            throw "Unexpected contract filters in replay request: tick=$tick step=$step notional=$notional"
         }
         if ([long]$req.asOf -ne 1791823439999) {
             throw 'Replay did not preserve shared asOf'
