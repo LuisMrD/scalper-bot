@@ -121,3 +121,22 @@ Invoke-RestMethod -Method Post "http://127.0.0.1:8080/api/v1/market-data/sync?sy
 - A rede e as APIs da Binance nao foram acessadas do ambiente de autoria. Os testes estao no codigo, mas requerem execucao local com Maven/JDK25. Execute `mvn clean test` e `mvn spring-boot:run` antes de considerar a etapa validada na sua maquina.
 
 Documentacao Binance: https://developers.binance.com/en/docs/products/derivatives-trading-usds-futures/general-info
+
+## Etapa 3: Price Action (analise de candles fechados)
+
+O novo modulo `analysis/brooks` produz um snapshot de contexto, **sem enviar ordens**.
+Depois de sincronizar candles usando os endpoints da Etapa 2:
+
+```powershell
+Invoke-RestMethod 'http://127.0.0.1:8080/api/v1/analysis/price-action?symbol=BTCUSDT&interval=5m&limit=150'
+```
+
+Se nao houver pelo menos 20 candles consecutivos fechados (ou o minimo configurado),
+a analise responde com HTTP 422, em vez de supor uma tendencia. O endpoint continua
+restrito ao endereco local do servidor.
+
+As classificacoes, parametros, diferenca entre conceitos de Brooks e heuristicas do
+algoritmo e cuidados contra **lookahead bias** estao em [`docs/PRICE_ACTION_RULES.md`](docs/PRICE_ACTION_RULES.md).
+
+**As regras numericas ainda sao prototipos testaveis**, nao um sistema comprovadamente
+lucrativo. A etapa de Volume Price Analysis (Anna Coulling) sera feita separadamente.

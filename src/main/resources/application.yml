@@ -63,3 +63,14 @@ market-data:
   scheduler:
     initial-delay-ms: 15000
     interval-ms: 60000
+
+# Etapa 3: heuristicas configuraveis do analisador Al Brooks (somente leitura).
+price-action:
+  min-candles: ${PRICE_ACTION_MIN_CANDLES:20}
+  pivot-left: ${PRICE_ACTION_PIVOT_LEFT:2}
+  pivot-right: ${PRICE_ACTION_PIVOT_RIGHT:2}
+  breakout-lookback: ${PRICE_ACTION_BREAKOUT_LOOKBACK:10}
+  recent-bar-count: ${PRICE_ACTION_RECENT_BARS:20}
+  trend-body-min-ratio: ${PRICE_ACTION_TREND_BODY_MIN:0.60}
+  doji-body-max-ratio: ${PRICE_ACTION_DOJI_BODY_MAX:0.25}
+  rejection-wick-min-ratio: ${PRICE_ACTION_REJECTION_WICK_MIN:0.50}
