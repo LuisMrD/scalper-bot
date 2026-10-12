@@ -16,7 +16,7 @@ public class BacktestController {
     @GetMapping("/status")
     public Map<String, Object> status() {
         return Map.of("mode", "SIMULATION_ONLY", "ordersEnabled", false,
-                "automaticLunaCalls", false, "maxSteps", 60, "maxLunaSteps", 10);
+                "automaticLunaCalls", false, "maxSteps", 3000, "maxLunaSteps", 10);
     }
     @PostMapping("/run")
     public BacktestResult run(@RequestBody BacktestRequest request) {

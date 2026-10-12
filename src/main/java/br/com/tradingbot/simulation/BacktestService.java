@@ -1,7 +1,9 @@
 package br.com.tradingbot.simulation;
 
 import br.com.tradingbot.analysis.context.MarketContextService;
+import br.com.tradingbot.analysis.context.MultiTimeframeMarketContext;
 import br.com.tradingbot.config.TradingProperties;
+import br.com.tradingbot.decision.DecisionResult;
 import br.com.tradingbot.decision.JavaDecisionConfiguration;
 import br.com.tradingbot.decision.JavaDecisionEngine;
 import br.com.tradingbot.decision.PositionState;
@@ -11,6 +13,7 @@ import br.com.tradingbot.market.model.MarketCandle;
 import br.com.tradingbot.market.service.MarketDataService;
 import br.com.tradingbot.risk.RiskManagementConfiguration;
 import br.com.tradingbot.risk.RiskPolicy;
+import br.com.tradingbot.risk.RiskPreviewResult;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -85,6 +88,14 @@ public class BacktestService {
                 throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
                         "Historico com lacunas, candlesticks abertos ou timestamps invalidos");
         }
+        // Uma carga por timeframe, seguida de janelas asOf isoladas em memoria.
+        // A barra final nao emite decisao, pois nao existe T+1 para executa-la.
+        var prepared = contexts.prepareReplay(request.symbol(), request.intervals(),
+                request.contextLimit(), tape.getFirst().closeTime(),
+                tape.get(tape.size() - 2).closeTime());
+        var javaHistory = new ArrayList<BacktestResult.DecisionTrace>(tape.size() - 1);
+        var lunaHistory = new ArrayList<BacktestResult.DecisionTrace>(request.includeLuna()
+                ? tape.size() - 1 : 0);
         var javaLedger = new BacktestLedger("JAVA", policy, request);
         BacktestLedger lunaLedger = request.includeLuna() ? new BacktestLedger("LUNA", policy, request) : null;
         for (int i=0; i<tape.size(); i++) {
@@ -94,21 +105,23 @@ public class BacktestService {
             // Last bar only settles pending executions and marks portfolio; no future bar
             // exists to execute a newly issued signal, so no LLM request is performed.
             if (i < tape.size()-1) {
-                var context = contexts.analyzeMultiple(request.symbol(), request.intervals(),
-                        request.contextLimit(), bar.closeTime());
+                var context = prepared.at(bar.closeTime());
                 var first = context.timeframes().getFirst();
                 if (context.requestedAsOfEpochMs() != bar.closeTime()
                         || first.asOfCloseTime() != bar.closeTime()
                         || first.recentCandles().getLast().openTime() != bar.openTime())
                     throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
                             "Contexto nao corresponde ao candle historico avaliado");
-                var javaDecision = javaEngine.evaluate(context,
-                        new PositionState(javaLedger.side()));
-                javaLedger.decide(javaDecision, first);
+                var javaSide = javaLedger.side();
+                var javaDecision = javaEngine.evaluate(context, new PositionState(javaSide));
+                var javaRisk = javaLedger.decide(javaDecision, first);
+                javaHistory.add(trace(context, javaDecision, javaRisk, javaSide.name()));
                 if (lunaLedger != null) {
-                    // No second DB read: identical immutable context; only portfolio state differs.
-                    var lunaDecision = luna.evaluateContext(context, lunaLedger.side());
-                    lunaLedger.decide(lunaDecision, first);
+                    // No second DB read or context build: same snapshot, independent portfolio.
+                    var lunaSide = lunaLedger.side();
+                    var lunaDecision = luna.evaluateContext(context, lunaSide);
+                    var lunaRisk = lunaLedger.decide(lunaDecision, first);
+                    lunaHistory.add(trace(context, lunaDecision, lunaRisk, lunaSide.name()));
                 }
             }
             javaLedger.markClose(bar.close());
@@ -119,7 +132,25 @@ public class BacktestService {
                 last.closeTime(), tape.size(), tape.size()-1,
                 "NEXT_OPEN_WITH_ADVERSE_SLIPPAGE_STOP_FIRST",
                 javaLedger.result(last.close()),
-                lunaLedger == null ? null : lunaLedger.result(last.close()), lunaLedger != null);
+                lunaLedger == null ? null : lunaLedger.result(last.close()), lunaLedger != null,
+                javaHistory, lunaHistory);
+    }
+
+    private static BacktestResult.DecisionTrace trace(MultiTimeframeMarketContext context,
+            DecisionResult decision, RiskPreviewResult risk, String sideAtDecision) {
+        var primary = context.timeframes().getFirst();
+        var bar = primary.recentCandles().getLast();
+        var observation = primary.volume().recentObservations().getLast();
+        var trends = context.timeframes().stream().map(frame ->
+                new BacktestResult.TimeframeTrend(frame.interval(),
+                        frame.priceAction().trend(), frame.asOfCloseTime())).toList();
+        return new BacktestResult.DecisionTrace(decision.engine(), sideAtDecision,
+                bar.openTime(), bar.closeTime(), decision.entry(),
+                decision.positionAction(), decision.setup(), decision.reason(),
+                primary.priceAction().trend(), trends,
+                observation.volumeLevel(), observation.takerBalance(),
+                observation.relativeVolume(), observation.relativeSpread(),
+                observation.effortResult(), risk.action(), risk.reason());
     }
 
     private RiskPolicy policy() {
