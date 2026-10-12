@@ -40,7 +40,7 @@ class PriceActionAnalyzerTest {
         var result = ANALYZER.analyze(bars);
         assertEquals(BreakoutState.UP_CANDIDATE, result.breakout().state());
         assertEquals(0, bd(101).compareTo(result.breakout().level()));
-        assertEquals(20 * 60_000L, result.breakout().breakoutBarOpenTime());
+        assertEquals(20 * 60_000L, result.breakout().breakoutBarOpenTime().longValue());
     }
 
     @Test void requiresAnotherBarForFollowThrough() {
@@ -49,7 +49,7 @@ class PriceActionAnalyzerTest {
         bars.set(21, candle(21, 103, 107, 102, 106));
         var result = ANALYZER.analyze(bars);
         assertEquals(BreakoutState.UP_FOLLOW_THROUGH, result.breakout().state());
-        assertEquals(20 * 60_000L, result.breakout().breakoutBarOpenTime());
+        assertEquals(20 * 60_000L, result.breakout().breakoutBarOpenTime().longValue());
     }
 
     @Test void detectsDownsideBreakout() {
@@ -92,7 +92,8 @@ class PriceActionAnalyzerTest {
         assertThrows(IllegalArgumentException.class, () -> ANALYZER.analyze(flat(19)));
         var bars = flat(20);
         bars.set(8, candle(9, 100, 101, 99, 100));
-        assertThrows(IllegalArgumentException.class, () -> ANALYZER.analyze(bars));
+        var withGap = bars;
+        assertThrows(IllegalArgumentException.class, () -> ANALYZER.analyze(withGap));
         bars = flat(20);
         var c = bars.get(19);
         bars.set(19, new MarketCandle(c.symbol(),c.interval(),c.openTime(),c.closeTime(),
