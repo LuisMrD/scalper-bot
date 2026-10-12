@@ -20,5 +20,30 @@ jobs:
           distribution: temurin
           java-version: '25'
           cache: maven
+      - name: Check safe local backtest configuration (does not start app)
+        shell: pwsh
+        run: |
+          $output = & ./scripts/start-backtest.ps1 -PrintOnly
+          foreach ($expected in @(
+            'SPRING_PROFILES_ACTIVE=backtest',
+            'TRADING_ORDERS_ENABLED=false',
+            'LUNA_ENABLED=false',
+            'MARKET_DATA_WS_ENABLED=false',
+            'MARKET_DATA_BOOTSTRAP_ENABLED=false',
+            'TRADING_CAPITAL_USDT=300',
+            'TRADING_RISK_PER_TRADE_PCT=0.5',
+            'TRADING_DAILY_STOP_PCT=3',
+            'TRADING_LEVERAGE=1',
+            'RISK_FEE_PER_SIDE_PCT=0.05',
+            'RISK_SLIPPAGE_PER_SIDE_PCT=0.02',
+            'JAVA_DECISION_REQUIRE_HIGHER_TF=false',
+            'RISK_MAX_COST_TO_INITIAL_RISK_PCT=30'
+          )) {
+            if ($output -notcontains $expected) { throw "Unexpected local backtest config: $expected" }
+          }
+          $withoutFilter = & ./scripts/start-backtest.ps1 -MaxCostToInitialRiskPct 0 -PrintOnly
+          if ($withoutFilter -notcontains 'RISK_MAX_COST_TO_INITIAL_RISK_PCT=<unset>') {
+            throw 'Zero filter parameter must UNSET env instead of failing validation.'
+          }
       - name: Validate and test (no real orders)
         run: mvn -B -ntp verify
