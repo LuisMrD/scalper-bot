@@ -41,11 +41,57 @@ final class BacktestLedger {
 
     private record PendingEntry(PositionState.Side side, BigDecimal quantity,
             BigDecimal stop, BigDecimal budget, long signalCloseTime) {}
-    private record Position(PositionState.Side side, BigDecimal qty, BigDecimal entry,
-            BigDecimal initialStop, BigDecimal stop, BigDecimal entryFee,
-            long signalCloseTime, long entryOpenTime) {
-        Position withStop(BigDecimal next) {
-            return new Position(side, qty, entry, initialStop, next, entryFee, signalCloseTime, entryOpenTime);
+    /**
+     * One trade in progress. High/low are observed only while the trade is open.
+     * If the stop is crossed intrabar, the unknown OHLC ordering is conservative:
+     * no full-candle high/low excursion is credited after that stop.
+     */
+    private static final class Position {
+        private final PositionState.Side side;
+        private final BigDecimal qty, entry, initialStop, entryFee, entrySlippage;
+        private final long signalCloseTime, entryOpenTime;
+        private BigDecimal stop, highestSeen, lowestSeen;
+        private int durationCandles, stopAdjustments;
+
+        Position(PositionState.Side side, BigDecimal qty, BigDecimal entry,
+                BigDecimal initialStop, BigDecimal entryFee, BigDecimal entrySlippage,
+                long signalCloseTime, long entryOpenTime) {
+            this.side = side; this.qty = qty; this.entry = entry;
+            this.initialStop = initialStop; this.stop = initialStop;
+            this.entryFee = entryFee; this.entrySlippage = entrySlippage;
+            this.signalCloseTime = signalCloseTime; this.entryOpenTime = entryOpenTime;
+            this.highestSeen = entry; this.lowestSeen = entry;
+        }
+        PositionState.Side side() { return side; }
+        BigDecimal qty() { return qty; }
+        BigDecimal entry() { return entry; }
+        BigDecimal initialStop() { return initialStop; }
+        BigDecimal stop() { return stop; }
+        BigDecimal entryFee() { return entryFee; }
+        long signalCloseTime() { return signalCloseTime; }
+        long entryOpenTime() { return entryOpenTime; }
+        void withStop(BigDecimal next) {
+            if (stop.compareTo(next) != 0) { stop = next; stopAdjustments++; }
+        }
+        void observed(BigDecimal high, BigDecimal low) {
+            highestSeen = highestSeen.max(high);
+            lowestSeen = lowestSeen.min(low);
+        }
+        void countCandle() { durationCandles++; }
+        BigDecimal initialRisk() { return entry.subtract(initialStop).abs().multiply(qty, MC); }
+        BigDecimal mfe() {
+            return (side == PositionState.Side.LONG
+                    ? highestSeen.subtract(entry) : entry.subtract(lowestSeen))
+                    .max(BigDecimal.ZERO).multiply(qty, MC);
+        }
+        BigDecimal mae() {
+            return (side == PositionState.Side.LONG
+                    ? entry.subtract(lowestSeen) : highestSeen.subtract(entry))
+                    .max(BigDecimal.ZERO).multiply(qty, MC);
+        }
+        BigDecimal ratio(BigDecimal amount) {
+            return initialRisk().signum() == 0 ? BigDecimal.ZERO
+                    : amount.divide(initialRisk(), MC);
         }
     }
 
@@ -107,8 +153,9 @@ final class BacktestLedger {
                     BigDecimal openingFee = commission(fill, qty);
                     if (openingFee.compareTo(cash) >= 0) blocked++;
                     else {
-                        position = new Position(proposal.side(), qty, fill, proposal.stop(), proposal.stop(),
-                                openingFee, proposal.signalCloseTime(), candle.openTime());
+                        position = new Position(proposal.side(), qty, fill, proposal.stop(),
+                                openingFee, fill.subtract(candle.open()).abs().multiply(qty, MC),
+                                proposal.signalCloseTime(), candle.openTime());
                         fee(openingFee);
                     }
                 }
@@ -116,13 +163,21 @@ final class BacktestLedger {
         }
         // Stop is assumed triggered whenever current candle range crosses it. In an OHLC candle
         // with ambiguous ordering, stop takes precedence and adverse gaps worsen the fill.
-        if (position != null && (position.side() == PositionState.Side.LONG
-                ? candle.low().compareTo(position.stop()) <= 0
-                : candle.high().compareTo(position.stop()) >= 0)) {
-            boolean longSide = position.side() == PositionState.Side.LONG;
-            BigDecimal executable = longSide ? candle.open().min(position.stop())
-                    : candle.open().max(position.stop());
-            close(executable, candle.openTime(), "STOP");
+        if (position != null) {
+            position.countCandle();
+            boolean stopHit = position.side() == PositionState.Side.LONG
+                    ? candle.low().compareTo(position.stop()) <= 0
+                    : candle.high().compareTo(position.stop()) >= 0;
+            if (stopHit) {
+                boolean longSide = position.side() == PositionState.Side.LONG;
+                BigDecimal executable = longSide ? candle.open().min(position.stop())
+                        : candle.open().max(position.stop());
+                // Conservative extrema: open and triggered stop only (no ambiguous full bar).
+                position.observed(candle.open().max(executable), candle.open().min(executable));
+                close(executable, candle.openTime(), "STOP");
+            } else {
+                position.observed(candle.high(), candle.low());
+            }
         }
         pendingEntry = null;
     }
@@ -153,7 +208,7 @@ final class BacktestLedger {
             pendingExit = true;
         } else if (proposal.action() == RiskPreviewResult.Action.ADJUST_STOP && position != null) {
             // This method runs at close; next begin() is the first candle where stop is effective.
-            position = position.withStop(proposal.proposedStop());
+            position.withStop(proposal.proposedStop());
         }
     }
 
@@ -167,8 +222,16 @@ final class BacktestLedger {
         cash = cash.add(gross);
         dailyRealized = dailyRealized.add(gross);
         fee(closingFee);
+        BigDecimal net = gross.subtract(p.entryFee()).subtract(closingFee);
+        BigDecimal feeCosts = p.entryFee().add(closingFee);
+        // Entry/exit slippage is already embedded in the actual fill prices and gross PnL.
+        BigDecimal exitSlippage = exit.subtract(unadjusted).abs().multiply(p.qty(), MC);
         trades.add(new BacktestResult.Trade(p.side().name(), p.entryOpenTime(), openTime,
-                p.qty(), p.entry(), exit, gross, gross.subtract(p.entryFee()).subtract(closingFee), why));
+                p.qty(), p.entry(), exit, gross, net, why,
+                p.initialStop(), p.stop(), p.durationCandles,
+                openTime - p.entryOpenTime(), p.initialRisk(), p.mfe(), p.mae(),
+                p.ratio(p.mfe()), p.ratio(p.mae()), p.ratio(net),
+                feeCosts, p.entrySlippage.add(exitSlippage), p.stopAdjustments));
         position = null;
     }
 
@@ -196,10 +259,20 @@ final class BacktestLedger {
         BigDecimal marked = mark(lastPrice);
         int winners = (int) trades.stream().filter(t -> t.netPnlUsdt().signum() > 0).count();
         int losers = (int) trades.stream().filter(t -> t.netPnlUsdt().signum() < 0).count();
+        BacktestResult.OpenPositionDiagnostics active = null;
+        if (position != null) {
+            var p = position;
+            active = new BacktestResult.OpenPositionDiagnostics(p.side().name(),
+                    p.entryOpenTime(), p.qty(), p.entry(), p.initialStop(), p.stop(),
+                    p.durationCandles, p.initialRisk(), p.mfe(), p.mae(),
+                    p.ratio(p.mfe()), p.ratio(p.mae()),
+                    marked.subtract(cash).subtract(p.entryFee()),
+                    p.entryFee(), p.entrySlippage, p.stopAdjustments);
+        }
         return new BacktestResult.PortfolioResult(engine, "SIMULATED", policy.capitalUsdt(),
                 cash, marked, marked.subtract(policy.capitalUsdt()).multiply(HUNDRED, MC)
                         .divide(policy.capitalUsdt(), MC), maxDrawdown, feeTotal, trades.size(),
                 winners, losers, blocked, signals,
-                position == null ? "FLAT" : position.side().name(), List.copyOf(trades));
+                position == null ? "FLAT" : position.side().name(), List.copyOf(trades), active);
     }
 }
