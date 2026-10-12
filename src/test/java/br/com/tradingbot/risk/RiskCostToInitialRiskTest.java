@@ -29,7 +29,7 @@ class RiskCostToInitialRiskTest {
 
     @Test
     void sameThresholdBlocksCostlyLongAndShortForJavaAndLuna() {
-        var expensive = policy("1", "0.2", "30");
+        var expensive = policy("1.5", "0.2", "30");
         var longReq = RiskEngineTest.request(RiskEngineTest.decision(
                 DecisionResult.Entry.LONG, DecisionResult.PositionAction.NONE, "JAVA"),
                 null, "0", "0.001", "0.001");
