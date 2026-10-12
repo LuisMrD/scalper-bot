@@ -164,9 +164,13 @@ public class BacktestService {
         try {
             var beTrigger = request.breakEvenTriggerROverride() == null
                     ? technical.breakEvenTriggerR() : request.breakEvenTriggerROverride();
+            var rawCostLimit = request.maxCostToInitialRiskPctOverride() == null
+                    ? technical.maxCostToInitialRiskPct()
+                    : request.maxCostToInitialRiskPctOverride();
+            var costLimit = rawCostLimit != null && rawCostLimit.signum() == 0 ? null : rawCostLimit;
             return new RiskPolicy(r.capitalUsdt(), r.riskPerTradePct(), r.dailyStopPct(),
                     r.leverage(), technical.feePerSidePct(), technical.slippagePerSidePct(),
-                    beTrigger, technical.structuralAtrBuffer());
+                    beTrigger, technical.structuralAtrBuffer(), costLimit);
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
         }
