@@ -12,7 +12,7 @@ class OpenAiResponsesClientSpringWiringTest {
     @Test
     void springInstantiatesClientUsingJsonMapperDependency() {
         try (var context = new AnnotationConfigApplicationContext()) {
-            context.registerBean(JsonMapper.class, JsonMapper::new);
+            context.registerBean(JsonMapper.class, () -> new JsonMapper());
             context.registerBean(OpenAiResponsesClient.class);
             context.refresh();
             assertNotNull(context.getBean(OpenAiResponsesClient.class));
