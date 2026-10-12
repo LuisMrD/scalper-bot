@@ -14,6 +14,9 @@
 #>
 [CmdletBinding()]
 param(
+    [ValidateSet('BTCUSDT', 'ETHUSDT', 'SOLUSDT')]
+    [string[]]$Symbols = @('BTCUSDT', 'ETHUSDT', 'SOLUSDT'),
+
     [ValidateRange(0, 100)]
     [decimal]$MaxCostToInitialRiskPct = 30,
 
@@ -40,7 +43,7 @@ $ErrorActionPreference = 'Stop'
 # session settings for a read-only/simulated local backtest.
 $settings = [ordered]@{
     SPRING_PROFILES_ACTIVE = 'backtest'
-    TRADING_SYMBOLS = 'BTCUSDT'
+    TRADING_SYMBOLS = ($Symbols -join ',')
     MARKET_DATA_INTERVALS = '1m,5m,15m'
     TRADING_ORDERS_ENABLED = 'false'
     LUNA_ENABLED = 'false'
@@ -86,6 +89,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 Push-Location $repoRoot
 try {
     Write-Host 'Starting local BACKTEST mode (orders OFF, Luna OFF, Binance auto-collection OFF).'
+    Write-Host "Configured symbols: $($settings['TRADING_SYMBOLS'])"
     Write-Host 'Database must already be available; run: docker compose up -d mysql'
     & mvn spring-boot:run
     if ($LASTEXITCODE -ne 0) { throw "Maven failed with exit code $LASTEXITCODE" }

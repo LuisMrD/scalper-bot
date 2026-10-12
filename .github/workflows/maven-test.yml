@@ -30,6 +30,7 @@ jobs:
             'LUNA_ENABLED=false',
             'MARKET_DATA_WS_ENABLED=false',
             'MARKET_DATA_BOOTSTRAP_ENABLED=false',
+            'TRADING_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT',
             'TRADING_CAPITAL_USDT=300',
             'TRADING_RISK_PER_TRADE_PCT=0.5',
             'TRADING_DAILY_STOP_PCT=3',
@@ -40,6 +41,17 @@ jobs:
             'RISK_MAX_COST_TO_INITIAL_RISK_PCT=30'
           )) {
             if ($output -notcontains $expected) { throw "Unexpected local backtest config: $expected" }
+          }
+          $plan = & ./scripts/compare-pair-backtests.ps1 -PrintOnly
+          if ($plan -notcontains 'SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT' -or
+              $plan -notcontains 'COST_LIMITS=0,30,50,75,100' -or
+              $plan -notcontains 'LUNA=false') {
+            throw 'Multi-symbol backtest plan has changed unexpectedly.'
+          }
+          $singlePair = & ./scripts/compare-pair-backtests.ps1 -Symbols SOLUSDT -CostLimits 0,30 -PrintOnly
+          if ($singlePair -notcontains 'SYMBOLS=SOLUSDT' -or
+              $singlePair -notcontains 'COST_LIMITS=0,30') {
+            throw 'Single-pair test parameters did not bind.'
           }
           $withoutFilter = & ./scripts/start-backtest.ps1 -MaxCostToInitialRiskPct 0 -PrintOnly
           if ($withoutFilter -notcontains 'RISK_MAX_COST_TO_INITIAL_RISK_PCT=<unset>') {
