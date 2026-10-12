@@ -86,12 +86,50 @@ function Invoke-RestMethod {
         $global:backtestCalls++
         $global:replayLimits += [int]$req.maxCostToInitialRiskPctOverride
         $global:holdingLimits += [int]$req.maxHoldingCandles
+        $sample = [PSCustomObject]@{
+            atSignal = [PSCustomObject]@{
+                signal = [PSCustomObject]@{
+                    candleCloseTime = 1791823439999
+                    setup = 'PULLBACK'; reason = 'PULLBACK_CONFIRMED'
+                    primaryTrend = 'UP'
+                    timeframeTrends = @(
+                        [PSCustomObject]@{ trend = 'UP' }
+                        [PSCustomObject]@{ trend = 'RANGE' }
+                        [PSCustomObject]@{ trend = 'UP' }
+                    )
+                    volumeLevel = 'HIGH'; takerBalance = 'BUY_DOMINANT'
+                    effortResult = 'NONE'; relativeVolume = 1.8
+                    relativeSpread = 1.3
+                }
+                lastBarPattern = [PSCustomObject]@{
+                    trendBar=$true; doji=$false
+                    bullishRejection=$false; bearishRejection=$false
+                }
+                breakoutState='NONE'; pullbackCandidate=$true
+                confirmedPivotCount=4; atrAtSignal=2.5
+                higherTimeframeConflicts=1; takerBuyShareAtSignal=0.7
+            }
+            fillOpenTime = 1791823440000; filledEntryPrice=100
+            stopDistancePct=1.0; entryGapPct=0.02
+            estimatedRoundTripCostUsdt=0.14; estimatedCostToInitialRiskPct=14
+        }
+        $trades = @(
+            [PSCustomObject]@{
+                netPnlUsdt=1.0; netRMultiple=0.5; durationCandles=20
+                side='LONG'; exitReason='STOP'; entryDiagnostics=$sample
+            }
+            [PSCustomObject]@{
+                netPnlUsdt=-0.5; netRMultiple=-0.25; durationCandles=15
+                side='LONG'; exitReason='STOP'; entryDiagnostics=$sample
+            }
+        )
         return [PSCustomObject]@{
             symbol='SOLUSDT'; replayedCandles=3000
             javaPortfolio=[PSCustomObject]@{
                 totalReturnPct=-0.5; maxDrawdownPct=0.2
                 entrySignals=10; entriesBlocked=3; tradesClosed=5
                 winningTrades=3; losingTrades=2; openPositionSide='FLAT'
+                trades=$trades
             }
             javaDecisionHistory=@()
         }
@@ -117,4 +155,13 @@ if ($global:backtestCalls -ne 7 -or
         ($global:replayLimits -join ',') -ne '0,30,50,50,50,50,50') {
     throw "Unexpected time-exit replay plan. Limits: $($global:holdingLimits -join ',')"
 }
-Write-Host 'Offline JSON-array bootstrap + SOL time-exit comparison smoke tests passed.'
+$beforeAnalysis = $global:backtestCalls
+$report = (& (Join-Path $root 'scripts/compare-pair-backtests.ps1') -Symbols SOLUSDT `
+    -CostLimits 50 -HoldingLimits 0 -BaseUrl 'http://127.0.0.1:8080' `
+    -NoCsv -AnalyzeEntries | Out-String)
+if ($global:backtestCalls -ne ($beforeAnalysis + 1) -or
+        -not $report.Contains('WIN') -or -not $report.Contains('LOSS') -or
+        -not $report.Contains('14')) {
+    throw "Expected grouped WIN/LOSS entry report with historical-only risk conditions: $report"
+}
+Write-Host 'Offline JSON-array, time exits and WIN/LOSS entry comparison smoke tests passed.'

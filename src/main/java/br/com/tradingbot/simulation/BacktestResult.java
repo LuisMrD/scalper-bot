@@ -1,6 +1,8 @@
 package br.com.tradingbot.simulation;
 
 import br.com.tradingbot.analysis.brooks.PriceActionSnapshot;
+import br.com.tradingbot.analysis.brooks.PriceActionSnapshot.BarPattern;
+import br.com.tradingbot.analysis.brooks.PriceActionSnapshot.BreakoutState;
 import br.com.tradingbot.analysis.volume.VolumeSnapshot;
 import br.com.tradingbot.decision.DecisionResult;
 import br.com.tradingbot.risk.RiskPreviewResult;
@@ -61,7 +63,7 @@ public record BacktestResult(String symbol, List<String> intervals,
             BigDecimal maxFavorableExcursionUsdt, BigDecimal maxAdverseExcursionUsdt,
             BigDecimal mfeR, BigDecimal maeR, BigDecimal netRMultiple,
             BigDecimal feesUsdt, BigDecimal slippageUsdt, int stopAdjustments,
-            TradeTimingDiagnostics timing) {}
+            TradeTimingDiagnostics timing, EntryExecutionDiagnostics entryDiagnostics) {}
 
     /** Position that remains open at the replay boundary, without fictitious close. */
     public record OpenPositionDiagnostics(String side, long enteredAtOpenTime,
@@ -70,7 +72,28 @@ public record BacktestResult(String symbol, List<String> intervals,
             BigDecimal maxFavorableExcursionUsdt, BigDecimal maxAdverseExcursionUsdt,
             BigDecimal mfeR, BigDecimal maeR, BigDecimal unrealizedNetPnlUsdt,
             BigDecimal entryFeeUsdt, BigDecimal entrySlippageUsdt, int stopAdjustments,
-            TradeTimingDiagnostics timing) {}
+            TradeTimingDiagnostics timing, EntryExecutionDiagnostics entryDiagnostics) {}
+    /**
+     * Immutable snapshot made at the SIGNAL CANDLE CLOSE. All data is taken
+     * from as-of-safe context, never from the next fill candle or outcome.
+     */
+    public record EntrySignalSnapshot(DecisionTrace signal,
+            BarPattern lastBarPattern, BreakoutState breakoutState,
+            boolean pullbackCandidate, int confirmedPivotCount,
+            BigDecimal atrAtSignal, BigDecimal signalClosePrice,
+            BigDecimal takerBuyShareAtSignal, int higherTimeframeConflicts) {}
+
+    /**
+     * Attached ONLY after an entry actually fills at the next candle OPEN.
+     * Entry cost/risk is an estimate using the ACTUAL filled price and initial
+     * structural stop, NOT realized win/loss and NOT future price data.
+     */
+    public record EntryExecutionDiagnostics(EntrySignalSnapshot atSignal,
+            long fillOpenTime, BigDecimal filledEntryPrice,
+            BigDecimal initialStop, BigDecimal stopDistancePct,
+            BigDecimal entryGapPct, BigDecimal estimatedRoundTripCostUsdt,
+            BigDecimal estimatedCostToInitialRiskPct) {}
+
     /**
      * Estimated net liquidation PnL at a COMPLETED candle close (not an
      * intrabar executable take-profit). Includes entry fee and projected
