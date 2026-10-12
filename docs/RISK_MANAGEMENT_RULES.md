@@ -83,3 +83,38 @@ apenas ilustrativa, nunca negociavel.
 - Cotacao limitada a pares USDT por enquanto; outras moedas exigem conversao.
 - Parametros tecnicos experimentais devem ser calibrados em backtesting.
 - `RiskPreviewResult` e uma proposta estateless, nao substitui stop exchange-side.
+
+
+## Filtro experimental: custo de ida-e-volta / risco inicial bruto
+
+Opcional: `RISK_MAX_COST_TO_INITIAL_RISK_PCT=30`. Se a variavel estiver
+ausente/vazia, **o filtro fica desligado** para preservar o comportamento-base.
+O numero 30% e hipotese para teste, nao recomendacao de rentabilidade.
+
+Depois de selecionar o stop estrutural confirmado, o motor compara **por unidade**:
+
+```text
+Risco inicial bruto = abs(preco de entrada - stop inicial)
+Custo estimado de ida e volta = (entrada + stop) *
+      (fee por lado + slippage por lado) / 100
+Custo / risco (%) = 100 * custo estimado / risco inicial bruto
+```
+
+Se o quociente **ultrapassar** o limite (igualdade permitida), a entrada retorna
+`action=BLOCKED`, `reason=COST_TO_RISK_TOO_HIGH`. O resultado aparece também
+em `javaDecisionHistory[].riskAction` e `riskReason` do backtest.
+
+A comparacao ocorre antes do dimensionamento e, no backtest, **novamente na
+abertura do candle seguinte** utilizando o preco simulado de entrada com
+slippage. Assim, um gap que aproxime a entrada do stop nao dribla o filtro.
+Uma rejeicao na abertura seguinte conta em `entriesBlocked`, mas nao altera
+retroativamente o motivo de risco emitido no fechamento do candle de sinal.
+
+O criterio independe de quantidade e alavancagem; considera apenas custo de
+ida e volta hipotetico ao stop, sem funding, liquidacao, liquidez insuficiente
+ou gaps extremos. Sua aplicacao pode **reduzir sinais mas nao garante lucro**.
+
+`GET /api/v1/risk/status` informa em `costFilter` se o limite do ambiente
+esta ativo.
+
+O filtro usa a mesma `RiskPolicy` para Java e Luna. Nenhuma ordem real e enviada.

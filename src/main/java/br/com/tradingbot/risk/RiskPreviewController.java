@@ -17,7 +17,7 @@ public class RiskPreviewController {
     @GetMapping("/status")
     public Map<String,Object> status() {
         return Map.of("configured", service.configured(), "ordersEnabled", false,
-                "mode", "PREVIEW_ONLY");
+                "mode", "PREVIEW_ONLY", "costFilter", service.costFilterStatus());
     }
 
     @PostMapping("/preview")

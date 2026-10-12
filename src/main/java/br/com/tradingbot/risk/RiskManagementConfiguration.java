@@ -13,4 +13,13 @@ public record RiskManagementConfiguration(
         @DecimalMin("0.0") @DecimalMax("100.0") BigDecimal feePerSidePct,
         @DecimalMin("0.0") @DecimalMax("100.0") BigDecimal slippagePerSidePct,
         @DecimalMin(value = "0.0", inclusive = false) BigDecimal breakEvenTriggerR,
-        @DecimalMin(value = "0.0", inclusive = false) BigDecimal structuralAtrBuffer) {}
+        @DecimalMin(value = "0.0", inclusive = false) BigDecimal structuralAtrBuffer,
+        @DecimalMin(value = "0.0", inclusive = false)
+        @DecimalMax("100.0") BigDecimal maxCostToInitialRiskPct) {
+    public RiskManagementConfiguration(BigDecimal feePerSidePct,
+            BigDecimal slippagePerSidePct, BigDecimal breakEvenTriggerR,
+            BigDecimal structuralAtrBuffer) {
+        this(feePerSidePct, slippagePerSidePct, breakEvenTriggerR,
+                structuralAtrBuffer, null);
+    }
+}
