@@ -137,7 +137,8 @@ final class BacktestLedger {
             boolean longSide = proposal.side() == PositionState.Side.LONG;
             BigDecimal fill = slippage(candle.open(), proposal.side(), longSide);
             if (fill.signum() <= 0 || (longSide ? fill.compareTo(proposal.stop()) <= 0
-                    : fill.compareTo(proposal.stop()) >= 0)) { blocked++; }
+                    : fill.compareTo(proposal.stop()) >= 0)
+                    || policy.costToInitialRiskTooHigh(fill, proposal.stop())) { blocked++; }
             else {
                 // Gap at next open may increase risk; resize down, NEVER enlarge the approved quantity.
                 BigDecimal distance = fill.subtract(proposal.stop()).abs();
