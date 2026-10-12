@@ -23,6 +23,14 @@ public class LunaDecisionService {
         this.engine = new LunaDecisionEngine(settings, client, mapper);
     }
 
+    /** Backtest calls the engine with the SAME immutable snapshot already read for Java. */
+    public DecisionResult evaluateContext(br.com.tradingbot.analysis.context.MultiTimeframeMarketContext context,
+            PositionState.Side side) {
+        if (!settings.enabled()) throw new LunaUnavailableException("Luna desabilitado por LUNA_ENABLED=false");
+        if (!settings.ready()) throw new LunaUnavailableException("OPENAI_API_KEY nao configurada");
+        return engine.evaluate(context, new PositionState(side));
+    }
+
     public boolean enabled() { return settings.enabled(); }
     public boolean ready() { return settings.ready(); }
     public String model() { return settings.model(); }

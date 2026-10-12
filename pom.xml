@@ -6,9 +6,9 @@
 
     <groupId>br.com.tradingbot</groupId>
     <artifactId>binance-scalping-bot</artifactId>
-    <version>0.9.0-SNAPSHOT</version>
+    <version>0.10.0-SNAPSHOT</version>
     <name>binance-scalping-bot</name>
-    <description>Etapa 8: motor Luna opcional via Responses API, desativado por padrao</description>
+    <description>Etapa 10: replay historico Java e Luna com carteiras isoladas, sem ordens</description>
 
     <parent>
         <groupId>org.springframework.boot</groupId>
