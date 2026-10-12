@@ -128,7 +128,7 @@ final class BacktestLedger {
     }
 
     /** Applied only after the candle closes; proposed stops become active at the next bar. */
-    void decide(DecisionResult decision, MarketContextSnapshot context) {
+    RiskPreviewResult decide(DecisionResult decision, MarketContextSnapshot context) {
         var req = new RiskPreviewRequest(decision, cash.max(new BigDecimal("0.00000001")),
                 dailyRealized, request.priceTick(), request.quantityStep(),
                 request.minimumQuantity(), request.minimumNotionalUsdt(), request.contextLimit(),
@@ -136,6 +136,7 @@ final class BacktestLedger {
                         position.initialStop(), position.stop(), position.qty(), position.signalCloseTime()));
         RiskPreviewResult proposal = risk.preview(req, context, policy);
         applyPreview(proposal, decision, context.asOfCloseTime());
+        return proposal;
     }
 
     /** Internal transition shared by the risk integration and deterministic ledger tests. */
