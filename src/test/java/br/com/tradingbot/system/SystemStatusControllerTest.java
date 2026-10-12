@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import br.com.tradingbot.config.ExecutionMode;
+import br.com.tradingbot.config.OpenAiProperties;
 import br.com.tradingbot.config.TradingProperties;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -14,7 +15,8 @@ class SystemStatusControllerTest {
         var trading = new TradingProperties(List.of("BTCUSDT", "ETHUSDT"),
                 new TradingProperties.Execution(ExecutionMode.PAPER, false),
                 new TradingProperties.Risk(null, null, null, null));
-        var response = new SystemStatusController(trading).status();
+        var response = new SystemStatusController(trading,
+                new OpenAiProperties(false, "gpt-6-luna", "", 512, 20, 2)).status();
 
         assertEquals(ExecutionMode.PAPER, response.mode());
         assertEquals(List.of("BTCUSDT", "ETHUSDT"), response.configuredSymbols());

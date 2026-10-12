@@ -210,3 +210,18 @@ probabilidade de sucesso. Parametros ficam em `java-decision` no `application.ym
 **Nao ha ordens, calculo de tamanho de posicao, alavancagem, stop-loss,
 trailing stop ou integracao GPT nesta etapa.** Consulte
 [`docs/JAVA_DECISION_RULES.md`](docs/JAVA_DECISION_RULES.md).
+
+
+## Etapa 8 — LunaDecisionEngine (opcional)
+
+A integracao com GPT-6 Luna via `POST /v1/responses` fica **desligada por padrao**.
+Nao ha chamadas automáticas, scheduler de IA, envio de ordens ou acesso a contas.
+Consulte `docs/LUNA_DECISION_RULES.md` para seguranca, configuracao, exemplos e limites.
+
+- `LUNA_ENABLED=false`: `GET /api/v1/decision/luna/status` retorna `enabled=false`,
+  e `POST /api/v1/decision/luna/evaluate` retorna HTTP 503 sem nem buscar candles.
+- `LUNA_ENABLED=true`: requer `OPENAI_API_KEY` valido para chamadas pagas sob demanda.
+- `POST /api/v1/decision/luna/evaluate?symbol=BTCUSDT&intervals=1m,5m,15m&limit=200`
+  retorna um `DecisionResult` experimental, no mesmo contrato do motor Java.
+- Faltando dados, falhando API, JSON ou validacao: nao ha decisao executavel.
+- O endpoint `GET /api/v1/decision/luna/status` nunca expoe o valor da API key.

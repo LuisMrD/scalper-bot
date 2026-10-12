@@ -46,8 +46,13 @@ integrations:
     rest-base-url: https://demo-fapi.binance.com
     websocket-base-url: wss://demo-fstream.binance.com
   openai:
-    enabled: false
-    model: gpt-6-luna
+    # Etapa 8: LUNA_ENABLED=false impede qualquer analise ou chamada externa.
+    enabled: ${LUNA_ENABLED:false}
+    model: ${LUNA_MODEL:gpt-6-luna}
+    api-key: ${OPENAI_API_KEY:}
+    max-output-tokens: ${LUNA_MAX_OUTPUT_TOKENS:512}
+    timeout-seconds: ${LUNA_TIMEOUT_SECONDS:20}
+    max-primary-staleness-bars: ${LUNA_MAX_STALENESS_BARS:2}
 
 # Etapa 2: sincronizacao automatica e WS desligados por padrao.
 market-data:
