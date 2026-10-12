@@ -86,3 +86,11 @@ volume-analysis:
   strong-taker-share: ${VOLUME_TAKER_SHARE:0.6}
   min-body-ratio: ${VOLUME_MIN_BODY_RATIO:0.55}
   extreme-close-ratio: ${VOLUME_EXTREME_CLOSE_RATIO:0.75}
+
+# Etapa 5: zonas por pivots Brooks confirmados e Fibonacci do ultimo swing confirmado.
+# Valores iniciais SAO heuristicas de software; nao garantem qualidade de niveis.
+market-levels:
+  atr-lookback: ${MARKET_LEVELS_ATR_LOOKBACK:14}
+  atr-zone-multiplier: ${MARKET_LEVELS_ATR_MULTIPLIER:0.5}
+  min-zone-tolerance-pct: ${MARKET_LEVELS_MIN_ZONE_PCT:0.10}
+  max-zones: ${MARKET_LEVELS_MAX_ZONES:12}
