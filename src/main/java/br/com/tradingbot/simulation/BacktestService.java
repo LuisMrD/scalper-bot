@@ -119,13 +119,19 @@ public class BacktestService {
                 var javaSide = javaLedger.side();
                 javaDecision = javaEngine.evaluate(context, new PositionState(javaSide));
                 javaRisk = javaLedger.decide(javaDecision, first);
-                javaHistory.add(trace(context, javaDecision, javaRisk, javaSide.name()));
+                var javaTrace = trace(context, javaDecision, javaRisk, javaSide.name());
+                javaHistory.add(javaTrace);
+                if (javaRisk.action() == RiskPreviewResult.Action.PROPOSED_ENTRY)
+                    javaLedger.attachPendingEntrySnapshot(entrySnapshot(context, javaTrace));
                 if (lunaLedger != null) {
                     // No second DB read or context build: same snapshot, independent portfolio.
                     var lunaSide = lunaLedger.side();
                     lunaDecision = luna.evaluateContext(context, lunaSide);
                     lunaRisk = lunaLedger.decide(lunaDecision, first);
-                    lunaHistory.add(trace(context, lunaDecision, lunaRisk, lunaSide.name()));
+                    var lunaTrace = trace(context, lunaDecision, lunaRisk, lunaSide.name());
+                    lunaHistory.add(lunaTrace);
+                    if (lunaRisk.action() == RiskPreviewResult.Action.PROPOSED_ENTRY)
+                        lunaLedger.attachPendingEntrySnapshot(entrySnapshot(context, lunaTrace));
                 }
             }
             javaLedger.markClose(bar.close(), bar.closeTime(), javaDecision, javaRisk);
@@ -156,6 +162,26 @@ public class BacktestService {
                 observation.volumeLevel(), observation.takerBalance(),
                 observation.relativeVolume(), observation.relativeSpread(),
                 observation.effortResult(), risk.action(), risk.reason());
+    }
+
+    /**
+     * Called at the setup's CONFIRMED CLOSED candle. Higher frames can close
+     * earlier, never after the signal. No next-bar OHLC or outcome is included.
+     */
+    private static BacktestResult.EntrySignalSnapshot entrySnapshot(
+            MultiTimeframeMarketContext context, BacktestResult.DecisionTrace trace) {
+        var primary = context.timeframes().getFirst();
+        var pa = primary.priceAction();
+        var bar = primary.recentCandles().getLast();
+        var obs = primary.volume().recentObservations().getLast();
+        var latestPattern = pa.recentBars().isEmpty() ? null : pa.recentBars().getLast();
+        if (latestPattern != null && latestPattern.openTime() != bar.openTime())
+            latestPattern = null;
+        int conflicts = (int) context.timeframes().stream().skip(1)
+                .filter(x -> x.priceAction().trend() != pa.trend()).count();
+        return new BacktestResult.EntrySignalSnapshot(trace, latestPattern,
+                pa.breakout().state(), pa.pullbackCandidate(), pa.confirmedPivots().size(),
+                primary.marketLevels().atr(), bar.close(), obs.takerBuyShare(), conflicts);
     }
 
     RiskPolicy policy(BacktestRequest request) {
