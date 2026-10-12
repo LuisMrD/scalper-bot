@@ -148,3 +148,63 @@ $results | Format-Table -AutoSize
 ```
 
 Os tres testes acima usam os **mesmos candles** e mesmo instante final, mas NAO garantem as mesmas entradas. Como alteracoes no stop mudam o momento de encerramento, cada carteira pode estar livre ou ocupada em momentos diferentes. Para comparar saídas com **entradas 100% identicas**, sera necessario um experimento especifico de replay de entradas congeladas. Um resultado em uma janela de 3000 candles nao prova robustez fora da amostra.
+
+
+## Comparacao experimental do filtro custo/risco
+
+O campo opcional `maxCostToInitialRiskPctOverride` do POST do backtest
+tem 3 semanticas:
+
+- Omitido/null: herda `RISK_MAX_COST_TO_INITIAL_RISK_PCT` da aplicacao.
+- `0`: desliga o filtro **somente nesse replay**, mesmo se ativo no ambiente.
+- `30` (ou outro numero > 0 ate 100): utiliza esse limite somente nesse replay.
+
+Isso preserva a politica global da aplicacao e permite comparar a mesma janela
+historica sem reiniciar o Spring Boot. O Luna continua condicionado a
+`LUNA_ENABLED=true`, `includeLuna=true`, e ao limite de 10 candles.
+
+```powershell
+# Use o timestamp final do replay que voce executou ANTES da atualizacao.
+$fixedAsOf = [long]$result.throughCandleCloseTime
+$common = @{
+  symbol = "BTCUSDT"
+  intervals = @("1m", "5m", "15m")
+  steps = 3000
+  contextLimit = 200
+  asOf = $fixedAsOf
+  includeLuna = $false
+  priceTick = "0.1"
+  quantityStep = "0.001"
+  minimumQuantity = "0.001"
+  minimumNotionalUsdt = "5"
+  breakEvenTriggerROverride = "1.0"
+}
+$comparison = foreach ($pct in @(0,30)) {
+  $req = $common.Clone()
+  $req.maxCostToInitialRiskPctOverride = $pct
+  $run = Invoke-RestMethod -Method Post `
+    -Uri "http://127.0.0.1:8080/api/v1/backtest/run" `
+    -ContentType "application/json" -Body ($req | ConvertTo-Json)
+  [PSCustomObject]@{
+    CostLimitPct = $pct
+    EntrySignals = $run.javaPortfolio.entrySignals
+    EntriesBlocked = $run.javaPortfolio.entriesBlocked
+    BlockedAtDecision = @($run.javaDecisionHistory |
+      Where-Object { $_.riskReason -eq "COST_TO_RISK_TOO_HIGH" }).Count
+    ClosedTrades = $run.javaPortfolio.tradesClosed
+    ReturnPct = $run.javaPortfolio.totalReturnPct
+    MaxDrawdownPct = $run.javaPortfolio.maxDrawdownPct
+  }
+}
+$comparison | Format-Table -AutoSize
+```
+
+`EntrySignals` inclui sinais bloqueados na avaliacao de risco.
+`BlockedAtDecision` identifica especificamente o novo motivo no fechamento.
+`EntriesBlocked` tambem conta bloqueios por outros motivos e recheques na
+abertura seguinte. Como o tempo em posicao pode mudar, os dois cenarios nao
+necessariamente executam os mesmos trades, embora os candles sejam identicos.
+
+**Atencao:** Se voce ja tinha `breakEvenTriggerROverride` configurado, mantenha
+o mesmo valor nos dois cenarios. Valores de exemplo dos filtros Binance nao
+foram verificados; substitua pelos da sua corretora/ambiente.
