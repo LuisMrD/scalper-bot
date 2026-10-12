@@ -9,6 +9,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -33,6 +34,7 @@ public class OpenAiResponsesClient {
     private final JsonMapper mapper;
     private final HttpClient http;
 
+    @Autowired
     public OpenAiResponsesClient(JsonMapper mapper) {
         this(mapper, HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8)).build());
     }
