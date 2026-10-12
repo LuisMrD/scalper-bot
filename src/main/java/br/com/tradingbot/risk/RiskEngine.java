@@ -77,6 +77,13 @@ public final class RiskEngine {
             return outcome(decision, context, Action.BLOCKED, Reason.NO_CONFIRMED_STRUCTURAL_STOP,
                     entry, null, null, null, null, null, false);
 
+        // Bloqueia entradas cujo custo hipotetico de ida e volta consome
+        // parcela excessiva do risco bruto ate o stop estrutural.
+        // Nao exige quantidade: a relacao e independente do tamanho da posicao.
+        if (policy.costToInitialRiskTooHigh(entry, stop))
+            return outcome(decision, context, Action.BLOCKED, Reason.COST_TO_RISK_TOO_HIGH,
+                    entry, null, null, null, stop, null, false);
+
         BigDecimal dailyCap = pct(policy.capitalUsdt(), policy.dailyStopPct());
         // RealizedDailyPnl pode ser positivo; so perdas reduzem a cota diaria. Nenhum reinicio diario e presumido.
         BigDecimal lossSoFar = request.realizedDailyPnlUsdt().signum() < 0
