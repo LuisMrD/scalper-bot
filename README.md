@@ -234,3 +234,7 @@ retorna 422 e nao faz qualquer chamada externa de IA nem envia ordens.
 Ver [`docs/RISK_MANAGEMENT_RULES.md`](docs/RISK_MANAGEMENT_RULES.md) para exemplo.
 `GET /api/v1/risk/status` verifica se pode executar uma previa.
 `POST /api/v1/risk/preview` propoe quantidade/stop ou manutencao de stop.
+
+## Etapa 10 — Backtest historico comparativo
+
+`POST /api/v1/backtest/run` usa a mesma sequencia de candles fechados e os mesmos snapshots de mercado para avaliar Java e (opcionalmente) Luna, com carteiras **independentes**, entradas/saidas no proximo candle e taxas/slippage separados. Sem envio de ordens. Configuracao financeira permanece obrigatoria e nao recebe defaults. Detalhes e exemplo de requisicao em [`docs/BACKTEST_RULES.md`](docs/BACKTEST_RULES.md).
