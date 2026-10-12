@@ -9,3 +9,4 @@ target/
 logs/
 .DS_Store
 Thumbs.db
+results/
