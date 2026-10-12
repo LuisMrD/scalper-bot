@@ -19,7 +19,7 @@ mvn spring-boot:run
 ## Executar com os parametros locais recomendados para backtesting
 
 As configuracoes financeiras globais de `application.yml` continuam **sem defaults**.
-Para reproduzir o experimento de BTCUSDT com US$ 300, risco de 0.5%, stop diario
+Para reproduzir o experimento de BTCUSDT/ETHUSDT/SOLUSDT com US$ 300, risco de 0.5%, stop diario
 de 3%, alavancagem 1x, taxa 0.05% e slippage 0.02% por lado, alinhamento de
 timeframes desligado e filtro de custo/risco 30%, use:
 
@@ -34,6 +34,22 @@ O perfil de execucao e `backtest`. Para verificar as variaveis sem iniciar Maven
 ```powershell
 .\scripts\start-backtest.ps1 -PrintOnly
 ```
+
+**Comparacao multi-par (sem ordens):** apos iniciar a aplicacao, em outro PowerShell,
+sincronize 7 dias de candles Testnet de BTC, ETH e SOL e rode a grade com
+limites custo/risco 0%, 30%, 50%, 75%, 100%:
+
+```powershell
+.\scripts\sync-backtest-data.ps1
+.\scripts\compare-pair-backtests.ps1
+
+# Opcional: comparar apenas SOLUSDT nos limites 0,30,100
+.\scripts\compare-pair-backtests.ps1 -Symbols SOLUSDT -CostLimits 0,30,100
+```
+
+O comparador busca os filtros por contrato em Binance USD-M Testnet
+(`exchangeInfo`); nao reaproveita automaticamente os de BTCUSDT.
+Os resultados aparecem no console e em `results/*.csv`, fora do versionamento.
 
 Veja [configuracao local para backtest](docs/LOCAL_BACKTEST_CONFIGURATION.md)
 e [como comparar 0 vs 30%](docs/BACKTEST_RULES.md).
