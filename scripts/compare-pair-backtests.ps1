@@ -44,7 +44,8 @@ param(
     [int]$TimeoutSec = 900,
 
     [switch]$PrintOnly,
-    [switch]$NoCsv
+    [switch]$NoCsv,
+    [switch]$AnalyzeEntries
 )
 
 $ErrorActionPreference = 'Stop'
@@ -57,6 +58,7 @@ if ($PrintOnly) {
     Write-Output "STEPS=$Steps"
     Write-Output "CONTEXT_LIMIT=$ContextLimit"
     Write-Output 'LUNA=false'
+    Write-Output "ANALYZE_ENTRIES=$($AnalyzeEntries.ToString().ToLowerInvariant())"
     Write-Output "AS_OF=$(if ($AsOf -gt 0) { $AsOf } else { '<latest common stored 1m candle>' })"
     Write-Output "EXCHANGE_INFO=$ExchangeInfoUrl"
     return
@@ -168,6 +170,7 @@ try {
     Write-Host "Common cutoff (asOf UTC epoch ms): $AsOf"
     Write-Host "Replaying $Steps closed 1m candles per pair, context $ContextLimit (5m/15m)."
     $results = @()
+    $entryRows = @()
     foreach ($filter in $filters) {
         foreach ($limit in $CostLimits) {
           foreach ($holding in $HoldingLimits) {
@@ -196,6 +199,58 @@ try {
                     throw "Unexpected replay response for $($filter.symbol)"
                 }
                 $p = $run.javaPortfolio
+                if ($AnalyzeEntries) {
+                    foreach ($trade in $p.trades) {
+                        $entry = $trade.entryDiagnostics
+                        if ($null -eq $entry -or $null -eq $entry.atSignal) {
+                            throw "Missing pre-entry diagnostics on $($filter.symbol); restart with latest develop."
+                        }
+                        $signal = $entry.atSignal
+                        $trace = $signal.signal
+                        $pattern = $signal.lastBarPattern
+                        $mtf = $trace.timeframeTrends
+                        $entryRows += [PSCustomObject]@{
+                            Pair = $filter.symbol
+                            CostLimitPct = $limit
+                            HoldingLimit = $holding
+                            AsOf = $AsOf
+                            Outcome = $(if ($trade.netPnlUsdt -gt 0) { 'WIN' } elseif ($trade.netPnlUsdt -lt 0) { 'LOSS' } else { 'FLAT' })
+                            Side = $trade.side
+                            SignalCloseTime = $trace.candleCloseTime
+                            FillOpenTime = $entry.fillOpenTime
+                            FillPrice = $entry.filledEntryPrice
+                            NetPnlUsdt = $trade.netPnlUsdt
+                            NetR = $trade.netRMultiple
+                            ExitReason = $trade.exitReason
+                            DurationCandles = $trade.durationCandles
+                            Setup = $trace.setup
+                            SignalReason = $trace.reason
+                            PrimaryTrend = $trace.primaryTrend
+                            T1 = $(if ($mtf.Count -gt 0) { $mtf[0].trend } else { $null })
+                            T5 = $(if ($mtf.Count -gt 1) { $mtf[1].trend } else { $null })
+                            T15 = $(if ($mtf.Count -gt 2) { $mtf[2].trend } else { $null })
+                            HigherTfConflicts = $signal.higherTimeframeConflicts
+                            TrendBar = $(if ($pattern) { $pattern.trendBar } else { $null })
+                            Doji = $(if ($pattern) { $pattern.doji } else { $null })
+                            BullishRejection = $(if ($pattern) { $pattern.bullishRejection } else { $null })
+                            BearishRejection = $(if ($pattern) { $pattern.bearishRejection } else { $null })
+                            BreakoutState = $signal.breakoutState
+                            PullbackCandidate = $signal.pullbackCandidate
+                            ConfirmedPivots = $signal.confirmedPivotCount
+                            AtrAtSignal = $signal.atrAtSignal
+                            VolumeLevel = $trace.volumeLevel
+                            TakerBalance = $trace.takerBalance
+                            EffortResult = $trace.effortResult
+                            RelativeVolume = $trace.relativeVolume
+                            RelativeSpread = $trace.relativeSpread
+                            TakerBuyShare = $signal.takerBuyShareAtSignal
+                            StopDistancePct = $entry.stopDistancePct
+                            GapFromSignalClosePct = $entry.entryGapPct
+                            CostToRiskPct = $entry.estimatedCostToInitialRiskPct
+                            EstimatedRoundTripCostUsdt = $entry.estimatedRoundTripCostUsdt
+                        }
+                    }
+                }
                 $costBlocked = @($run.javaDecisionHistory |
                     Where-Object { $_.riskReason -eq 'COST_TO_RISK_TOO_HIGH' }).Count
                 $results += [PSCustomObject]@{
@@ -260,6 +315,57 @@ try {
 
     $results | Format-Table Pair, LimitPct, MaxHoldingCandles, ReturnPct, DrawdownPct, NetClosedUsdt, NetOpenUsdt,
         Closed, Wins, Losses, TimeExits, AvgDurationCandles, Status -AutoSize
+
+    if ($AnalyzeEntries) {
+        if (@($entryRows).Count -eq 0) {
+            Write-Warning 'No closed operations with entry diagnostics to compare.'
+        } else {
+            Write-Host "Executed entry conditions vs outcome (no future candles at signal):"
+            $entryRows | Sort-Object Pair, CostLimitPct, HoldingLimit, SignalCloseTime |
+                Format-Table Pair, Outcome, Side, Setup, PrimaryTrend,
+                    T5, T15, HigherTfConflicts, VolumeLevel, TakerBalance,
+                    RelativeVolume, CostToRiskPct, NetPnlUsdt -AutoSize
+            $grouped = @($entryRows | Group-Object Pair, CostLimitPct, HoldingLimit, Outcome |
+                ForEach-Object {
+                    $r = $_.Group
+                    [PSCustomObject]@{
+                        Pair = $r[0].Pair
+                        CostLimitPct = $r[0].CostLimitPct
+                        HoldingLimit = $r[0].HoldingLimit
+                        Outcome = $r[0].Outcome
+                        Trades = $r.Count
+                        NetPnlUsdt = [math]::Round([double](($r |
+                            Measure-Object -Property NetPnlUsdt -Sum).Sum), 4)
+                        AvgNetPnlUsdt = [math]::Round([double](($r |
+                            Measure-Object -Property NetPnlUsdt -Average).Average), 4)
+                        AvgCostRiskPct = [math]::Round([double](($r |
+                            Measure-Object -Property CostToRiskPct -Average).Average), 4)
+                        AvgRelativeVolume = [math]::Round([double](($r |
+                            Measure-Object -Property RelativeVolume -Average).Average), 4)
+                        AvgDurationCandles = [math]::Round([double](($r |
+                            Measure-Object -Property DurationCandles -Average).Average), 1)
+                        HigherTfConflictTrades = @($r |
+                            Where-Object { $_.HigherTfConflicts -gt 0 }).Count
+                        PullbackTrades = @($r | Where-Object { $_.Setup -eq 'PULLBACK' }).Count
+                        RetestTrades = @($r |
+                            Where-Object { $_.Setup -eq 'BREAKOUT_RETEST' }).Count
+                    }
+                })
+            Write-Host 'Group comparison (WIN vs LOSS; grouping is descriptive, not a predictive score):'
+            $grouped | Sort-Object Pair, CostLimitPct, HoldingLimit, Outcome |
+                Format-Table -AutoSize
+            if (-not $NoCsv) {
+                $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+                $outputDir = Join-Path $repoRoot 'results'
+                New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
+                $rawOutput = Join-Path $outputDir ("entry-conditions-{0}.csv" -f $AsOf)
+                $groupOutput = Join-Path $outputDir ("entry-groups-{0}.csv" -f $AsOf)
+                $entryRows | Export-Csv -Path $rawOutput -NoTypeInformation -Encoding UTF8
+                $grouped | Export-Csv -Path $groupOutput -NoTypeInformation -Encoding UTF8
+                Write-Host "Entry comparison CSVs: $rawOutput ; $groupOutput"
+            }
+        }
+    }
 
     if (-not $NoCsv) {
         $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
