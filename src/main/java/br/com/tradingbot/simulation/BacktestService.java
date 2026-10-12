@@ -153,7 +153,7 @@ public class BacktestService {
                 observation.effortResult(), risk.action(), risk.reason());
     }
 
-    private RiskPolicy policy(BacktestRequest request) {
+    RiskPolicy policy(BacktestRequest request) {
         var r = trading.risk();
         if (!r.isConfigured() || technical.feePerSidePct() == null
                 || technical.slippagePerSidePct() == null || technical.breakEvenTriggerR() == null
