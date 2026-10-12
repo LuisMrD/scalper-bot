@@ -235,6 +235,7 @@ try {
                 $results += [PSCustomObject]@{
                     Pair = $filter.symbol
                     LimitPct = $limit
+                    MaxHoldingCandles = $holding
                     AsOf = $AsOf
                     ReturnPct = $null
                     DrawdownPct = $null
