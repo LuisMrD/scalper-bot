@@ -25,7 +25,7 @@ public class SystemStatusController {
                 trading.risk().isConfigured(),
                 false,
                 openAi.ready(), // O Luna so fica ativo quando explicitamente habilitado e com chave.
-                "Etapa 8: analise Luna opcional sob demanda; envio de ordens continua bloqueado."
+                "Etapa 9: gestao de risco SOMENTE SIMULADA; ordens continuam bloqueadas."
         );
     }
 }
