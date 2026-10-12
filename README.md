@@ -172,3 +172,16 @@ Metodologia, limites e parametros configuraveis:
 
 **Observacao:** a Testnet serve para validar o processamento, nao para
 estimar desempenho de estrategias sobre o mercado real.
+
+## Etapa 6 — Market Context Builder (somente leitura)
+
+Um contexto por timeframe, construido com uma unica consulta de candles e mesmo corte historico para as tres analises:
+
+```powershell
+Invoke-RestMethod 'http://127.0.0.1:8080/api/v1/analysis/market-context?symbol=BTCUSDT&interval=5m&limit=200'
+Invoke-RestMethod 'http://127.0.0.1:8080/api/v1/analysis/market-context/multi?symbol=BTCUSDT&intervals=1m,5m,15m&limit=200'
+```
+
+O parametro opcional `asOf` limita todos os candles a `closeTime <= asOf` em UTC epoch milissegundos; o uso futuro de backtest depende da persistencia dos dados e de um motor de replay ainda nao implementado.
+
+Os contratos e limitacoes estao documentados em [docs/MARKET_CONTEXT_RULES.md](docs/MARKET_CONTEXT_RULES.md).

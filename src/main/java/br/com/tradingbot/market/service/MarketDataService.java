@@ -119,6 +119,21 @@ public class MarketDataService {
         }
         return results;
     }
+    /** Snapshot historico incluindo apenas candles com closeTime <= cutoff UTC epoch ms. */
+    public List<MarketCandle> recentAtOrBefore(String symbol, String interval, int limit, long cutoff) {
+        if (cutoff < 0) throw new IllegalArgumentException("cutoff invalido");
+        var info = checked(symbol);
+        var id = instruments.findBySymbolAndMarketType(info.symbol(), info.market()).orElseThrow().getId();
+        var data = candles.recentClosedAtOrBefore(id, CandleInterval.parse(interval).code(),
+                cutoff, PageRequest.of(0, limit));
+        return data.stream().map(c -> new MarketCandle(symbol, CandleInterval.parse(interval),
+                c.getOpenTimeEpochMs(), c.getCloseTimeEpochMs(), c.getOpenPrice(), c.getHighPrice(),
+                c.getLowPrice(), c.getClosePrice(), c.getBaseVolume(), c.getQuoteVolume(),
+                c.getNumberOfTrades()==null?0:c.getNumberOfTrades(), c.getTakerBuyBaseVolume(),
+                c.getTakerBuyQuoteVolume()==null?java.math.BigDecimal.ZERO:c.getTakerBuyQuoteVolume(),
+                c.isClosed())).toList();
+    }
+
     public List<MarketCandle> recent(String symbol,String interval,int limit) {
         var info=checked(symbol);
         var id=instruments.findBySymbolAndMarketType(info.symbol(),info.market()).orElseThrow().getId();
