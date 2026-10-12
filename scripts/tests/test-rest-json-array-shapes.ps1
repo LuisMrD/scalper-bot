@@ -29,6 +29,7 @@ $contracts = [PSCustomObject]@{
 $global:bootstrapCalled = 0
 $global:backtestCalls = 0
 $global:replayLimits = @()
+$global:holdingLimits = @()
 
 function Invoke-RestMethod {
     [CmdletBinding()]
@@ -84,6 +85,7 @@ function Invoke-RestMethod {
         }
         $global:backtestCalls++
         $global:replayLimits += [int]$req.maxCostToInitialRiskPctOverride
+        $global:holdingLimits += [int]$req.maxHoldingCandles
         return [PSCustomObject]@{
             symbol='SOLUSDT'; replayedCandles=3000
             javaPortfolio=[PSCustomObject]@{
@@ -108,4 +110,11 @@ if ($global:bootstrapCalled -ne 1) {
 if ($global:backtestCalls -ne 2 -or ($global:replayLimits -join ',') -ne '0,30') {
     throw "Expected two SOL replays at 0 and 30: got $($global:replayLimits -join ',')"
 }
-Write-Host 'Offline JSON-array bootstrap + SOL backtest smoke tests passed.'
+& (Join-Path $root 'scripts/compare-pair-backtests.ps1') -Symbols SOLUSDT -CostLimits 50 `
+    -HoldingLimits 0,15,30,60,120 -BaseUrl 'http://127.0.0.1:8080' -NoCsv | Out-Null
+if ($global:backtestCalls -ne 7 -or
+        ($global:holdingLimits -join ',') -ne '0,0,0,15,30,60,120' -or
+        ($global:replayLimits -join ',') -ne '0,30,50,50,50,50,50') {
+    throw "Unexpected time-exit replay plan. Limits: $($global:holdingLimits -join ',')"
+}
+Write-Host 'Offline JSON-array bootstrap + SOL time-exit comparison smoke tests passed.'

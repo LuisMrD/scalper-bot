@@ -9,7 +9,8 @@ import java.util.Objects;
 public record BacktestRequest(String symbol, List<String> intervals, int steps, int contextLimit,
         Long asOf, boolean includeLuna, BigDecimal priceTick, BigDecimal quantityStep,
         BigDecimal minimumQuantity, BigDecimal minimumNotionalUsdt,
-        BigDecimal breakEvenTriggerROverride, BigDecimal maxCostToInitialRiskPctOverride) {
+        BigDecimal breakEvenTriggerROverride, BigDecimal maxCostToInitialRiskPctOverride,
+        Integer maxHoldingCandles) {
     public BacktestRequest {
         Objects.requireNonNull(symbol, "symbol");
         if (!symbol.matches("[A-Z0-9]{5,32}") || !symbol.endsWith("USDT"))
@@ -32,6 +33,10 @@ public record BacktestRequest(String symbol, List<String> intervals, int steps, 
                 && (maxCostToInitialRiskPctOverride.signum() < 0
                     || maxCostToInitialRiskPctOverride.compareTo(BigDecimal.valueOf(100)) > 0))
             throw new IllegalArgumentException("maxCostToInitialRiskPctOverride deve estar entre 0 e 100");
+        // null = sem limite de tempo; uma decisao de saida no fechamento so
+        // pode executar na proxima abertura, nunca no mesmo candle.
+        if (maxHoldingCandles != null && (maxHoldingCandles < 1 || maxHoldingCandles > 3000))
+            throw new IllegalArgumentException("maxHoldingCandles deve ser 1..3000");
         positive(priceTick, "priceTick");
         positive(quantityStep, "quantityStep");
         positive(minimumQuantity, "minimumQuantity");
@@ -42,7 +47,7 @@ public record BacktestRequest(String symbol, List<String> intervals, int steps, 
             Long asOf, boolean includeLuna, BigDecimal priceTick, BigDecimal quantityStep,
             BigDecimal minimumQuantity, BigDecimal minimumNotionalUsdt) {
         this(symbol, intervals, steps, contextLimit, asOf, includeLuna,
-                priceTick, quantityStep, minimumQuantity, minimumNotionalUsdt, null, null);
+                priceTick, quantityStep, minimumQuantity, minimumNotionalUsdt, null, null, null);
     }
 
     /** Versao preexistente com override apenas do gatilho de break-even. */
@@ -52,7 +57,17 @@ public record BacktestRequest(String symbol, List<String> intervals, int steps, 
             BigDecimal breakEvenTriggerROverride) {
         this(symbol, intervals, steps, contextLimit, asOf, includeLuna,
                 priceTick, quantityStep, minimumQuantity, minimumNotionalUsdt,
-                breakEvenTriggerROverride, null);
+                breakEvenTriggerROverride, null, null);
+    }
+
+    /** Compatibilidade com override duplo usado pelos replays anteriores. */
+    public BacktestRequest(String symbol, List<String> intervals, int steps, int contextLimit,
+            Long asOf, boolean includeLuna, BigDecimal priceTick, BigDecimal quantityStep,
+            BigDecimal minimumQuantity, BigDecimal minimumNotionalUsdt,
+            BigDecimal breakEvenTriggerROverride, BigDecimal maxCostToInitialRiskPctOverride) {
+        this(symbol, intervals, steps, contextLimit, asOf, includeLuna,
+                priceTick, quantityStep, minimumQuantity, minimumNotionalUsdt,
+                breakEvenTriggerROverride, maxCostToInitialRiskPctOverride, null);
     }
 
     private static void positive(BigDecimal v, String name) {

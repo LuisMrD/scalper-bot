@@ -208,3 +208,68 @@ necessariamente executam os mesmos trades, embora os candles sejam identicos.
 **Atencao:** Se voce ja tinha `breakEvenTriggerROverride` configurado, mantenha
 o mesmo valor nos dois cenarios. Valores de exemplo dos filtros Binance nao
 foram verificados; substitua pelos da sua corretora/ambiente.
+
+## Comparacao experimental de saidas por tempo (SOLUSDT)
+
+`maxHoldingCandles` e opcional no `POST /api/v1/backtest/run`.
+`null` ou ausencia = politica anterior, sem tempo maximo.
+Valores `1..3000` = simula fechamento apos esse numero de candles
+primarios em que a posicao esteve aberta (contando o candle de entrada).
+Valores zero, negativos e acima de 3000 sao recusados.
+
+O limite e avaliado **no fechamento** do candle N.
+Uma saida `TIME_LIMIT` e executada **somente na abertura N+1**,
+com fee e slippage simulados; se o candle N+1 nao existe, a posicao
+permanece aberta e **nao** inventamos liquidacao. Stops intrabar sao
+avaliados antes da decisao de fechar no tempo. Um `EXIT_SIGNAL` ja
+agendado tem prioridade sobre `TIME_LIMIT` no mesmo fechamento.
+Gaps de abertura continuam afetando o preco executado.
+
+Na resposta, cada `javaPortfolio.trades[].timing` e
+`javaPortfolio.openPositionDiagnostics.timing` apresenta:
+
+| Campo | Significado |
+| --- | --- |
+| `closeHistory[]` | P&L liquido **estimado para liquidacao a cada fechamento** enquanto ainda em posicao |
+| `closeHistory[].estimatedNetPnlUsdt` | Incorpora taxa real da entrada, fee de saida estimada e slippage adverso de saida |
+| `closeHistory[].stopForNextCandle` | Stop apos decisao do candle, so valido no candle seguinte |
+| `closeHistory[].decisionReason` / `riskReason` | Motivos emitidos pelos motores Java/Luna e risco para correlacionar com reversoes |
+| `firstNetPositiveCloseTime` | Primeiro candle com P&L de liquidacao estimado positivo |
+| `netPositiveCloseCandles` | Quantos fechamentos apresentaram P&L de liquidacao estimado positivo |
+| `maxEstimatedNetPnlUsdt` / `maxEstimatedNetPnlAtCloseTime` | Maior P&L positivo **ou negativo** entre os fechamentos observados e seu instante |
+| `netPnlAt15Candles` / `netPnlAt30Candles` / `netPnlAt60Candles` / `netPnlAt120Candles` | Fotografias da posicao se ainda estava aberta no fechamento correspondente; `null` caso contrario |
+| `givebackFromBestCloseUsdt` | `max(0, melhor P&L liquido estimado em fechamento - P&L liquido realizado)`; para posicao ainda aberta, usa P&L de liquidacao estimado mais recente |
+| `firstConfirmedReversalCloseTime` | Primeiro `CONFIRMED_REVERSAL` registrado durante a posicao, se houve |
+
+**Interpretacao:** o P&L de `closeHistory` e um mark-to-market
+contrafactual ao fechamento do candle, **nao e uma ordem executavel
+ao mesmo preco**. O modelo de replays executa saidas no proximo
+open, inclusive ao acionar limite de permanencia. Nao usamos o high/low
+inteiro de um candle de stop para inferir lucro futuro apos a saida.
+Nenhum novo take-profit, ordem real, preco tick-by-tick ou financiamento foi
+adicionado. Com `includeLuna=false`, nenhuma chamada paga e feita.
+
+### Comparacao reprodutivel SOLUSDT com filtro 50%
+
+Em PowerShell na raiz do repositorio, com Spring Boot e MySQL ligados e
+historico de SOLUSDT sincronizado:
+
+```powershell
+.\scripts\compare-pair-backtests.ps1 `
+  -Symbols SOLUSDT `
+  -CostLimits 50 `
+  -HoldingLimits 0,15,30,60,120 `
+  -AsOf 1791846239999
+```
+
+`HoldingLimits=0` equivale ao baseline **sem tempo maximo**.
+A tabela e o CSV `results/exit-comparison-<asOf>.csv` contem
+`MaxHoldingCandles`, retorno, drawdown, P&L encerrado/aberto,
+quantidade de saídas TIME_LIMIT, duracao media e vitorias/derrotas.
+
+**Cuidado:** comparar os mesmos candles nao congela as entradas. Sair
+antecipadamente muda quando a carteira esta livre, e portanto altera
+o caminho de decisoes futuras. Para isolar o efeito da saida em
+operacoes rigorosamente identicas e preciso congelar as entradas
+em um experimento separado. Nao otimize a regra num unico periodo
+curto da Testnet; repita em multiplas janelas e fora da amostra.

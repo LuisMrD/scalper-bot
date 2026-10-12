@@ -60,7 +60,8 @@ public record BacktestResult(String symbol, List<String> intervals,
             long durationMillis, BigDecimal initialRiskUsdt,
             BigDecimal maxFavorableExcursionUsdt, BigDecimal maxAdverseExcursionUsdt,
             BigDecimal mfeR, BigDecimal maeR, BigDecimal netRMultiple,
-            BigDecimal feesUsdt, BigDecimal slippageUsdt, int stopAdjustments) {}
+            BigDecimal feesUsdt, BigDecimal slippageUsdt, int stopAdjustments,
+            TradeTimingDiagnostics timing) {}
 
     /** Position that remains open at the replay boundary, without fictitious close. */
     public record OpenPositionDiagnostics(String side, long enteredAtOpenTime,
@@ -68,5 +69,33 @@ public record BacktestResult(String symbol, List<String> intervals,
             BigDecimal currentStop, int durationCandles, BigDecimal initialRiskUsdt,
             BigDecimal maxFavorableExcursionUsdt, BigDecimal maxAdverseExcursionUsdt,
             BigDecimal mfeR, BigDecimal maeR, BigDecimal unrealizedNetPnlUsdt,
-            BigDecimal entryFeeUsdt, BigDecimal entrySlippageUsdt, int stopAdjustments) {}
+            BigDecimal entryFeeUsdt, BigDecimal entrySlippageUsdt, int stopAdjustments,
+            TradeTimingDiagnostics timing) {}
+    /**
+     * Estimated net liquidation PnL at a COMPLETED candle close (not an
+     * intrabar executable take-profit). Includes entry fee and projected
+     * closing fee and adverse slippage. Stop is the post-decision ratcheted
+     * value effective at the NEXT bar.
+     */
+    public record TradeCloseObservation(int durationCandles, long candleCloseTime,
+            BigDecimal referenceClose, BigDecimal estimatedNetPnlUsdt,
+            BigDecimal stopForNextCandle, String decisionReason,
+            String riskReason) {}
+
+    /**
+     * Summaries use only observed closed bars; null = threshold not reached
+     * or no completed close. Giveback compares best observed net close PnL
+     * with actual realized PnL (or last projected net for open positions).
+     */
+    public record TradeTimingDiagnostics(
+            Long firstNetPositiveCloseTime, Integer netPositiveCloseCandles,
+            BigDecimal maxEstimatedNetPnlUsdt, Long maxEstimatedNetPnlAtCloseTime,
+            BigDecimal netPnlAt15Candles, BigDecimal netPnlAt30Candles,
+            BigDecimal netPnlAt60Candles, BigDecimal netPnlAt120Candles,
+            BigDecimal givebackFromBestCloseUsdt,
+            Long firstConfirmedReversalCloseTime,
+            List<TradeCloseObservation> closeHistory) {
+        public TradeTimingDiagnostics { closeHistory = List.copyOf(closeHistory); }
+    }
+
 }

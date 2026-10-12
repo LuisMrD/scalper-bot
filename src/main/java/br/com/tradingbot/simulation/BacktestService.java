@@ -104,6 +104,10 @@ public class BacktestService {
             if (lunaLedger != null) lunaLedger.begin(bar);
             // Last bar only settles pending executions and marks portfolio; no future bar
             // exists to execute a newly issued signal, so no LLM request is performed.
+            DecisionResult javaDecision = null;
+            DecisionResult lunaDecision = null;
+            RiskPreviewResult javaRisk = null;
+            RiskPreviewResult lunaRisk = null;
             if (i < tape.size()-1) {
                 var context = prepared.at(bar.closeTime());
                 var first = context.timeframes().getFirst();
@@ -113,19 +117,20 @@ public class BacktestService {
                     throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
                             "Contexto nao corresponde ao candle historico avaliado");
                 var javaSide = javaLedger.side();
-                var javaDecision = javaEngine.evaluate(context, new PositionState(javaSide));
-                var javaRisk = javaLedger.decide(javaDecision, first);
+                javaDecision = javaEngine.evaluate(context, new PositionState(javaSide));
+                javaRisk = javaLedger.decide(javaDecision, first);
                 javaHistory.add(trace(context, javaDecision, javaRisk, javaSide.name()));
                 if (lunaLedger != null) {
                     // No second DB read or context build: same snapshot, independent portfolio.
                     var lunaSide = lunaLedger.side();
-                    var lunaDecision = luna.evaluateContext(context, lunaSide);
-                    var lunaRisk = lunaLedger.decide(lunaDecision, first);
+                    lunaDecision = luna.evaluateContext(context, lunaSide);
+                    lunaRisk = lunaLedger.decide(lunaDecision, first);
                     lunaHistory.add(trace(context, lunaDecision, lunaRisk, lunaSide.name()));
                 }
             }
-            javaLedger.markClose(bar.close());
-            if (lunaLedger != null) lunaLedger.markClose(bar.close());
+            javaLedger.markClose(bar.close(), bar.closeTime(), javaDecision, javaRisk);
+            if (lunaLedger != null)
+                lunaLedger.markClose(bar.close(), bar.closeTime(), lunaDecision, lunaRisk);
         }
         MarketCandle last = tape.getLast();
         return new BacktestResult(request.symbol(), request.intervals(), tape.getFirst().openTime(),

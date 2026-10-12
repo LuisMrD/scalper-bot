@@ -36,6 +36,8 @@ final class BacktestLedger {
     private Position position;
     private PendingEntry pendingEntry;
     private boolean pendingExit;
+    private String pendingExitReason;
+    private long latestCandleCloseTime;
     private int blocked;
     private int signals;
 
@@ -52,6 +54,10 @@ final class BacktestLedger {
         private final long signalCloseTime, entryOpenTime;
         private BigDecimal stop, highestSeen, lowestSeen;
         private int durationCandles, stopAdjustments;
+        private final ArrayList<BacktestResult.TradeCloseObservation> closeHistory = new ArrayList<>();
+        private Long firstProfitableCloseTime, bestCloseTime, firstConfirmedReversalCloseTime;
+        private BigDecimal bestNetClose;
+        private int profitableCloseCandles;
 
         Position(PositionState.Side side, BigDecimal qty, BigDecimal entry,
                 BigDecimal initialStop, BigDecimal entryFee, BigDecimal entrySlippage,
@@ -78,6 +84,37 @@ final class BacktestLedger {
             lowestSeen = lowestSeen.min(low);
         }
         void countCandle() { durationCandles++; }
+        void observeClose(long closeTime, BigDecimal referenceClose, BigDecimal net,
+                DecisionResult decision, RiskPreviewResult risk) {
+            closeHistory.add(new BacktestResult.TradeCloseObservation(durationCandles, closeTime,
+                    referenceClose, net, stop,
+                    decision == null ? null : decision.reason().name(),
+                    risk == null ? null : risk.reason().name()));
+            if (net.signum() > 0) {
+                profitableCloseCandles++;
+                if (firstProfitableCloseTime == null) firstProfitableCloseTime = closeTime;
+            }
+            if (bestNetClose == null || net.compareTo(bestNetClose) > 0) {
+                bestNetClose = net;
+                bestCloseTime = closeTime;
+            }
+            if (firstConfirmedReversalCloseTime == null && decision != null
+                    && decision.reason() == DecisionResult.Reason.CONFIRMED_REVERSAL)
+                firstConfirmedReversalCloseTime = closeTime;
+        }
+        BigDecimal netAt(int candles) {
+            return closeHistory.stream().filter(x -> x.durationCandles() == candles)
+                    .map(BacktestResult.TradeCloseObservation::estimatedNetPnlUsdt)
+                    .findFirst().orElse(null);
+        }
+        BacktestResult.TradeTimingDiagnostics timing(BigDecimal exitNet) {
+            BigDecimal giveback = bestNetClose == null ? null
+                    : bestNetClose.subtract(exitNet).max(BigDecimal.ZERO);
+            return new BacktestResult.TradeTimingDiagnostics(firstProfitableCloseTime,
+                    profitableCloseCandles, bestNetClose, bestCloseTime,
+                    netAt(15), netAt(30), netAt(60), netAt(120), giveback,
+                    firstConfirmedReversalCloseTime, List.copyOf(closeHistory));
+        }
         BigDecimal initialRisk() { return entry.subtract(initialStop).abs().multiply(qty, MC); }
         BigDecimal mfe() {
             return (side == PositionState.Side.LONG
@@ -128,9 +165,12 @@ final class BacktestLedger {
 
     /** Called at every new candle open. A pending decision can only fill HERE. */
     void begin(MarketCandle candle) {
+        latestCandleCloseTime = candle.closeTime();
         resetDay(candle.openTime());
-        if (pendingExit && position != null) close(candle.open(), candle.openTime(), "EXIT_SIGNAL");
+        if (pendingExit && position != null)
+            close(candle.open(), candle.openTime(), pendingExitReason);
         pendingExit = false;
+        pendingExitReason = null;
         if (pendingEntry != null && position == null) {
             var proposal = pendingEntry;
             pendingEntry = null;
@@ -207,6 +247,7 @@ final class BacktestLedger {
             if (decision.entry() != DecisionResult.Entry.WAIT) signals++;
         } else if (proposal.action() == RiskPreviewResult.Action.EXIT_SIGNAL && position != null) {
             pendingExit = true;
+            pendingExitReason = "EXIT_SIGNAL";
         } else if (proposal.action() == RiskPreviewResult.Action.ADJUST_STOP && position != null) {
             // This method runs at close; next begin() is the first candle where stop is effective.
             position.withStop(proposal.proposedStop());
@@ -232,7 +273,8 @@ final class BacktestLedger {
                 p.initialStop(), p.stop(), p.durationCandles,
                 openTime - p.entryOpenTime(), p.initialRisk(), p.mfe(), p.mae(),
                 p.ratio(p.mfe()), p.ratio(p.mae()), p.ratio(net),
-                feeCosts, p.entrySlippage.add(exitSlippage), p.stopAdjustments));
+                feeCosts, p.entrySlippage.add(exitSlippage), p.stopAdjustments,
+                p.timing(net)));
         position = null;
     }
 
@@ -247,7 +289,23 @@ final class BacktestLedger {
 
     /** Mark to market, including projected exit slippage and fee, without closing positions. */
     void markClose(BigDecimal close) {
+        markClose(close, latestCandleCloseTime, null, null);
+    }
+
+    void markClose(BigDecimal close, long closeTime,
+            DecisionResult decision, RiskPreviewResult riskPreview) {
         BigDecimal equity = mark(close);
+        if (position != null) {
+            // Projected NET liquidation PnL; cash already accounts for the entry
+            // fee, so subtract it once more when isolating PnL of this trade.
+            BigDecimal estimatedNet = equity.subtract(cash).subtract(position.entryFee());
+            position.observeClose(closeTime, close, estimatedNet, decision, riskPreview);
+            Integer limit = request.maxHoldingCandles();
+            if (limit != null && position.durationCandles >= limit && !pendingExit) {
+                pendingExit = true;
+                pendingExitReason = "TIME_LIMIT";
+            }
+        }
         if (equity.compareTo(peak) > 0) peak = equity;
         if (peak.signum() > 0) {
             BigDecimal drawdown = peak.subtract(equity).max(BigDecimal.ZERO)
@@ -268,7 +326,8 @@ final class BacktestLedger {
                     p.durationCandles, p.initialRisk(), p.mfe(), p.mae(),
                     p.ratio(p.mfe()), p.ratio(p.mae()),
                     marked.subtract(cash).subtract(p.entryFee()),
-                    p.entryFee(), p.entrySlippage, p.stopAdjustments);
+                    p.entryFee(), p.entrySlippage, p.stopAdjustments,
+                    p.timing(marked.subtract(cash).subtract(p.entryFee())));
         }
         return new BacktestResult.PortfolioResult(engine, "SIMULATED", policy.capitalUsdt(),
                 cash, marked, marked.subtract(policy.capitalUsdt()).multiply(HUNDRED, MC)
