@@ -113,3 +113,11 @@ java-decision:
   require-dominant-taker-volume: ${JAVA_DECISION_REQUIRE_TAKER:true}
   pullback-enabled: ${JAVA_DECISION_PULLBACK_ENABLED:true}
   breakout-retest-enabled: ${JAVA_DECISION_RETEST_ENABLED:true}
+
+# Etapa 9: regras tecnicas de gestao de posicao; custos financeiros SEM defaults.
+# Variaveis TRADING_* do bloco trading.risk tambem precisam ser definidas.
+risk-management:
+  fee-per-side-pct: ${RISK_FEE_PER_SIDE_PCT:}
+  slippage-per-side-pct: ${RISK_SLIPPAGE_PER_SIDE_PCT:}
+  break-even-trigger-r: ${RISK_BREAK_EVEN_TRIGGER_R:1.0}
+  structural-atr-buffer: ${RISK_STRUCTURAL_ATR_BUFFER:0.5}
