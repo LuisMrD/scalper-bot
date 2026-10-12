@@ -26,9 +26,9 @@ $contracts = [PSCustomObject]@{
     })
 }
 
-$script:bootstrapCalled = 0
-$script:backtestCalls = 0
-$script:replayLimits = @()
+$global:bootstrapCalled = 0
+$global:backtestCalls = 0
+$global:replayLimits = @()
 
 function Invoke-RestMethod {
     [CmdletBinding()]
@@ -47,7 +47,7 @@ function Invoke-RestMethod {
         return [PSCustomObject]@{ intervals=@('1m','5m','15m'); bootstrapEnabled=$false }
     }
     if ($Uri -match '/api/v1/market-data/bootstrap$') {
-        $script:bootstrapCalled++
+        $global:bootstrapCalled++
         # JSON arrays from Invoke-RestMethod may be emitted as ONE Object[].
         Write-Output -NoEnumerate $bootstrap
         return
@@ -79,8 +79,8 @@ function Invoke-RestMethod {
         if ([long]$req.asOf -ne 1791823439999) {
             throw 'Replay did not preserve shared asOf'
         }
-        $script:backtestCalls++
-        $script:replayLimits += [int]$req.maxCostToInitialRiskPctOverride
+        $global:backtestCalls++
+        $global:replayLimits += [int]$req.maxCostToInitialRiskPctOverride
         return [PSCustomObject]@{
             symbol='SOLUSDT'; replayedCandles=3000
             javaPortfolio=[PSCustomObject]@{
@@ -96,13 +96,13 @@ function Invoke-RestMethod {
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 & (Join-Path $root 'scripts/sync-backtest-data.ps1') -BaseUrl 'http://127.0.0.1:8080' | Out-Null
-if ($script:bootstrapCalled -ne 1) {
+if ($global:bootstrapCalled -ne 1) {
     throw 'Expected one manual bootstrap call with 9 results'
 }
 
 & (Join-Path $root 'scripts/compare-pair-backtests.ps1') -Symbols SOLUSDT -CostLimits 0,30 `
     -BaseUrl 'http://127.0.0.1:8080' -NoCsv | Out-Null
-if ($script:backtestCalls -ne 2 -or ($script:replayLimits -join ',') -ne '0,30') {
-    throw "Expected two SOL replays at 0 and 30: got $($script:replayLimits -join ',')"
+if ($global:backtestCalls -ne 2 -or ($global:replayLimits -join ',') -ne '0,30') {
+    throw "Expected two SOL replays at 0 and 30: got $($global:replayLimits -join ',')"
 }
 Write-Host 'Offline JSON-array bootstrap + SOL backtest smoke tests passed.'
