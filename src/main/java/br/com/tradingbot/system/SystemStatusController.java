@@ -21,8 +21,8 @@ public class SystemStatusController {
                 trading.symbols(),
                 trading.risk().isConfigured(),
                 false,
-                false, // A etapa 1 nao faz chamadas de IA, mesmo que a configuracao esteja presente.
-                "Etapa 2: Market Data REST/WS; sem sinais, GPT ou envio de ordens."
+                false, // IA ainda nao integrada; permanece inativa.
+                "Etapas 1-5: Market Data, Price Action, Volume, niveis e Fibonacci; sem ordens ou IA."
         );
     }
 }

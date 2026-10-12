@@ -150,3 +150,25 @@ GET /api/v1/analysis/volume?symbol=BTCUSDT&interval=5m&limit=150
 ```
 
 Exige ao menos `VOLUME_LOOKBACK + 1` candles consecutivos e fechados. A media de referencia usa somente candles anteriores (sem lookahead). O resultado nao constitui sinal para abrir ordens. Os parametros estao em `application.yml` e a metodologia em [`docs/VOLUME_PRICE_ANALYSIS_RULES.md`](docs/VOLUME_PRICE_ANALYSIS_RULES.md).
+
+## Etapa 5 — Suportes / resistencias historicos e Fibonacci
+
+Depois de coletar candles consecutivos, consulte:
+
+```powershell
+Invoke-RestMethod 'http://127.0.0.1:8080/api/v1/analysis/market-levels?symbol=BTCUSDT&interval=5m&limit=200'
+```
+
+Esse endpoint retorna zonas candidatas construidas com pivots locais **confirmados**
+pelo analisador Price Action e niveis de retracao/extensao do ultimo swing
+confirmado de topos/fundos opostos. O resultado inclui ATR simples, tolerancia
+da zona, numero de pivots agrupados e horarios de confirmacao. Nao executa ordens.
+
+Para um contexto de mais dias, primeiro colete candles `1h` e consulte
+`interval=1h&limit=500`. A API aceita no maximo 500 candles por consulta.
+
+Metodologia, limites e parametros configuraveis:
+[`docs/MARKET_LEVELS_RULES.md`](docs/MARKET_LEVELS_RULES.md).
+
+**Observacao:** a Testnet serve para validar o processamento, nao para
+estimar desempenho de estrategias sobre o mercado real.
