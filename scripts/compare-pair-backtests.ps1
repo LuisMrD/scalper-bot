@@ -231,7 +231,7 @@ try {
                 if ($_.ErrorDetails -and $_.ErrorDetails.Message) {
                     $message += ' ' + $_.ErrorDetails.Message
                 }
-                Write-Warning "Backtest failed for $($filter.symbol), cost $limit%, holding $holding: $message"
+                Write-Warning "Backtest failed for $($filter.symbol), cost $limit%, holding ${holding}: $message"
                 $results += [PSCustomObject]@{
                     Pair = $filter.symbol
                     LimitPct = $limit
