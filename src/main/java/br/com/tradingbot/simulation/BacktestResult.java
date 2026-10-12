@@ -44,10 +44,29 @@ public record BacktestResult(String symbol, List<String> intervals,
             BigDecimal maxDrawdownPct, BigDecimal feesUsdt,
             int tradesClosed, int winningTrades, int losingTrades,
             int entriesBlocked, int entrySignals,
-            String openPositionSide, List<Trade> trades) {
+            String openPositionSide, List<Trade> trades,
+            OpenPositionDiagnostics openPositionDiagnostics) {
         public PortfolioResult { trades = List.copyOf(trades); }
     }
+    /**
+     * Gross PnL uses actual slippage-adjusted fills. Costs are a breakdown,
+     * not extra deductions from netPnlUsdt. R denominator is initial
+     * gross price risk (entry-to-initial-stop) times quantity.
+     */
     public record Trade(String side, long enteredAtOpenTime, long exitCandleOpenTime,
             BigDecimal quantity, BigDecimal entryPrice, BigDecimal exitPrice,
-            BigDecimal grossPnlUsdt, BigDecimal netPnlUsdt, String exitReason) {}
+            BigDecimal grossPnlUsdt, BigDecimal netPnlUsdt, String exitReason,
+            BigDecimal initialStop, BigDecimal finalStop, int durationCandles,
+            long durationMillis, BigDecimal initialRiskUsdt,
+            BigDecimal maxFavorableExcursionUsdt, BigDecimal maxAdverseExcursionUsdt,
+            BigDecimal mfeR, BigDecimal maeR, BigDecimal netRMultiple,
+            BigDecimal feesUsdt, BigDecimal slippageUsdt, int stopAdjustments) {}
+
+    /** Position that remains open at the replay boundary, without fictitious close. */
+    public record OpenPositionDiagnostics(String side, long enteredAtOpenTime,
+            BigDecimal quantity, BigDecimal entryPrice, BigDecimal initialStop,
+            BigDecimal currentStop, int durationCandles, BigDecimal initialRiskUsdt,
+            BigDecimal maxFavorableExcursionUsdt, BigDecimal maxAdverseExcursionUsdt,
+            BigDecimal mfeR, BigDecimal maeR, BigDecimal unrealizedNetPnlUsdt,
+            BigDecimal entryFeeUsdt, BigDecimal entrySlippageUsdt, int stopAdjustments) {}
 }

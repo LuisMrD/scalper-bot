@@ -67,7 +67,7 @@ public class BacktestService {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
             }
         }
-        RiskPolicy policy = policy();
+        RiskPolicy policy = policy(request);
         long now = clock.millis();
         long cutoff = request.asOf() == null ? now : request.asOf();
         if (cutoff < 0 || cutoff > now)
@@ -153,7 +153,7 @@ public class BacktestService {
                 observation.effortResult(), risk.action(), risk.reason());
     }
 
-    private RiskPolicy policy() {
+    RiskPolicy policy(BacktestRequest request) {
         var r = trading.risk();
         if (!r.isConfigured() || technical.feePerSidePct() == null
                 || technical.slippagePerSidePct() == null || technical.breakEvenTriggerR() == null
@@ -162,9 +162,11 @@ public class BacktestService {
                     "Configure TRADING_CAPITAL_USDT, TRADING_RISK_PER_TRADE_PCT, TRADING_DAILY_STOP_PCT, "
                     + "TRADING_LEVERAGE, RISK_FEE_PER_SIDE_PCT e RISK_SLIPPAGE_PER_SIDE_PCT");
         try {
+            var beTrigger = request.breakEvenTriggerROverride() == null
+                    ? technical.breakEvenTriggerR() : request.breakEvenTriggerROverride();
             return new RiskPolicy(r.capitalUsdt(), r.riskPerTradePct(), r.dailyStopPct(),
                     r.leverage(), technical.feePerSidePct(), technical.slippagePerSidePct(),
-                    technical.breakEvenTriggerR(), technical.structuralAtrBuffer());
+                    beTrigger, technical.structuralAtrBuffer());
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
         }

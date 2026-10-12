@@ -8,7 +8,8 @@ import java.util.Objects;
 /** All contract filters are explicit; they must come from the target Binance instrument. */
 public record BacktestRequest(String symbol, List<String> intervals, int steps, int contextLimit,
         Long asOf, boolean includeLuna, BigDecimal priceTick, BigDecimal quantityStep,
-        BigDecimal minimumQuantity, BigDecimal minimumNotionalUsdt) {
+        BigDecimal minimumQuantity, BigDecimal minimumNotionalUsdt,
+        BigDecimal breakEvenTriggerROverride) {
     public BacktestRequest {
         Objects.requireNonNull(symbol, "symbol");
         if (!symbol.matches("[A-Z0-9]{5,32}") || !symbol.endsWith("USDT"))
@@ -22,11 +23,23 @@ public record BacktestRequest(String symbol, List<String> intervals, int steps, 
         if (includeLuna && steps > 10)
             throw new IllegalArgumentException("Backtest Luna limitado a 10 steps pagos por solicitacao");
         if (asOf != null && asOf < 0) throw new IllegalArgumentException("asOf invalido");
+        if (breakEvenTriggerROverride != null
+                && (breakEvenTriggerROverride.signum() <= 0
+                    || breakEvenTriggerROverride.compareTo(BigDecimal.valueOf(20)) > 0))
+            throw new IllegalArgumentException("breakEvenTriggerROverride deve ser > 0 e <= 20");
         positive(priceTick, "priceTick");
         positive(quantityStep, "quantityStep");
         positive(minimumQuantity, "minimumQuantity");
         positive(minimumNotionalUsdt, "minimumNotionalUsdt");
     }
+    /** Compatibilidade com chamadas Java anteriores; JSON pode omitir override (null). */
+    public BacktestRequest(String symbol, List<String> intervals, int steps, int contextLimit,
+            Long asOf, boolean includeLuna, BigDecimal priceTick, BigDecimal quantityStep,
+            BigDecimal minimumQuantity, BigDecimal minimumNotionalUsdt) {
+        this(symbol, intervals, steps, contextLimit, asOf, includeLuna,
+                priceTick, quantityStep, minimumQuantity, minimumNotionalUsdt, null);
+    }
+
     private static void positive(BigDecimal v, String name) {
         if (v == null || v.signum() <= 0) throw new IllegalArgumentException(name + " obrigatorio e positivo");
     }
