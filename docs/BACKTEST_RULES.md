@@ -273,3 +273,53 @@ o caminho de decisoes futuras. Para isolar o efeito da saida em
 operacoes rigorosamente identicas e preciso congelar as entradas
 em um experimento separado. Nao otimize a regra num unico periodo
 curto da Testnet; repita em multiplas janelas e fora da amostra.
+
+## Diagnostico das entradas: operacoes vencedoras contra perdedoras
+
+**Apenas para pesquisa; nao muda setups, stops ou ordens.** Cada posicao de
+`javaPortfolio.trades[]` e a posicao aberta opcional exibem
+`entryDiagnostics` com campos:
+
+| Campo | Captura |
+| --- | --- |
+| `atSignal.signal` | `DecisionTrace` imutavel do candle FECHADO onde foi decidido entrar: `setup`, `reason`, `primaryTrend`, `timeframeTrends[]` (com seus `asOfCloseTime`), `volumeLevel`, `takerBalance`, `relativeVolume`, `relativeSpread`, `effortResult` |
+| `atSignal.lastBarPattern` | Direcao e padroes Brooks do candle de sinal, se detectados |
+| `atSignal.breakoutState`, `pullbackCandidate`, `confirmedPivotCount` | Condicoes estruturais confirmadas ate aquele fechamento |
+| `atSignal.atrAtSignal`, `takerBuyShareAtSignal` | ATR e proporcao de agressao observados no candle fechado |
+| `atSignal.higherTimeframeConflicts` | Quantidade de timeframes superiores cujo `Trend` divergia da tendencia principal (inclusive RANGE/UNDETERMINED) |
+| `atSignal.signalClosePrice` | Fechamento da barra de sinal, **nao** preco de execucao |
+| `fillOpenTime`, `filledEntryPrice`, `initialStop` | Execucao simulada na abertura seguinte e stop original |
+| `stopDistancePct` | 100 × distancia absoluta fill-stop / fill |
+| `entryGapPct` | 100 × (fill - close do candle de sinal) / close do sinal; assinado |
+| `estimatedRoundTripCostUsdt` | Estimativa de taxa+slippage hipotetico dos dois lados com preco real de fill e stop estrutural (quantidade da operacao) |
+| `estimatedCostToInitialRiskPct` | Essa estimativa dividida pelo risco BRUTO ate o stop original, ×100. Nao e resultado financeiro final |
+
+**Garantia temporal:** os fatores técnicos são congelados no fechamento do
+candle de sinal; o calculo do custo/risco usa APENAS o preco da abertura
+seguinte e o stop preexistente. Se a proposta for rejeitada antes de executar,
+nao aparece em `trades[]`. O rótulo vencedor/perdedor é atribuido SOMENTE
+APOS o trade ser fechado; nao e usado para decidir entrar.
+
+Exemplo com o SOLUSDT, custos 50%, 3000 candles, mesmo periodo dos testes:
+
+```powershell
+.\scripts\compare-pair-backtests.ps1 `
+  -Symbols SOLUSDT `
+  -CostLimits 50 `
+  -HoldingLimits 0 `
+  -AsOf 1791846239999 `
+  -AnalyzeEntries
+```
+
+O script imprime cada trade fechado com seus fatores no instante da entrada
+e um resumo por `WIN` vs `LOSS` com resultado, risco, volume,
+alinhamento multi-timeframe, setups e duracao media. Salva em
+`results/entry-conditions-1791846239999.csv` e
+`results/entry-groups-1791846239999.csv` além do CSV habitual,
+sem incluir a posicao ainda aberta na tabela de vitorias/derrotas.
+
+**Limitacoes:** somente 11 trades fechados em 50 horas de Testnet nao
+permitem inferir significancia estatistica nem usar as diferenças observadas
+como filtro lucrativo. Repetir em muitas janelas fora da amostra antes de
+alterar o algoritmo, principalmente se as entradas e saídas variam entre
+estrategias simuladas. Não misturar Testnet e producao no mesmo banco.
