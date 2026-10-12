@@ -79,3 +79,72 @@ $result = Invoke-RestMethod -Method Post -ContentType "application/json" -Uri "h
 $result.javaDecisionHistory | Group-Object reason | Select-Object Name, Count
 $result.javaDecisionHistory | Select-Object -Last 20 | Format-Table candleCloseTime,entry,reason,primaryTrend,volumeLevel,riskAction
 ```
+
+## Etapa de diagnostico de saidas: MFE / MAE, R e custos
+
+Cada `javaPortfolio.trades[]` ou `lunaPortfolio.trades[]` encerrado contem os campos originais e tambem:
+
+| Campo | Unidade / significado |
+| --- | --- |
+| `initialStop` / `finalStop` | Preco de stop originalmente dimensionado / stop vigente quando saiu |
+| `stopAdjustments` | Quantidade de ajustes de stop aplicados no fechamento de candles |
+| `durationCandles` | Numero de candles nos quais a posicao estava efetivamente aberta, contando o candle de entrada e de stop intrabar |
+| `durationMillis` | Diferenca entre horario de abertura do candle de saida e horario do candle de entrada; em saidas por STOP nao e o instante exato de disparo |
+| `initialRiskUsdt` | `abs(entryPrice - initialStop) * quantity` (risco de preco bruto, exclui taxas) |
+| `maxFavorableExcursionUsdt` / `maxAdverseExcursionUsdt` | MFE / MAE maximas BRUTAS ate a saida; ambas positivas, incluindo extrema intrabar quando a posicao ainda nao atingiu o stop |
+| `mfeR` / `maeR` | MFE / MAE divididas por `initialRiskUsdt` |
+| `netRMultiple` | P&L realizado apos as taxas / risco inicial de preco bruto |
+| `feesUsdt` | Taxa de entrada + taxa de saida por operacao |
+| `slippageUsdt` | Diferenca adversa entre precos de referencia e fills, somada na entrada e saida |
+
+**Muito importante:** `grossPnlUsdt` JA considera o slippage nos precos `entryPrice` e `exitPrice`. O `netPnlUsdt` ja desconta `feesUsdt`. Portanto, o campo `slippageUsdt` e **somente decomposicao/diagnostico**, nao um custo a subtrair de novo.
+
+No candle que aciona o stop, por nao sabermos a ordem intrabar de high e low a partir de OHLC, a simulacao so considera a abertura e o preco bruto do stop/gap para calcular os extremos observados nesse candle. Ela **nao credita** uma maxima/minima que pode ter ocorrido depois de o stop encerrar a posicao. Trata-se de estimativa conservadora, nao de MFE/MAE tick-by-tick.
+
+A posicao ainda aberta ao final aparece em `javaPortfolio.openPositionDiagnostics` (ou `lunaPortfolio.openPositionDiagnostics`), sem criar um trade de saida artificial. `unrealizedNetPnlUsdt` contempla custos estimados de liquidacao e taxa de entrada; nao e ganho realizado.
+
+### Inspecionar os resultados no PowerShell
+
+```powershell
+$result.javaPortfolio.trades |
+    Select-Object side, durationCandles, initialStop, finalStop,
+                  stopAdjustments, mfeR, maeR, netRMultiple, feesUsdt,
+                  slippageUsdt, netPnlUsdt, exitReason |
+    Format-Table -AutoSize
+
+$result.javaPortfolio.openPositionDiagnostics | Format-List
+```
+
+### Comparar gatilhos de break-even sem reiniciar Spring
+
+`breakEvenTriggerROverride` e opcional no corpo da requisicao. Se omitido, vale `RISK_BREAK_EVEN_TRIGGER_R` do ambiente. O override afeta somente o replay solicitado; nao muda o .env nem outras sessoes:
+
+```powershell
+$base = @{
+    symbol = "BTCUSDT"
+    intervals = @("1m", "5m", "15m")
+    steps = 3000
+    contextLimit = 200
+    includeLuna = $false
+    priceTick = "0.1"
+    quantityStep = "0.001"
+    minimumQuantity = "0.001"
+    minimumNotionalUsdt = "5"
+    asOf = 1791823439999 # SUBSTITUA pelo fechamento UTC em ms do ultimo candle no banco
+}
+$results = foreach ($r in @("1.0","1.5","2.0")) {
+    $body = $base.Clone()
+    $body.breakEvenTriggerROverride = $r
+    $data = Invoke-RestMethod -Method Post -ContentType "application/json" -Body ($body | ConvertTo-Json) -Uri "http://127.0.0.1:8080/api/v1/backtest/run"
+    [PSCustomObject]@{
+        breakEvenR = $r
+        returnPct = $data.javaPortfolio.totalReturnPct
+        drawdownPct = $data.javaPortfolio.maxDrawdownPct
+        tradesClosed = $data.javaPortfolio.tradesClosed
+        entrySignals = $data.javaPortfolio.entrySignals
+    }
+}
+$results | Format-Table -AutoSize
+```
+
+Os tres testes acima usam os **mesmos candles** e mesmo instante final, mas NAO garantem as mesmas entradas. Como alteracoes no stop mudam o momento de encerramento, cada carteira pode estar livre ou ocupada em momentos diferentes. Para comparar saídas com **entradas 100% identicas**, sera necessario um experimento especifico de replay de entradas congeladas. Um resultado em uma janela de 3000 candles nao prova robustez fora da amostra.
