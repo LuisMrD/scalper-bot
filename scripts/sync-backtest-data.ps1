@@ -27,11 +27,23 @@ try {
     Write-Host "Configured intervals: $($settings.intervals -join ', ')"
     Write-Host 'Syncing all configured pairs/timeframes using public market-data REST (may take minutes)...'
 
-    $results = @(Invoke-RestMethod -Method Post -Uri "$BaseUrl/api/v1/market-data/bootstrap" `
-        -TimeoutSec $TimeoutSec -ErrorAction Stop)
-
-    $results | Select-Object symbol, interval, fetched, persisted, pages | Format-Table -AutoSize
+    # Invoke-RestMethod (notably Windows PowerShell 5.1) can emit a JSON array
+    # as ONE pipeline object. Wrapping the call in @() then nests Object[],
+    # and Select-Object cannot find 'symbol' on the outer array.
+    $response = Invoke-RestMethod -Method Post -Uri "$BaseUrl/api/v1/market-data/bootstrap" `
+        -TimeoutSec $TimeoutSec -ErrorAction Stop
+    $results = @($response)
+    while ($results.Count -eq 1 -and $results[0] -is [System.Array]) {
+        $results = @($results[0])
+    }
     if ($results.Count -eq 0) { throw 'No sync results returned by application.' }
+    foreach ($r in $results) {
+        if ($null -eq $r -or $null -eq $r.PSObject.Properties['symbol'] -or
+                $null -eq $r.PSObject.Properties['interval']) {
+            throw "Unexpected bootstrap JSON response; expected a list of SyncResult objects."
+        }
+    }
+    $results | Select-Object symbol, interval, fetched, persisted, pages | Format-Table -AutoSize
     $symbols = @($results | Select-Object -ExpandProperty symbol -Unique)
     $intervals = @($results | Select-Object -ExpandProperty interval -Unique)
     Write-Host "Synced pairs: $($symbols -join ', '); timeframes: $($intervals -join ', ')."

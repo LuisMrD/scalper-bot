@@ -148,7 +148,11 @@ try {
     if ($AsOf -eq 0) {
         $latest = foreach ($symbol in $Symbols) {
             $uri = "$BaseUrl/api/v1/market-data/candles?symbol=$symbol&interval=1m&limit=1"
-            $rows = @(Invoke-RestMethod -Uri $uri -TimeoutSec 60 -ErrorAction Stop)
+            $response = Invoke-RestMethod -Uri $uri -TimeoutSec 60 -ErrorAction Stop
+            $rows = @($response)
+            while ($rows.Count -eq 1 -and $rows[0] -is [System.Array]) {
+                $rows = @($rows[0])
+            }
             if ($rows.Count -ne 1 -or -not $rows[0].closed) {
                 throw "No closed 1m candle for $symbol in local database; run sync-backtest-data.ps1 first."
             }

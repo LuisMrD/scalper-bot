@@ -57,5 +57,8 @@ jobs:
           if ($withoutFilter -notcontains 'RISK_MAX_COST_TO_INITIAL_RISK_PCT=<unset>') {
             throw 'Zero filter parameter must UNSET env instead of failing validation.'
           }
+      - name: Smoke REST JSON arrays with mock HTTP (no network)
+        shell: pwsh
+        run: ./scripts/tests/test-rest-json-array-shapes.ps1
       - name: Validate and test (no real orders)
         run: mvn -B -ntp verify
