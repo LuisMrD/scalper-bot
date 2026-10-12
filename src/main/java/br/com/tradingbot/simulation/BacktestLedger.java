@@ -42,7 +42,8 @@ final class BacktestLedger {
     private int signals;
 
     private record PendingEntry(PositionState.Side side, BigDecimal quantity,
-            BigDecimal stop, BigDecimal budget, long signalCloseTime) {}
+            BigDecimal stop, BigDecimal budget, long signalCloseTime,
+            BacktestResult.EntrySignalSnapshot snapshot) {}
     /**
      * One trade in progress. High/low are observed only while the trade is open.
      * If the stop is crossed intrabar, the unknown OHLC ordering is conservative:
@@ -52,6 +53,7 @@ final class BacktestLedger {
         private final PositionState.Side side;
         private final BigDecimal qty, entry, initialStop, entryFee, entrySlippage;
         private final long signalCloseTime, entryOpenTime;
+        private final BacktestResult.EntryExecutionDiagnostics entryDiagnostics;
         private BigDecimal stop, highestSeen, lowestSeen;
         private int durationCandles, stopAdjustments;
         private final ArrayList<BacktestResult.TradeCloseObservation> closeHistory = new ArrayList<>();
@@ -61,11 +63,13 @@ final class BacktestLedger {
 
         Position(PositionState.Side side, BigDecimal qty, BigDecimal entry,
                 BigDecimal initialStop, BigDecimal entryFee, BigDecimal entrySlippage,
-                long signalCloseTime, long entryOpenTime) {
+                long signalCloseTime, long entryOpenTime,
+                BacktestResult.EntryExecutionDiagnostics entryDiagnostics) {
             this.side = side; this.qty = qty; this.entry = entry;
             this.initialStop = initialStop; this.stop = initialStop;
             this.entryFee = entryFee; this.entrySlippage = entrySlippage;
             this.signalCloseTime = signalCloseTime; this.entryOpenTime = entryOpenTime;
+            this.entryDiagnostics = entryDiagnostics;
             this.highestSeen = entry; this.lowestSeen = entry;
         }
         PositionState.Side side() { return side; }
@@ -196,7 +200,8 @@ final class BacktestLedger {
                     else {
                         position = new Position(proposal.side(), qty, fill, proposal.stop(),
                                 openingFee, fill.subtract(candle.open()).abs().multiply(qty, MC),
-                                proposal.signalCloseTime(), candle.openTime());
+                                proposal.signalCloseTime(), candle.openTime(),
+                                entryDiagnostics(proposal, fill, candle.openTime(), qty));
                         fee(openingFee);
                     }
                 }
@@ -241,7 +246,7 @@ final class BacktestLedger {
             signals++;
             pendingEntry = new PendingEntry(decision.entry() == DecisionResult.Entry.LONG
                     ? PositionState.Side.LONG : PositionState.Side.SHORT, proposal.quantity(),
-                    proposal.initialStop(), proposal.riskBudgetUsdt(), asOfCloseTime);
+                    proposal.initialStop(), proposal.riskBudgetUsdt(), asOfCloseTime, null);
         } else if (proposal.action() == RiskPreviewResult.Action.BLOCKED) {
             blocked++;
             if (decision.entry() != DecisionResult.Entry.WAIT) signals++;
@@ -252,6 +257,37 @@ final class BacktestLedger {
             // This method runs at close; next begin() is the first candle where stop is effective.
             position.withStop(proposal.proposedStop());
         }
+    }
+
+    /**
+     * Attach the as-of signal snapshot only to a still-pending APPROVED entry.
+     * Test helpers using applyPreview directly may leave snapshot null.
+     */
+    void attachPendingEntrySnapshot(BacktestResult.EntrySignalSnapshot snapshot) {
+        if (pendingEntry == null || snapshot == null) return;
+        if (pendingEntry.signalCloseTime() != snapshot.signal().candleCloseTime()
+                || snapshot.signal().riskAction() != RiskPreviewResult.Action.PROPOSED_ENTRY
+                || !snapshot.signal().entry().name().equals(pendingEntry.side().name()))
+            throw new IllegalArgumentException("Sinal de entrada diferente da proposta pendente");
+        pendingEntry = new PendingEntry(pendingEntry.side(), pendingEntry.quantity(),
+                pendingEntry.stop(), pendingEntry.budget(), pendingEntry.signalCloseTime(), snapshot);
+    }
+
+    private BacktestResult.EntryExecutionDiagnostics entryDiagnostics(
+            PendingEntry proposal, BigDecimal fill, long fillOpenTime, BigDecimal quantity) {
+        if (proposal.snapshot() == null) return null;
+        BigDecimal stopDistance = fill.subtract(proposal.stop()).abs();
+        BigDecimal rate = fraction(policy.feePerSidePct().add(policy.slippagePerSidePct()));
+        BigDecimal roundTripCost = fill.add(proposal.stop()).multiply(rate, MC)
+                .multiply(quantity, MC);
+        BigDecimal rawRisk = stopDistance.multiply(quantity, MC);
+        BigDecimal riskCostPct = rawRisk.signum() == 0 ? null
+                : roundTripCost.multiply(HUNDRED, MC).divide(rawRisk, MC);
+        BigDecimal distancePct = stopDistance.multiply(HUNDRED, MC).divide(fill, MC);
+        BigDecimal gapPct = fill.subtract(proposal.snapshot().signalClosePrice())
+                .multiply(HUNDRED, MC).divide(proposal.snapshot().signalClosePrice(), MC);
+        return new BacktestResult.EntryExecutionDiagnostics(proposal.snapshot(), fillOpenTime,
+                fill, proposal.stop(), distancePct, gapPct, roundTripCost, riskCostPct);
     }
 
     private void close(BigDecimal unadjusted, long openTime, String why) {
@@ -274,7 +310,7 @@ final class BacktestLedger {
                 openTime - p.entryOpenTime(), p.initialRisk(), p.mfe(), p.mae(),
                 p.ratio(p.mfe()), p.ratio(p.mae()), p.ratio(net),
                 feeCosts, p.entrySlippage.add(exitSlippage), p.stopAdjustments,
-                p.timing(net)));
+                p.timing(net), p.entryDiagnostics));
         position = null;
     }
 
@@ -327,7 +363,8 @@ final class BacktestLedger {
                     p.ratio(p.mfe()), p.ratio(p.mae()),
                     marked.subtract(cash).subtract(p.entryFee()),
                     p.entryFee(), p.entrySlippage, p.stopAdjustments,
-                    p.timing(marked.subtract(cash).subtract(p.entryFee())));
+                    p.timing(marked.subtract(cash).subtract(p.entryFee())),
+                    p.entryDiagnostics);
         }
         return new BacktestResult.PortfolioResult(engine, "SIMULATED", policy.capitalUsdt(),
                 cash, marked, marked.subtract(policy.capitalUsdt()).multiply(HUNDRED, MC)
