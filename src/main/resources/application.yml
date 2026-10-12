@@ -121,3 +121,5 @@ risk-management:
   slippage-per-side-pct: ${RISK_SLIPPAGE_PER_SIDE_PCT:}
   break-even-trigger-r: ${RISK_BREAK_EVEN_TRIGGER_R:1.0}
   structural-atr-buffer: ${RISK_STRUCTURAL_ATR_BUFFER:0.5}
+  # Filtro experimental opcional de custos / risco estrutural bruto. Vazio = desligado.
+  max-cost-to-initial-risk-pct: ${RISK_MAX_COST_TO_INITIAL_RISK_PCT:}
