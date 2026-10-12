@@ -185,3 +185,28 @@ Invoke-RestMethod 'http://127.0.0.1:8080/api/v1/analysis/market-context/multi?sy
 O parametro opcional `asOf` limita todos os candles a `closeTime <= asOf` em UTC epoch milissegundos; o uso futuro de backtest depende da persistencia dos dados e de um motor de replay ainda nao implementado.
 
 Os contratos e limitacoes estao documentados em [docs/MARKET_CONTEXT_RULES.md](docs/MARKET_CONTEXT_RULES.md).
+
+
+## Etapa 7 — JavaDecisionEngine (classificacao hipotetica)
+
+O novo motor Java usa o `MarketContextBuilder` existente e a **primeira** janela temporal
+como timeframe de entrada. As demais sao filtros de tendencia, se configurado.
+A mesma estrutura de contexto sera reutilizada no motor de IA na etapa seguinte.
+
+```powershell
+# Primeiro sincronize historico suficiente nos tres timeframes (ex.: bootstrap de 7 dias).
+Invoke-RestMethod 'http://127.0.0.1:8080/api/v1/decision/java?symbol=BTCUSDT&intervals=1m,5m,15m&limit=200'
+
+# Simule uma posicao ja existente SEM consultar ou alterar a Binance:
+Invoke-RestMethod 'http://127.0.0.1:8080/api/v1/decision/java?symbol=BTCUSDT&intervals=5m,15m&limit=200&positionSide=LONG'
+```
+
+`entry` admite `LONG`, `SHORT` ou `WAIT`; para posicoes existentes,
+`positionAction` admite `HOLD` ou `EXIT` e `entry` sera sempre `WAIT`.
+`asOf` aceita timestamp UTC em milissegundos para experimentos historicos sem lookahead.
+`reason` e `setup` explicam a regra acionada; nao ha campo de win rate nem
+probabilidade de sucesso. Parametros ficam em `java-decision` no `application.yml`.
+
+**Nao ha ordens, calculo de tamanho de posicao, alavancagem, stop-loss,
+trailing stop ou integracao GPT nesta etapa.** Consulte
+[`docs/JAVA_DECISION_RULES.md`](docs/JAVA_DECISION_RULES.md).

@@ -22,7 +22,7 @@ public class SystemStatusController {
                 trading.risk().isConfigured(),
                 false,
                 false, // IA ainda nao integrada; permanece inativa.
-                "Etapas 1-5: Market Data, Price Action, Volume, niveis e Fibonacci; sem ordens ou IA."
+                "Etapas 1-7: analises, contexto e motor Java experimental; sem ordens ou IA."
         );
     }
 }

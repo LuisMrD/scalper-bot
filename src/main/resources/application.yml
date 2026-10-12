@@ -98,3 +98,13 @@ market-levels:
 # Etapa 6: numero de candles OHLCV recentes anexados a cada contexto de mercado.
 market-context:
   recent-candles: ${MARKET_CONTEXT_RECENT_CANDLES:30}
+
+# Etapa 7: motor Java experimental. Nao executa ordens e nao define risco.
+java-decision:
+  breakout-lookback: ${JAVA_DECISION_BREAKOUT_LOOKBACK:10}
+  retest-max-bars: ${JAVA_DECISION_RETEST_MAX_BARS:4}
+  max-primary-staleness-bars: ${JAVA_DECISION_MAX_STALENESS_BARS:2}
+  require-higher-timeframe-alignment: ${JAVA_DECISION_REQUIRE_HIGHER_TF:true}
+  require-dominant-taker-volume: ${JAVA_DECISION_REQUIRE_TAKER:true}
+  pullback-enabled: ${JAVA_DECISION_PULLBACK_ENABLED:true}
+  breakout-retest-enabled: ${JAVA_DECISION_RETEST_ENABLED:true}

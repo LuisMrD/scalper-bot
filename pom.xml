@@ -6,9 +6,9 @@
 
     <groupId>br.com.tradingbot</groupId>
     <artifactId>binance-scalping-bot</artifactId>
-    <version>0.6.0-SNAPSHOT</version>
+    <version>0.7.0-SNAPSHOT</version>
     <name>binance-scalping-bot</name>
-    <description>Etapa 6: contexto multimodal deterministico de mercado para futuros motores Java/LLM</description>
+    <description>Etapa 7: motor deterministico de decisoes Java sobre contexto de mercado</description>
 
     <parent>
         <groupId>org.springframework.boot</groupId>
