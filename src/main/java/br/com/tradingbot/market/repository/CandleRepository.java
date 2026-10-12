@@ -10,6 +10,13 @@ import org.springframework.data.repository.query.Param;
 public interface CandleRepository extends JpaRepository<CandleEntity, Long> {
     List<CandleEntity> findByInstrument_IdAndTimeframeAndClosedTrueOrderByOpenTimeEpochMsDesc(
             Long instrumentId, String timeframe, Pageable pageable);
+    /** Somente candles fechados antes (ou no instante) solicitado. Base do replay sem lookahead. */
+    @Query("select c from CandleEntity c where c.instrument.id=:instrumentId "
+            + "and c.timeframe=:timeframe and c.closed=true and c.closeTimeEpochMs<=:cutoff "
+            + "order by c.openTimeEpochMs desc")
+    List<CandleEntity> recentClosedAtOrBefore(@Param("instrumentId") Long instrumentId,
+            @Param("timeframe") String timeframe, @Param("cutoff") long cutoff, Pageable pageable);
+
     @Query("select max(c.openTimeEpochMs) from CandleEntity c where c.instrument.id=:id and c.timeframe=:frame and c.closed=true")
     Long lastOpenTime(@Param("id") long instrumentId, @Param("frame") String timeframe);
 }

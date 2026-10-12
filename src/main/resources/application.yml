@@ -94,3 +94,7 @@ market-levels:
   atr-zone-multiplier: ${MARKET_LEVELS_ATR_MULTIPLIER:0.5}
   min-zone-tolerance-pct: ${MARKET_LEVELS_MIN_ZONE_PCT:0.10}
   max-zones: ${MARKET_LEVELS_MAX_ZONES:12}
+
+# Etapa 6: numero de candles OHLCV recentes anexados a cada contexto de mercado.
+market-context:
+  recent-candles: ${MARKET_CONTEXT_RECENT_CANDLES:30}
