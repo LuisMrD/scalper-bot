@@ -22,6 +22,16 @@ public class RiskPreviewService {
         this.contextService = Objects.requireNonNull(contextService);
     }
 
+    public boolean costFilterEnabled() {
+        return technical.maxCostToInitialRiskPct() != null;
+    }
+
+    public BigDecimalCostLimit costFilterStatus() {
+        return new BigDecimalCostLimit(costFilterEnabled(), technical.maxCostToInitialRiskPct());
+    }
+
+    public record BigDecimalCostLimit(boolean enabled, java.math.BigDecimal thresholdPct) {}
+
     public boolean configured() {
         return trading.risk().isConfigured() && technical.feePerSidePct() != null
                 && technical.slippagePerSidePct() != null
@@ -39,7 +49,7 @@ public class RiskPreviewService {
             policy = new RiskPolicy(base.capitalUsdt(), base.riskPerTradePct(),
                     base.dailyStopPct(), base.leverage(), technical.feePerSidePct(),
                     technical.slippagePerSidePct(), technical.breakEvenTriggerR(),
-                    technical.structuralAtrBuffer());
+                    technical.structuralAtrBuffer(), technical.maxCostToInitialRiskPct());
         } catch (IllegalArgumentException ex) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage(), ex);
         }
