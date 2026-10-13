@@ -39,7 +39,12 @@ param(
     [switch]$SyncHistory,
     [switch]$ConfirmIsolatedDatabase,
     [switch]$PrintOnly,
-    [switch]$NoCsv
+    [switch]$NoCsv,
+    [ValidateSet('ALL','BOTH','PULLBACK','RETEST')]
+    [string]$Setup = 'ALL',
+    [switch]$ExportTrades,
+    [ValidateRange(0,1000000000)]
+    [decimal]$ExpectedCapitalUsdt = 0
 )
 
 $ErrorActionPreference = 'Stop'
@@ -57,6 +62,7 @@ $setups = @(
     [PSCustomObject]@{ Name='PULLBACK'; Pullback=$true; Retest=$false },
     [PSCustomObject]@{ Name='RETEST'; Pullback=$false; Retest=$true }
 )
+if ($Setup -ne 'ALL') { $setups = @($setups | Where-Object { $_.Name -eq $Setup }) }
 $exchangeInfoUrl = if ($Source -eq 'production') {
     'https://fapi.binance.com/fapi/v1/exchangeInfo'
 } else {
@@ -72,7 +78,9 @@ if ($PrintOnly) {
     Write-Output "HOURS_PER_WINDOW=$hoursPerWindow"
     Write-Output "CONTEXT_LIMIT=$ContextLimit"
     Write-Output "COST_LIMIT_PCT=$CostLimitPct"
-    Write-Output "SETUPS=BOTH,PULLBACK,RETEST"
+    Write-Output "SETUPS=$($setups.Name -join ',')"
+    Write-Output "EXPORT_TRADES=$($ExportTrades.ToString().ToLowerInvariant())"
+    Write-Output "EXPECTED_CAPITAL_USDT=$ExpectedCapitalUsdt"
     Write-Output "SOURCE=$Source"
     Write-Output "LUNA=false"
     Write-Output "ORDERS=false"
@@ -183,6 +191,8 @@ if ($SyncHistory) {
 }
 
 $rows = @()
+$tradeRows = @()
+$culture = [System.Globalization.CultureInfo]::InvariantCulture
 foreach ($period in $windowPlan) {
     foreach ($setup in $setups) {
         $body = @{
@@ -218,7 +228,13 @@ foreach ($period in $windowPlan) {
             throw "Replay shifted its time period for $($setup.Name) window $($period.Window). Abort without misleading comparison."
         }
         $p = $run.javaPortfolio
+        if ($ExpectedCapitalUsdt -gt 0 -and [decimal]$p.startingEquityUsdt -ne $ExpectedCapitalUsdt) {
+            throw "Starting capital is $($p.startingEquityUsdt) USDT, expected $ExpectedCapitalUsdt USDT. Verify TRADING_CAPITAL_USDT in the running Spring process."
+        }
         $trades = As-FlatArray $p.trades
+        if ($trades.Count -ne [int]$p.tradesClosed) {
+            throw "Closed-trade array length differs from tradesClosed for $($setup.Name), window $($period.Window)."
+        }
         $netClosed = if ($trades.Count) {
             [double](($trades | Measure-Object -Property netPnlUsdt -Sum).Sum)
         } else { 0.0 }
@@ -230,6 +246,7 @@ foreach ($period in $windowPlan) {
             Symbol = $Symbol
             PrimaryInterval = $PrimaryInterval
             HoursPerWindow = $hoursPerWindow
+            StartingEquityUsdt = ([decimal]$p.startingEquityUsdt).ToString($culture)
             Window = $period.Window
             FromOpen = $period.FromOpen
             AsOf = $period.AsOf
@@ -244,6 +261,60 @@ foreach ($period in $windowPlan) {
             OpenSide = $p.openPositionSide
             EntriesBlocked = [int]$p.entriesBlocked
             Signals = [int]$p.entrySignals
+        }
+        if ($ExportTrades) {
+            foreach ($trade in $trades) {
+                $entry = $trade.entryDiagnostics
+                if ($null -eq $entry -or $null -eq $entry.atSignal -or $null -eq $entry.atSignal.signal) {
+                    throw "Missing entry-time snapshot for closed trade: $PrimaryInterval/$($period.Window)/$($setup.Name)."
+                }
+                $signal = $entry.atSignal.signal
+                if ([long]$trade.enteredAtOpenTime -lt [long]$period.FromOpen -or
+                    [long]$trade.exitCandleOpenTime -gt [long]$period.AsOf -or
+                    [long]$trade.exitCandleOpenTime -lt [long]$trade.enteredAtOpenTime -or
+                    $signal.setup -ne $setup.Name -and $setup.Name -ne 'BOTH' -or
+                    $signal.primaryTrend -notin @('UP','DOWN')) {
+                    throw "Invalid entry-time audit record for $PrimaryInterval/$($period.Window)/$($setup.Name)."
+                }
+                $trend5m = @($signal.timeframeTrends | Where-Object { $_.interval -eq '5m' } | Select-Object -First 1)
+                $trend15m = @($signal.timeframeTrends | Where-Object { $_.interval -eq '15m' } | Select-Object -First 1)
+                $tradeRows += [PSCustomObject]@{
+                    Source = $Source.ToUpperInvariant()
+                    Symbol = $Symbol
+                    PrimaryInterval = $PrimaryInterval
+                    HoursPerWindow = $hoursPerWindow
+                    Window = $period.Window
+                    Setup = $setup.Name
+                    FromOpen = $period.FromOpen
+                    AsOf = $period.AsOf
+                    Side = $trade.side
+                    SignalSetup = $signal.setup
+                    EnteredAtOpenTime = $trade.enteredAtOpenTime
+                    ExitCandleOpenTime = $trade.exitCandleOpenTime
+                    ExitReason = $trade.exitReason
+                    DurationCandles = $trade.durationCandles
+                    DurationMinutes = ([decimal]$trade.durationMillis / 60000).ToString($culture)
+                    NetPnlUsdt = ([decimal]$trade.netPnlUsdt).ToString($culture)
+                    GrossPnlUsdt = ([decimal]$trade.grossPnlUsdt).ToString($culture)
+                    FeesUsdt = ([decimal]$trade.feesUsdt).ToString($culture)
+                    SlippageUsdt = ([decimal]$trade.slippageUsdt).ToString($culture)
+                    NetR = ([decimal]$trade.netRMultiple).ToString($culture)
+                    InitialRiskUsdt = ([decimal]$trade.initialRiskUsdt).ToString($culture)
+                    MfeR = ([decimal]$trade.mfeR).ToString($culture)
+                    MaeR = ([decimal]$trade.maeR).ToString($culture)
+                    StopAdjustments = $trade.stopAdjustments
+                    EntryTrend = $signal.primaryTrend
+                    Trend5m = if ($trend5m.Count) { $trend5m[0].trend } else { '' }
+                    Trend15m = if ($trend15m.Count) { $trend15m[0].trend } else { '' }
+                    HtfConflicts = $entry.atSignal.higherTimeframeConflicts
+                    VolumeLevel = $signal.volumeLevel
+                    TakerBalance = $signal.takerBalance
+                    RelativeVolume = if ($null -ne $signal.relativeVolume) { ([decimal]$signal.relativeVolume).ToString($culture) } else { '' }
+                    EstimatedCostToRiskPct = if ($null -ne $entry.estimatedCostToInitialRiskPct) { ([decimal]$entry.estimatedCostToInitialRiskPct).ToString($culture) } else { '' }
+                    BreakoutState = $entry.atSignal.breakoutState
+                    EntryGapPct = if ($null -ne $entry.entryGapPct) { ([decimal]$entry.entryGapPct).ToString($culture) } else { '' }
+                }
+            }
         }
     }
 }
@@ -299,4 +370,15 @@ if (-not $NoCsv) {
     $summary | Export-Csv -Path $sumFile -NoTypeInformation -Encoding UTF8
     Write-Host "Saved: $rawFile"
     Write-Host "Saved: $sumFile"
+    if ($ExportTrades) {
+        $tradeFile = Join-Path $out ("setup-trades-{0}{1}-{2}.csv" -f $Symbol,$outputSuffix,$AsOf)
+        if ($tradeRows.Count -eq 0) {
+            # Explicit empty-trade results: do not reuse stale CSV from an earlier run.
+            if (Test-Path $tradeFile) { Remove-Item -Path $tradeFile -Force }
+            Write-Host "No closed trades: $tradeFile not written"
+        } else {
+            $tradeRows | Export-Csv -Path $tradeFile -NoTypeInformation -Encoding UTF8
+            Write-Host "Saved: $tradeFile ($($tradeRows.Count) closed trades)"
+        }
+    }
 }
