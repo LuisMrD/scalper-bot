@@ -79,8 +79,7 @@ function Get-TradeAuditMetrics {
         throw "Invalid ungrouped decimal for $Field : $literal"
     }
     $normalized = $literal.Replace(',', '.')
-    $styles = [System.Globalization.NumberStyles]::AllowLeadingSign -bor
-              [System.Globalization.NumberStyles]::AllowDecimalPoint
+    $styles = ([System.Globalization.NumberStyles]::AllowLeadingSign -bor [System.Globalization.NumberStyles]::AllowDecimalPoint)
     return [decimal]::Parse($normalized, $styles, $script:TradeAuditCulture)
 }
 
