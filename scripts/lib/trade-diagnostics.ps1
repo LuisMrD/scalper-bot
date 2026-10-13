@@ -7,14 +7,15 @@ function Read-TradeDecimal {
     if ($null -eq $Value -or [string]::IsNullOrWhiteSpace([string]$Value)) {
         throw "Missing numeric audit field $Field"
     }
-    # Historical CSVs were exported from a pt-BR PowerShell session:
-    # Double columns like NetClosedUsdt were formatted as "-172,1852"
-    # while per-trade decimals were explicitly exported as "-172.1852".
-    # InvariantCulture's default NumberStyles.Number silently interprets
-    # the COMMA as a thousands separator (e.g. "0,1396" -> 1396).
-    # Do not allow any thousands separators: these exports never use them.
+    # PnL CSVs from pt-BR have decimal commas; trades use invariant decimal dots.
+    # A comma in these CSVs is ALWAYS a decimal separator, never thousands.
     $literal = ([string]$Value).Trim()
-    if ($literal -notmatch '^[+-]?[0-9]+([.,][0-9]+)?
+    if ($literal -notmatch '^[+-]?[0-9]+([.,][0-9]+)?\z') {
+        throw "Invalid ungrouped decimal for $Field : $literal"
+    }
+    $normalized = $literal.Replace(',', '.')
+    $styles = ([System.Globalization.NumberStyles]::AllowLeadingSign -bor [System.Globalization.NumberStyles]::AllowDecimalPoint)
+    return [decimal]::Parse($normalized, $styles, $script:TradeAuditCulture)
 }
 
 function Sum-TradeDecimal {
