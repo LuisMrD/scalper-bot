@@ -55,7 +55,20 @@ public class BacktestService {
         this.clock = Objects.requireNonNull(clock);
     }
 
+    /** Filtered research replay retains the same dynamic order/position ledger. */
+    public record FilteredReplay(BacktestResult backtest, int filteredSignals) {}
+
+    /** Existing endpoint and production callers retain the exact unfiltered behavior. */
     public BacktestResult run(BacktestRequest request) {
+        return runFiltered(request, EntryBreakoutFilter.NONE).backtest();
+    }
+
+    /** Only the explicitly requested historical replay is filtered; no global state changes. */
+    public FilteredReplay runFiltered(BacktestRequest request, EntryBreakoutFilter filter) {
+        Objects.requireNonNull(filter, "filter");
+        if (filter != EntryBreakoutFilter.NONE && request.includeLuna())
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Filtered JAVA research does not support includeLuna=true");
         // Enabling LUNA globally does not trigger billing: caller MUST opt in on this POST.
         if (request.includeLuna() && !luna.ready())
             throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
@@ -104,6 +117,7 @@ public class BacktestService {
         var javaEngine = new JavaDecisionEngine(resolveJavaParameters(request));
         var javaLedger = new BacktestLedger("JAVA", policy, request);
         BacktestLedger lunaLedger = request.includeLuna() ? new BacktestLedger("LUNA", policy, request) : null;
+        int filteredSignals = 0;
         for (int i=0; i<tape.size(); i++) {
             MarketCandle bar = tape.get(i);
             javaLedger.begin(bar);
@@ -124,6 +138,16 @@ public class BacktestService {
                             "Contexto nao corresponde ao candle historico avaliado");
                 var javaSide = javaLedger.side();
                 javaDecision = javaEngine.evaluate(context, new PositionState(javaSide));
+                // Filters use ONLY the currently closed primary candle and its breakout state.
+                // Filtering happens before proposing an entry in the independent ledger.
+                if (filter.blocks(javaDecision, first.priceAction().breakout().state())) {
+                    filteredSignals++;
+                    javaDecision = new DecisionResult(javaDecision.engine(),
+                            javaDecision.symbol(), javaDecision.entryInterval(),
+                            javaDecision.requestedAsOfEpochMs(), javaDecision.evaluatedCandleCloseTime(),
+                            DecisionResult.Entry.WAIT, DecisionResult.PositionAction.NONE,
+                            DecisionResult.Setup.NONE, DecisionResult.Reason.ENTRY_BREAKOUT_FILTER);
+                }
                 javaRisk = javaLedger.decide(javaDecision, first);
                 if (includeDecisionHistory
                         || javaRisk.action() == RiskPreviewResult.Action.PROPOSED_ENTRY) {
@@ -151,12 +175,13 @@ public class BacktestService {
                 lunaLedger.markClose(bar.close(), bar.closeTime(), lunaDecision, lunaRisk);
         }
         MarketCandle last = tape.getLast();
-        return new BacktestResult(request.symbol(), request.intervals(), tape.getFirst().openTime(),
+        BacktestResult result = new BacktestResult(request.symbol(), request.intervals(), tape.getFirst().openTime(),
                 last.closeTime(), tape.size(), tape.size()-1,
                 "NEXT_OPEN_WITH_ADVERSE_SLIPPAGE_STOP_FIRST",
                 javaLedger.result(last.close()),
                 lunaLedger == null ? null : lunaLedger.result(last.close()), lunaLedger != null,
                 javaHistory, lunaHistory);
+        return new FilteredReplay(result, filteredSignals);
     }
 
     private static BacktestResult.DecisionTrace trace(MultiTimeframeMarketContext context,
