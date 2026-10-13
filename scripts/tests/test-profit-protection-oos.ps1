@@ -22,7 +22,8 @@ foreach ($required in @(
     'OOS_1M_CANDLES_PER_WINDOW=18000',
     'OOS_5M_CANDLES_PER_WINDOW=3600',
     'OOS_NO_LUNA=true',
-    'OOS_NO_ORDERS=true'
+    'OOS_NO_ORDERS=true',
+    'OOS_EXPECTED_CAPITAL_USDT=1500'
 )) {
     if ($lines -notcontains $required) { throw ("Missing plan field {0}" -f $required) }
 }
