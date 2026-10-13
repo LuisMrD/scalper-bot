@@ -66,5 +66,8 @@ jobs:
       - name: Smoke 1m vs 5m trade expectancy diagnostics (offline)
         shell: pwsh
         run: ./scripts/tests/test-trade-diagnostics.ps1
+      - name: Smoke 5m RETEST trade CSV export and capital safety (mock HTTP)
+        shell: pwsh
+        run: ./scripts/tests/test-trade-export.ps1
       - name: Validate and test (no real orders)
         run: mvn -B -ntp verify
