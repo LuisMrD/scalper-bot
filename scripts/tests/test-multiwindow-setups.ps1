@@ -44,7 +44,7 @@ function Invoke-RestMethod {
         if ($req.includeLuna -or $req.symbol -ne 'SOLUSDT' -or
                 $req.maxCostToInitialRiskPctOverride -ne 50 -or
                 $req.breakEvenTriggerROverride -ne '1.0' -or
-                $req.priceTick -ne '0.01' -or $req.quantityStep -ne '0.01') {
+                [decimal]$req.priceTick -ne [decimal]0.01 -or [decimal]$req.quantityStep -ne [decimal]0.01) {
             throw "Bad or unsafe historical replay request: $Body"
         }
         if ($req.steps -ne $testSteps -or @($req.intervals).Count -ne 3) {
