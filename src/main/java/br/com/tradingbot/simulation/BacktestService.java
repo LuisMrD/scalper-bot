@@ -56,7 +56,12 @@ public class BacktestService {
     }
 
     /** Filtered research replay retains the same dynamic order/position ledger. */
-    public record FilteredReplay(BacktestResult backtest, int filteredSignals) {}
+    public record FilteredReplay(BacktestResult backtest, int filteredSignals,
+            int reentryBlockedSignals) {
+        public FilteredReplay(BacktestResult backtest, int filteredSignals) {
+            this(backtest, filteredSignals, 0);
+        }
+    }
 
     /** Existing endpoint and production callers retain the exact unfiltered behavior. */
     public BacktestResult run(BacktestRequest request) {
@@ -65,7 +70,25 @@ public class BacktestService {
 
     /** Only the explicitly requested historical replay is filtered; no global state changes. */
     public FilteredReplay runFiltered(BacktestRequest request, EntryBreakoutFilter filter) {
+        return runFiltered(request, filter, ReentryWaitPolicy.NONE);
+    }
+
+    /**
+     * Dedicated research-only replay. A rejected RETEST entry arms a waiting
+     * state; later signals are re-evaluated only with candles closed so far.
+     */
+    public FilteredReplay runFiltered(BacktestRequest request, EntryBreakoutFilter filter,
+            ReentryWaitPolicy waitPolicy) {
         Objects.requireNonNull(filter, "filter");
+        Objects.requireNonNull(waitPolicy, "waitPolicy");
+        if (waitPolicy != ReentryWaitPolicy.NONE
+                && (filter != EntryBreakoutFilter.BLOCK_BOTH
+                    || !request.intervals().getFirst().equals("5m")
+                    || !request.intervals().contains("15m")
+                    || request.includeLuna())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Reentry research requires BLOCK_BOTH, 5m+15m and no Luna");
+        }
         if (filter != EntryBreakoutFilter.NONE && request.includeLuna())
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Filtered JAVA research does not support includeLuna=true");
@@ -118,6 +141,8 @@ public class BacktestService {
         var javaLedger = new BacktestLedger("JAVA", policy, request);
         BacktestLedger lunaLedger = request.includeLuna() ? new BacktestLedger("LUNA", policy, request) : null;
         int filteredSignals = 0;
+        int reentryBlockedSignals = 0;
+        var waitState = new ReentryWaitState(waitPolicy);
         for (int i=0; i<tape.size(); i++) {
             MarketCandle bar = tape.get(i);
             javaLedger.begin(bar);
@@ -138,15 +163,27 @@ public class BacktestService {
                             "Contexto nao corresponde ao candle historico avaliado");
                 var javaSide = javaLedger.side();
                 javaDecision = javaEngine.evaluate(context, new PositionState(javaSide));
-                // Filters use ONLY the currently closed primary candle and its breakout state.
-                // Filtering happens before proposing an entry in the independent ledger.
+                br.com.tradingbot.analysis.brooks.PriceActionSnapshot.Trend trend15m = null;
+                if (waitPolicy != ReentryWaitPolicy.NONE) {
+                    trend15m = context.timeframes().stream()
+                            .filter(frame -> frame.interval().equals("15m"))
+                            .findFirst()
+                            .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+                                    "15m context missing from replay"))
+                            .priceAction().trend();
+                    waitState.onClosedCandle(trend15m);
+                }
+                // BLOCK_BOTH gets precedence over wait so a fresh rejected
+                // signal restarts the fixed delay without ever becoming an entry.
                 if (filter.blocks(javaDecision, first.priceAction().breakout().state())) {
                     filteredSignals++;
-                    javaDecision = new DecisionResult(javaDecision.engine(),
-                            javaDecision.symbol(), javaDecision.entryInterval(),
-                            javaDecision.requestedAsOfEpochMs(), javaDecision.evaluatedCandleCloseTime(),
-                            DecisionResult.Entry.WAIT, DecisionResult.PositionAction.NONE,
-                            DecisionResult.Setup.NONE, DecisionResult.Reason.ENTRY_BREAKOUT_FILTER);
+                    if (waitPolicy != ReentryWaitPolicy.NONE) waitState.onEntryRejected(trend15m);
+                    javaDecision = rejectedEntry(javaDecision, DecisionResult.Reason.ENTRY_BREAKOUT_FILTER);
+                } else if (waitPolicy != ReentryWaitPolicy.NONE && waitState.blocksEntry()
+                        && javaDecision.setup() == DecisionResult.Setup.BREAKOUT_RETEST
+                        && javaDecision.entry() != DecisionResult.Entry.WAIT) {
+                    reentryBlockedSignals++;
+                    javaDecision = rejectedEntry(javaDecision, DecisionResult.Reason.ENTRY_REENTRY_WAIT);
                 }
                 javaRisk = javaLedger.decide(javaDecision, first);
                 if (includeDecisionHistory
@@ -181,7 +218,14 @@ public class BacktestService {
                 javaLedger.result(last.close()),
                 lunaLedger == null ? null : lunaLedger.result(last.close()), lunaLedger != null,
                 javaHistory, lunaHistory);
-        return new FilteredReplay(result, filteredSignals);
+        return new FilteredReplay(result, filteredSignals, reentryBlockedSignals);
+    }
+
+    private static DecisionResult rejectedEntry(DecisionResult original, DecisionResult.Reason reason) {
+        return new DecisionResult(original.engine(), original.symbol(), original.entryInterval(),
+                original.requestedAsOfEpochMs(), original.evaluatedCandleCloseTime(),
+                DecisionResult.Entry.WAIT, DecisionResult.PositionAction.NONE,
+                DecisionResult.Setup.NONE, reason);
     }
 
     private static BacktestResult.DecisionTrace trace(MultiTimeframeMarketContext context,
