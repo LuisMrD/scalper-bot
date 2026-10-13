@@ -71,8 +71,10 @@ if ($PrintOnly) {
     Write-Output 'OOS_NO_LUNA=true'
     Write-Output 'OOS_NO_ORDERS=true'
     Write-Output ("OOS_EXPECTED_CAPITAL_USDT={0}" -f $ExpectedCapitalUsdt)
-    foreach ($planned in $plan) {
-        Write-Output ("OOS_WINDOW={0};FROM={1};ASOF={2}" -f $planned.Window,$planned.FromOpen,$planned.AsOf)
+    # Iterate using the EXACT same record variable as the live replay.
+    # This catches PowerShell type collisions before a costly history sync.
+    foreach ($windowRecord in $plan) {
+        Write-Output ("OOS_WINDOW={0};FROM={1};ASOF={2}" -f $windowRecord.Window,$windowRecord.FromOpen,$windowRecord.AsOf)
     }
     Write-Host 'Nenhuma chamada remota foi realizada.'
     return
