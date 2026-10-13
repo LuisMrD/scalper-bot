@@ -132,7 +132,7 @@ foreach ($tf in @('1m','5m')) {
     }
     [decimal]$sumFromTrades = Sum-TradeDecimal @($rows | ForEach-Object { Read-TradeDecimal $_.NetPnlUsdt 'NetPnlUsdt' })
     [decimal]$sumFromWindow = Sum-TradeDecimal @($windowRows | ForEach-Object { Read-TradeDecimal $_.NetClosedUsdt 'NetClosedUsdt' })
-    if ([decimal]::Abs($sumFromTrades - $sumFromWindow) -gt [decimal]0.01) {
+    if ([math]::Abs($sumFromTrades - $sumFromWindow) -gt [decimal]0.01) {
         throw "$tf: closed-trade PnL does not reconcile with exported window PnL"
     }
     $windowsByTf[$tf] = $windowRows
