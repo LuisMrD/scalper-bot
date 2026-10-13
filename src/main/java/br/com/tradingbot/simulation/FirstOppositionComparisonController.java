@@ -22,4 +22,10 @@ public class FirstOppositionComparisonController {
     public FirstOppositionComparisonService.Result compare(@RequestBody BacktestRequest request) {
         return service.compare(request);
     }
+
+    @PostMapping("/compare-profit-protection")
+    public FirstOppositionComparisonService.ProfitProtectionResult compareProfitProtection(
+            @RequestBody BacktestRequest request) {
+        return service.compareProfitProtection(request);
+    }
 }
