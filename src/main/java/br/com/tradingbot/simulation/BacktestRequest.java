@@ -20,8 +20,8 @@ public record BacktestRequest(String symbol, List<String> intervals, int steps, 
         if (intervals.isEmpty() || intervals.size() > 5 || new HashSet<>(intervals).size() != intervals.size()
                 || intervals.stream().anyMatch(String::isBlank))
             throw new IllegalArgumentException("Informe 1 a 5 timeframes sem repeticoes");
-        if (steps < 2 || steps > 3000 || contextLimit < 21 || contextLimit > 500)
-            throw new IllegalArgumentException("steps deve ser 2..3000; contextLimit deve ser 21..500");
+        if (steps < 2 || steps > 18000 || contextLimit < 21 || contextLimit > 500)
+            throw new IllegalArgumentException("steps deve ser 2..18000; contextLimit deve ser 21..500");
         if (includeLuna && steps > 10)
             throw new IllegalArgumentException("Backtest Luna limitado a 10 steps pagos por solicitacao");
         if (asOf != null && asOf < 0) throw new IllegalArgumentException("asOf invalido");
