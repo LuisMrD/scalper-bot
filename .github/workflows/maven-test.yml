@@ -63,5 +63,8 @@ jobs:
       - name: Smoke non-overlapping setups and source checks (mock HTTP only)
         shell: pwsh
         run: ./scripts/tests/test-multiwindow-setups.ps1
+      - name: Smoke 1m vs 5m trade expectancy diagnostics (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-trade-diagnostics.ps1
       - name: Validate and test (no real orders)
         run: mvn -B -ntp verify
