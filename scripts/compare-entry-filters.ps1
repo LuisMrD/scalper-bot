@@ -136,6 +136,11 @@ foreach($period in $plan){
     }
     if($seen.Count -ne 4){throw ("Janela {0}: matriz incompleta" -f $w)}
     foreach($t in $tradeData){
+        $f=$t.entryFeatures
+        if($null -eq $f -or $null -eq $f.signalCloseTime -or
+           [long]$f.signalCloseTime -ge [long]$t.enteredAtOpenTime){
+            throw ("Janela {0}: diagnostico de entrada ausente ou futuro" -f $w)
+        }
         $tradeRows += [PSCustomObject]@{
             Window=$w;Filter=$t.filter;Side=$t.side
             EnteredAtOpenTime=$t.enteredAtOpenTime
@@ -143,6 +148,24 @@ foreach($period in $plan){
             EntryBreakoutState=$t.entryBreakoutState;ExitReason=$t.exitReason
             Quantity=$t.quantity;InitialRiskUsdt=$t.initialRiskUsdt
             NetPnlUsdt=$t.netPnlUsdt;FeesUsdt=$t.feesUsdt
+            SignalAtCloseTime=$f.signalCloseTime
+            EntryHourUtc=[DateTimeOffset]::FromUnixTimeMilliseconds(
+                [long]$t.enteredAtOpenTime).UtcDateTime.Hour
+            PrimaryTrend=$f.primaryTrend;Trend15m=$f.trend15m
+            HigherTimeframeConflicts=$f.higherTimeframeConflicts
+            VolumeLevel=$f.volumeLevel;TakerBalance=$f.takerBalance
+            RelativeVolume=$f.relativeVolume;RelativeSpread=$f.relativeSpread
+            TakerBuyShare=$f.takerBuyShare;EffortResult=$f.effortResult
+            BarDirection=$f.barDirection;BarTrend=$f.trendBar;BarDoji=$f.doji
+            BarInside=$f.insideBar;BarOutside=$f.outsideBar
+            BullishRejection=$f.bullishRejection;BearishRejection=$f.bearishRejection
+            PullbackCandidate=$f.pullbackCandidate
+            ConfirmedPivotCount=$f.confirmedPivotCount;AtrAtSignal=$f.atrAtSignal
+            StopDistancePct=$f.stopDistancePct;EntryGapPct=$f.entryGapPct
+            EstimatedCostToInitialRiskPct=$f.estimatedCostToInitialRiskPct
+            EstimatedRoundTripCostUsdt=$f.estimatedRoundTripCostUsdt
+            DurationCandles=$t.durationCandles;MfeR=$t.mfeR
+            MaeR=$t.maeR;NetRMultiple=$t.netRMultiple
         }
     }
 }
