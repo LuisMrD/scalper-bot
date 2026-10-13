@@ -73,7 +73,7 @@ public class FirstOppositionComparisonService {
 
     public record ProfitProtectionResult(
             String symbol, String primaryInterval, long fromOpenTime,
-            long asOfCloseTime, int originalTrades,
+            long asOfCloseTime, int originalTrades, BigDecimal startingEquityUsdt,
             List<ProfitProtectionSummary> summaries, List<ProfitProtectionTrade> trades,
             String scope, String executionModel) {}
 
@@ -322,6 +322,7 @@ public class FirstOppositionComparisonService {
         return new ProfitProtectionResult(request.symbol(), tf,
                 original.fromCandleOpenTime(), original.throughCandleCloseTime(),
                 original.javaPortfolio().trades().size(),
+                original.javaPortfolio().startingEquityUsdt(),
                 List.copyOf(summaries), List.copyOf(detail),
                 "FROZEN_ORIGINAL_CLOSED_TRADES; original entries, sizing and original stop precedence",
                 "NET_CLOSE_PNL >= TRIGGER_R * ORIGINAL_GROSS_RISK; "
