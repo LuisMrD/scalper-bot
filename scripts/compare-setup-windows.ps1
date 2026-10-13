@@ -41,7 +41,8 @@ param(
     [switch]$PrintOnly,
     [switch]$NoCsv,
     [ValidateSet('ALL','BOTH','PULLBACK','RETEST')]
-    [string]$Setup = 'ALL',
+    [Alias('Setup')]
+    [string]$SelectedSetup = 'ALL',
     [switch]$ExportTrades,
     [ValidateRange(0,1000000000)]
     [decimal]$ExpectedCapitalUsdt = 0
@@ -62,7 +63,7 @@ $setups = @(
     [PSCustomObject]@{ Name='PULLBACK'; Pullback=$true; Retest=$false },
     [PSCustomObject]@{ Name='RETEST'; Pullback=$false; Retest=$true }
 )
-if ($Setup -ne 'ALL') { $setups = @($setups | Where-Object { $_.Name -eq $Setup }) }
+if ($SelectedSetup -ne 'ALL') { $setups = @($setups | Where-Object { $_.Name -eq $SelectedSetup }) }
 $exchangeInfoUrl = if ($Source -eq 'production') {
     'https://fapi.binance.com/fapi/v1/exchangeInfo'
 } else {
