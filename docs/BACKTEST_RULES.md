@@ -323,3 +323,121 @@ permitem inferir significancia estatistica nem usar as diferenças observadas
 como filtro lucrativo. Repetir em muitas janelas fora da amostra antes de
 alterar o algoritmo, principalmente se as entradas e saídas variam entre
 estrategias simuladas. Não misturar Testnet e producao no mesmo banco.
+
+## Teste em multiplas janelas sem sobreposicao e tres setups
+
+O `POST /api/v1/backtest/run` aceita os novos campos opcionais:
+
+- `pullbackEnabledOverride` boolean ou `null`;
+- `breakoutRetestEnabledOverride` boolean ou `null`.
+
+`null` herda a configuracao do `java-decision` global; `true/false`
+substitui **somente neste POST**. Ambos falsos sao invalidos.
+O servico instancia um `JavaDecisionEngine` isolado e imutavel para
+cada replay, sem mudar a estrategia de outros requests ou a API em tempo real.
+O `LUNA` nao recebe override de setup; por seguranca, o script sempre
+solicita `includeLuna=false`.
+
+### Comparacao em tres janelas de 3000 candles (Testnet)
+
+Inicie a aplicacao com MySQL e parametros de risco que ja usa, e execute:
+
+```powershell
+.\scripts\compare-setup-windows.ps1 -PrintOnly
+.\scripts\compare-setup-windows.ps1 -Source testnet -Windows 3 -Steps 3000 -AsOf 1791846239999 -SyncHistory
+```
+
+Se o historico necessario ja estiver sincronizado, omita `-SyncHistory`.
+Sem `-AsOf`, o script tenta ancorar no ultimo fechamento local de 1m;
+para um banco vazio, informe `-AsOf` e `-SyncHistory` explicitamente.
+
+O script executa automaticamente (BOTH, PULLBACK, RETEST) em cada
+janela com `CostLimitPct=50`, `ContextLimit=200`,
+`breakEvenTriggerROverride=1.0`, mesmos filtros `exchangeInfo`,
+mesmos custos do ambiente, e sem `maxHoldingCandles`.
+Nao e necessario editar YAML nem reiniciar Spring entre os 3 setups.
+
+**Janelas sao disjuntas para candles negociados:** o `asOf` diminui
+`3000*60.000` ms a cada janela. Cada resposta deve reportar o
+`fromCandleOpenTime` e `throughCandleCloseTime` exatos esperados,
+alem de 3000 candles, ou o script ABORTA. Os candles anteriores de
+aquecimento dos indicadores 5m/15m podem se repetir entre janelas;
+eles sao apenas contexto, nao trades do replay. Se 1m/5m/15m tem
+lacunas ou aquecimento insuficiente, a API retorna erro; nao
+interpolamos precos nem substituimos a janela.
+
+Em uma coleta padrao de **sete dias**, tres janelas de 3000 minutos
+mais aproximadamente 200 candles anteriores de 15m podem exceder o
+historico; use `-SyncHistory` para tentar ampliar via klines publicos.
+A disponibilidade e os limites da API Binance continuam aplicaveis;
+nao presumimos que toda a historia sera retornada. A chamada `-SyncHistory`
+faz ingestao publica idempotente no banco local, nao abre ordens.
+
+Arquivos:
+
+- `results/setup-windows-SOLUSDT-<asOf>.csv`: retorno marcado,
+  retorno realizado das posicoes fechadas, P&L aberto, DD, win/loss,
+  quantidade de trades, intervalo UTC e setup de cada janela.
+- `results/setup-summary-SOLUSDT-<asOf>.csv`: quantidade de janelas
+  positivas, retorno **medio/mediano** por janela, pior resultado,
+  DD medio e agregado descritivo de trades.
+
+Cada janela inicia com **banca ficticia nova de US$ 300**. Os retornos
+medios nao sao rendimento composto de uma conta real.
+Resultados marcados incluem posicoes abertas, nao realizadas.
+Repetir teste em varias janelas melhora a investigacao, mas ainda
+nao garante independencia estatistica, pois regimes macro e contexto
+tecnico podem atravessar os limites do replay.
+
+### Pesquisa com OHLCV publico de producao (opt-in, SEM ordens)
+
+Para evitar misturar OHLCV da **Testnet** e de **producao**, a aplicacao
+possui o perfil opcional `research` em `application-research.yml`,
+que utiliza os klines publicos de `https://fapi.binance.com` e
+**exige um banco/schema MySQL separado** com credenciais
+`RESEARCH_DB_URL`, `RESEARCH_DB_USERNAME` e
+`RESEARCH_DB_PASSWORD`. Crie previamente o novo schema e usuario
+com suas credenciais locais, distinto de `trading_bot` Testnet. Nao
+aponte `RESEARCH_DB_URL` para o banco usado na Testnet!
+
+Um exemplo de variaveis na sessao PowerShell dedicada a pesquisa:
+
+```powershell
+$env:SPRING_PROFILES_ACTIVE = 'research'
+$env:RESEARCH_DB_URL = 'jdbc:mysql://127.0.0.1:3307/trading_bot_research?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true'
+$env:RESEARCH_DB_USERNAME = '<usuario-research>'
+$env:RESEARCH_DB_PASSWORD = '<senha-research>'
+$env:TRADING_SYMBOLS = 'SOLUSDT'
+$env:TRADING_CAPITAL_USDT = '300'
+$env:TRADING_RISK_PER_TRADE_PCT = '0.5'
+$env:TRADING_DAILY_STOP_PCT = '3'
+$env:TRADING_LEVERAGE = '1'
+$env:RISK_FEE_PER_SIDE_PCT = '0.05'
+$env:RISK_SLIPPAGE_PER_SIDE_PCT = '0.02'
+$env:JAVA_DECISION_REQUIRE_HIGHER_TF = 'false'
+$env:LUNA_ENABLED = 'false'
+$env:TRADING_ORDERS_ENABLED = 'false'
+mvn spring-boot:run
+```
+
+Na **outra** janela PowerShell:
+
+```powershell
+.\scripts\compare-setup-windows.ps1 -Source production -ConfirmIsolatedDatabase -Windows 3 -Steps 3000 -SyncHistory -AsOf 1791846239999
+```
+
+`-ConfirmIsolatedDatabase` e uma declaracao explicita do operador;
+a API **nao verifica fisicamente** que o schema MySQL foi isolado.
+A API `/api/v1/market-data/settings` identifica a origem efetiva do
+backend (`source=TESTNET/PRODUCTION`), e o script rejeita origem
+diferente da requisitada. Se a Binance bloquear o acesso regional ou
+limitar dados, a pesquisa nao podera prosseguir ate que o historico
+publico esteja disponivel. Nenhum resultado de producao foi
+executado nem comprovado neste PR.
+
+**Observacao de validade:** a escolha atual do PULLBACK foi feita
+olhando a janela de `asOf=1791846239999`, entao essa janela e
+"in-sample". Para medir generalizacao, use periodos de outras datas,
+especialmente os historicamente anteriores ou posteriores nao usados
+para definir parametros, e nao ajuste filtros com base apenas no melhor
+resultado de cada janela.

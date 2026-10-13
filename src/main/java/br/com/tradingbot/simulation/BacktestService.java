@@ -6,6 +6,7 @@ import br.com.tradingbot.config.TradingProperties;
 import br.com.tradingbot.decision.DecisionResult;
 import br.com.tradingbot.decision.JavaDecisionConfiguration;
 import br.com.tradingbot.decision.JavaDecisionEngine;
+import br.com.tradingbot.decision.JavaDecisionParameters;
 import br.com.tradingbot.decision.PositionState;
 import br.com.tradingbot.decision.luna.LunaDecisionService;
 import br.com.tradingbot.market.model.CandleInterval;
@@ -29,7 +30,7 @@ import org.springframework.web.server.ResponseStatusException;
 public class BacktestService {
     private final MarketDataService market;
     private final MarketContextService contexts;
-    private final JavaDecisionEngine javaEngine;
+    private final JavaDecisionParameters defaultJavaParameters;
     private final LunaDecisionService luna;
     private final TradingProperties trading;
     private final RiskManagementConfiguration technical;
@@ -47,7 +48,7 @@ public class BacktestService {
             TradingProperties trading, RiskManagementConfiguration technical, Clock clock) {
         this.market = Objects.requireNonNull(market);
         this.contexts = Objects.requireNonNull(contexts);
-        this.javaEngine = new JavaDecisionEngine(javaConfig.toParameters());
+        this.defaultJavaParameters = javaConfig.toParameters();
         this.luna = Objects.requireNonNull(luna);
         this.trading = Objects.requireNonNull(trading);
         this.technical = Objects.requireNonNull(technical);
@@ -96,6 +97,9 @@ public class BacktestService {
         var javaHistory = new ArrayList<BacktestResult.DecisionTrace>(tape.size() - 1);
         var lunaHistory = new ArrayList<BacktestResult.DecisionTrace>(request.includeLuna()
                 ? tape.size() - 1 : 0);
+        // Immutable engine local to this replay; concurrent HTTP requests cannot
+        // change another replay's setup flags or the configured global strategy.
+        var javaEngine = new JavaDecisionEngine(resolveJavaParameters(request));
         var javaLedger = new BacktestLedger("JAVA", policy, request);
         BacktestLedger lunaLedger = request.includeLuna() ? new BacktestLedger("LUNA", policy, request) : null;
         for (int i=0; i<tape.size(); i++) {
@@ -182,6 +186,22 @@ public class BacktestService {
         return new BacktestResult.EntrySignalSnapshot(trace, latestPattern,
                 pa.breakout().state(), pa.pullbackCandidate(), pa.confirmedPivots().size(),
                 primary.marketLevels().atr(), bar.close(), obs.takerBuyShare(), conflicts);
+    }
+
+    JavaDecisionParameters resolveJavaParameters(BacktestRequest request) {
+        var base = defaultJavaParameters;
+        boolean pullback = request.pullbackEnabledOverride() == null
+                ? base.pullbackEnabled() : request.pullbackEnabledOverride();
+        boolean retest = request.breakoutRetestEnabledOverride() == null
+                ? base.breakoutRetestEnabled() : request.breakoutRetestEnabledOverride();
+        // JavaDecisionParameters enforces at least one enabled setup.
+        try {
+            return new JavaDecisionParameters(base.breakoutLookback(), base.retestMaxBars(),
+                    base.maxPrimaryStalenessBars(), base.requireHigherTimeframeAlignment(),
+                    base.requireDominantTakerVolume(), pullback, retest);
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
+        }
     }
 
     RiskPolicy policy(BacktestRequest request) {

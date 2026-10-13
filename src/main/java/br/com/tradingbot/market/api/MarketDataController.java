@@ -1,6 +1,7 @@
 package br.com.tradingbot.market.api;
 
 import br.com.tradingbot.config.MarketDataProperties;
+import br.com.tradingbot.config.BinanceProperties;
 import br.com.tradingbot.market.model.MarketCandle;
 import br.com.tradingbot.market.service.MarketDataService;
 import jakarta.validation.constraints.Max;
@@ -20,13 +21,20 @@ import org.springframework.web.bind.annotation.RestController;
 public class MarketDataController {
     private final MarketDataService service;
     private final MarketDataProperties config;
-    public MarketDataController(MarketDataService service,MarketDataProperties config){
-        this.service=service; this.config=config;
+    private final BinanceProperties binance;
+    public MarketDataController(MarketDataService service, MarketDataProperties config,
+            BinanceProperties binance) {
+        this.service = service; this.config = config; this.binance = binance;
     }
     @GetMapping("/settings")
-    public Object settings(){
-        return java.util.Map.of("intervals",config.intervals(),"websocketEnabled",config.websocketEnabled(),
-            "bootstrapEnabled",config.bootstrapEnabled(),"readonly",true);
+    public Object settings() {
+        String host = binance.restBaseUrl().getHost();
+        String source = "demo-fapi.binance.com".equalsIgnoreCase(host) ? "TESTNET"
+                : "fapi.binance.com".equalsIgnoreCase(host) ? "PRODUCTION" : "UNKNOWN";
+        return java.util.Map.of("intervals", config.intervals(),
+                "websocketEnabled", config.websocketEnabled(),
+                "bootstrapEnabled", config.bootstrapEnabled(),
+                "readonly", true, "source", source);
     }
     @GetMapping("/candles")
     public List<MarketCandle> candles(@RequestParam @Pattern(regexp="[A-Z0-9]{5,32}") String symbol,

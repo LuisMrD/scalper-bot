@@ -60,5 +60,8 @@ jobs:
       - name: Smoke REST JSON arrays with mock HTTP (no network)
         shell: pwsh
         run: ./scripts/tests/test-rest-json-array-shapes.ps1
+      - name: Smoke non-overlapping setups and source checks (mock HTTP only)
+        shell: pwsh
+        run: ./scripts/tests/test-multiwindow-setups.ps1
       - name: Validate and test (no real orders)
         run: mvn -B -ntp verify

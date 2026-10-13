@@ -56,6 +56,37 @@ class BacktestServiceTest {
         verifyNoInteractions(market,contexts);
         verifyNoInteractions(luna);
     }
+    @Test void replaySetupOverridesAreIndependentAndDoNotChangeConfiguredDefaults() {
+        var svc = service(mock(MarketDataService.class), mock(MarketContextService.class),
+                mock(LunaDecisionService.class), true);
+        var base = request(false);
+        var before = svc.resolveJavaParameters(base);
+        assertTrue(before.pullbackEnabled());
+        assertTrue(before.breakoutRetestEnabled());
+        assertTrue(before.requireHigherTimeframeAlignment());
+
+        var pullbackOnly = new BacktestRequest("BTCUSDT", List.of("1m"), 3, 30,
+                NOW-1, false, b("0.01"), b("0.001"), b("0.001"), b("5"),
+                null, b("50"), null, true, false);
+        var retestOnly = new BacktestRequest("BTCUSDT", List.of("1m"), 3, 30,
+                NOW-1, false, b("0.01"), b("0.001"), b("0.001"), b("5"),
+                null, b("50"), null, false, true);
+        var p = svc.resolveJavaParameters(pullbackOnly);
+        var r = svc.resolveJavaParameters(retestOnly);
+        assertTrue(p.pullbackEnabled());
+        assertFalse(p.breakoutRetestEnabled());
+        assertFalse(r.pullbackEnabled());
+        assertTrue(r.breakoutRetestEnabled());
+        assertEquals(before, svc.resolveJavaParameters(base));
+        assertEquals(before.breakoutLookback(), r.breakoutLookback());
+        assertEquals(before.retestMaxBars(), p.retestMaxBars());
+        assertEquals(before.requireDominantTakerVolume(), r.requireDominantTakerVolume());
+        assertThrows(IllegalArgumentException.class, () -> new BacktestRequest(
+                "BTCUSDT", List.of("1m"), 3, 30, NOW-1, false,
+                b("0.01"), b("0.001"), b("0.001"), b("5"),
+                null, b("50"), null, false, false));
+    }
+
     @Test void insufficientCandlesRejectsAndNeverCallsLuna() {
         var market=mock(MarketDataService.class);
         var contexts=mock(MarketContextService.class);
