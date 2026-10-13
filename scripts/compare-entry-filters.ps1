@@ -204,3 +204,8 @@ $aggregate | Sort-Object Filter | Format-Table Filter,Trades,WinRatePct,SignalsR
 Write-Host "Saved: $summaryFile"
 Write-Host "Saved: $windowsFile"
 Write-Host "Saved: $tradesFile"
+# Reuse the newly exported point-in-time entry features to audit ALL new,
+# preserved and removed closed trades without another database replay.
+& (Join-Path $PSScriptRoot 'audit-replacement-entries.ps1') `
+    -Symbol $Symbol -Windows $Windows -AsOf $AsOf -ResultsDir $out
+
