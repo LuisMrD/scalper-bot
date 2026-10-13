@@ -7,6 +7,29 @@ function TradeRow([string]$pnl,[string]$fee,[string]$slip,[string]$r) {
         NetPnlUsdt=$pnl; FeesUsdt=$fee; SlippageUsdt=$slip; NetR=$r
     }
 }
+# Regression: historical PowerShell CSVs from a pt-BR Windows session have
+# decimal commas in DOUBLE fields, while per-trade DECIMAL fields use dots.
+# Invariant NumberStyles.Number would silently parse "0,1396" as 1396.
+if ((Read-TradeDecimal '0,1396' 'NetClosedUsdt') -ne [decimal]0.1396 -or
+    (Read-TradeDecimal '-172,1852' 'NetClosedUsdt') -ne [decimal](-172.1852) -or
+    (Read-TradeDecimal '-138.3579' 'NetPnlUsdt') -ne [decimal](-138.3579)) {
+    throw 'pt-BR and invariant PnL decimals are not parsed as the same units.'
+}
+$unsafeNumeric = $false
+try {
+    Read-TradeDecimal '1.234,56' 'NetClosedUsdt' | Out-Null
+} catch {
+    if ($_.Exception.Message -match 'Invalid ungrouped decimal') { $unsafeNumeric = $true }
+}
+if (-not $unsafeNumeric) { throw 'Ambiguous mixed thousands/decimal notation was accepted.' }
+[decimal]$expectedBaselineClosed = -310.4035
+$windowStrings = @('0,1396','-172,1852','-138,3579')
+[decimal]$baselineClosed = Sum-TradeDecimal @(
+    $windowStrings | ForEach-Object { Read-TradeDecimal $_ 'NetClosedUsdt' }
+)
+if ([math]::Abs($baselineClosed - $expectedBaselineClosed) -gt [decimal]0.0001) {
+    throw "Wrong baseline total from pt-BR data: $baselineClosed"
+}
 $trades = @(
     (TradeRow '8' '0.5' '0.2' '2'),
     (TradeRow '2' '0.5' '0.2' '0.5'),
