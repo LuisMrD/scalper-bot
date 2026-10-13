@@ -1,0 +1,19 @@
+# Pesquisa historica com OHLCV publico da Binance USD-M Futures PRODUCTION.
+# RESEARCH_DB_URL/USERNAME/PASSWORD sao obrigatorios para ISOLAR candles
+# da Testnet e de producao. Use um schema criado especificamente para pesquisa.
+# Nao envia ordens, nao liga websocket, nao executa bootstrap automatico.
+spring:
+  datasource:
+    url: ${RESEARCH_DB_URL}
+    username: ${RESEARCH_DB_USERNAME}
+    password: ${RESEARCH_DB_PASSWORD}
+trading:
+  execution:
+    mode: BACKTEST
+    orders-enabled: false
+integrations:
+  binance:
+    rest-base-url: https://fapi.binance.com
+market-data:
+  websocket-enabled: false
+  bootstrap-enabled: false
