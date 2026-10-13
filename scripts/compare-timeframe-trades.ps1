@@ -76,7 +76,7 @@ $runner = Join-Path $PSScriptRoot 'compare-setup-windows.ps1'
 if (-not $AnalyzeExisting) {
     foreach ($tf in @('1m','5m')) {
         $steps = if ($tf -eq '1m') { 18000 } else { 3600 }
-        Write-Host "Replaying $Setup on $tf: $Windows x 300h, capital $ExpectedCapitalUsdt USDT, cutoff $AsOf"
+        Write-Host "Replaying $Setup on ${tf}: $Windows x 300h, capital $ExpectedCapitalUsdt USDT, cutoff $AsOf"
         & $runner -PrimaryInterval $tf -Symbol $Symbol -Setup $Setup `
             -Steps $steps -Windows $Windows -AsOf $AsOf -ContextLimit $ContextLimit `
             -CostLimitPct $CostLimitPct -ExpectedCapitalUsdt $ExpectedCapitalUsdt `
@@ -95,7 +95,7 @@ foreach ($tf in @('1m','5m')) {
     if (-not (Test-Path $windowCsv)) { throw "Missing $windowCsv. Run without -AnalyzeExisting." }
     $windowRows = @(Import-Csv -Path $windowCsv | Where-Object { $_.Setup -eq $Setup })
     if ($windowRows.Count -ne $Windows) {
-        throw "$tf: expected exactly $Windows rows for setup $Setup, got $($windowRows.Count)"
+        throw "${tf}: expected exactly $Windows rows for setup $Setup, got $($windowRows.Count)"
     }
     $expectedTradeCount = 0
     foreach ($row in $windowRows) {
@@ -104,36 +104,36 @@ foreach ($tf in @('1m','5m')) {
             $row.PrimaryInterval -ne $tf -or
             [decimal]$row.StartingEquityUsdt -ne $ExpectedCapitalUsdt -or
             [decimal]$row.HoursPerWindow -ne 300) {
-            throw "$tf: CSV provenance, capital or 300-hour duration is inconsistent"
+            throw "${tf}: CSV provenance, capital or 300-hour duration is inconsistent"
         }
         $expectedEnd = $AsOf - ([long]([int]$row.Window - 1) * 300L * 3600000L)
         $expectedFrom = $expectedEnd - 300L * 3600000L + 1
         if ([long]$row.AsOf -ne $expectedEnd -or [long]$row.FromOpen -ne $expectedFrom) {
-            throw "$tf: invalid time boundaries for window $($row.Window)"
+            throw "${tf}: invalid time boundaries for window $($row.Window)"
         }
         $expectedTradeCount += [int]$row.TradesClosed
     }
     $rows = if (Test-Path $tradeCsv) { @(Import-Csv -Path $tradeCsv | Where-Object { $_.Setup -eq $Setup }) } else { @() }
     if ($rows.Count -ne $expectedTradeCount) {
-        throw "$tf: expected $expectedTradeCount closed trades, found $($rows.Count) in $tradeCsv"
+        throw "${tf}: expected $expectedTradeCount closed trades, found $($rows.Count) in $tradeCsv"
     }
     foreach ($trade in $rows) {
         if ($trade.Source -ne $Source.ToUpperInvariant() -or $trade.Symbol -ne $Symbol -or
             $trade.PrimaryInterval -ne $tf -or $trade.EntryTrend -notin @('UP','DOWN') -or
             $trade.Trend15m -notin @('UP','DOWN','RANGE','UNDETERMINED')) {
-            throw "$tf: invalid trade provenance, signal trend, or 15m snapshot"
+            throw "${tf}: invalid trade provenance, signal trend, or 15m snapshot"
         }
         $match = @($windowRows | Where-Object { [int]$_.Window -eq [int]$trade.Window })
         if ($match.Count -ne 1 -or
             [long]$trade.EnteredAtOpenTime -lt [long]$match[0].FromOpen -or
             [long]$trade.ExitCandleOpenTime -gt [long]$match[0].AsOf) {
-            throw "$tf: trade timestamp outside its historical window"
+            throw "${tf}: trade timestamp outside its historical window"
         }
     }
     [decimal]$sumFromTrades = Sum-TradeDecimal @($rows | ForEach-Object { Read-TradeDecimal $_.NetPnlUsdt 'NetPnlUsdt' })
     [decimal]$sumFromWindow = Sum-TradeDecimal @($windowRows | ForEach-Object { Read-TradeDecimal $_.NetClosedUsdt 'NetClosedUsdt' })
     if ([math]::Abs($sumFromTrades - $sumFromWindow) -gt [decimal]0.01) {
-        throw "$tf: closed-trade PnL does not reconcile with exported window PnL"
+        throw "${tf}: closed-trade PnL does not reconcile with exported window PnL"
     }
     $windowsByTf[$tf] = $windowRows
     $tradesByTf[$tf] = $rows
