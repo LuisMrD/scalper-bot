@@ -272,7 +272,7 @@ foreach ($period in $windowPlan) {
                 if ([long]$trade.enteredAtOpenTime -lt [long]$period.FromOpen -or
                     [long]$trade.exitCandleOpenTime -gt [long]$period.AsOf -or
                     [long]$trade.exitCandleOpenTime -lt [long]$trade.enteredAtOpenTime -or
-                    $signal.setup -ne $setup.Name -and $setup.Name -ne 'BOTH' -or
+                    ($setup.Name -ne 'BOTH' -and [string]$signal.setup -ne $(if ($setup.Name -eq 'RETEST') { 'BREAKOUT_RETEST' } else { 'PULLBACK' })) -or
                     $signal.primaryTrend -notin @('UP','DOWN')) {
                     throw "Invalid entry-time audit record for $PrimaryInterval/$($period.Window)/$($setup.Name)."
                 }
