@@ -10,7 +10,10 @@ import org.springframework.web.server.ResponseStatusException;
 
 class ReentryComparisonServiceTest {
     private static BacktestRequest request(boolean includeLuna, boolean pullback) {
-        return new BacktestRequest("SOLUSDT", List.of("5m", "15m"), 3600, 200,
+        // Paid Luna requests already enforce <=10 steps at DTO construction.
+        // Use valid inputs to test the stricter experiment-level no-Luna guard.
+        return new BacktestRequest("SOLUSDT", List.of("5m", "15m"),
+                includeLuna ? 3 : 3600, 200,
                 1791845999999L, includeLuna, new BigDecimal("0.01"),
                 new BigDecimal("0.001"), new BigDecimal("0.001"),
                 new BigDecimal("5"), BigDecimal.ONE,
