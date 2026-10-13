@@ -30,3 +30,44 @@ A resposta inclui quatro resumos de cenario, quantidade de sinais recusados e as
 Saidas: `entry-filter-aggregate-*.csv`, `entry-filter-windows-*.csv`, `entry-filter-trades-*.csv`. Resultados das nove janelas **nao constituem validacao fora da amostra**: esses mesmos dados revelaram os padroes usados para criar os filtros. Apos estudar as diferencas no replay dinamico, reservar datas novas sem ajustar os filtros a elas.
 
 Metricas prioritarias: PnL marcado e fechado apos taxas, drawdown, quantas janelas melhoraram, quantidade de sinais rejeitados, quantas operacoes novas surgiram e maiores vencedoras perdidas.
+
+## Auditoria das entradas substitutas
+
+O comparador agora exporta tambem o snapshot `entryFeatures` do momento da entrada
+para cada trade encerrado: tendencia primaria e 15m, volume relativo, agressao,
+estado do rompimento, candle de sinal, stop inicial e custo estimado em relacao ao risco.
+
+Ao executar `scripts/compare-entry-filters.ps1`, depois dos quatro replays, o
+analisador offline `scripts/audit-replacement-entries.ps1` identifica tres grupos
+usando a chave deterministica `(Window, Side, EnteredAtOpenTime)`:
+
+- `REMOVED`: estava na carteira original (`NONE`), nao na `BLOCK_BOTH`.
+- `PRESERVED`: a mesma entrada ocorreu em ambos os replays (pode ter PnL diferente).
+- `NEW`: aparece no `BLOCK_BOTH`, mas nao no controle original.
+
+A saida usa tres novos CSVs: `entry-filter-replacement-trades-*.csv`
+(com snapshots e rotulos), `entry-filter-replacement-windows-*.csv`
+(reconciliacao das entradas/pnl por janela), e `entry-filter-replacement-patterns-*.csv`
+(distribuicoes de ganhos/perdas por caracteristica, separadas por grupo).
+
+O validador exige, para cada janela:
+
+`deltaPnL = PnL(NEW) - PnL(REMOVED) + deltaPnL(PRESERVED)`
+
+e confronta com a diferenca entre PnL de trades encerrados de `BLOCK_BOTH`
+e `NONE`. Isso NAO reconcilia automaticamente PnL marcado de posicoes ainda
+abertas; o analista deve olhar tambem as colunas de equity marcada dos CSVs
+de janelas. A lista de entradas refere-se somente a operacoes encerradas.
+
+Pode reprocessar os CSVs offline sem reexecutar os backtests:
+
+`./scripts/audit-replacement-entries.ps1 -Symbol SOLUSDT -Windows 9 -AsOf 1791845999999`
+
+`EntryBreakoutState`, Price Action, agressao, volume, stop e custo sao atributos
+conhecidos quando a entrada foi decidida ou preenchida. `Outcome`, `DurationCandles`,
+`MfeR`, `MaeR`, `NetRMultiple` e `ExitReason` sao valores
+do futuro e **jamais devem ser usados para decidir a entrada**.
+
+Bandas de volume e custo sao descritivas e nao filtros aprovados. Grupos com menos
+de cinco trades sao identificados como amostras pequenas. Nenhum filtro
+adicional deve ser introduzido sem nova validacao historica fora da amostra.
