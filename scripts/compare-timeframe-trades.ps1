@@ -130,11 +130,31 @@ foreach ($tf in @('1m','5m')) {
             throw "${tf}: trade timestamp outside its historical window"
         }
     }
+    # Reconcile each historical window, not just the aggregate: an error in
+    # one window must not cancel an opposite discrepancy in another.
+    # Window CSV values are rounded to four decimals, so allow 0.001 USDT.
+    foreach ($windowRow in $windowRows) {
+        $windowTrades = @($rows | Where-Object { [int]$_.Window -eq [int]$windowRow.Window })
+        [decimal]$tradePnl = Sum-TradeDecimal @($windowTrades | ForEach-Object {
+            Read-TradeDecimal $_.NetPnlUsdt 'NetPnlUsdt'
+        })
+        [decimal]$windowPnl = Read-TradeDecimal $windowRow.NetClosedUsdt 'NetClosedUsdt'
+        [decimal]$delta = [math]::Abs($tradePnl - $windowPnl)
+        if ($windowTrades.Count -ne [int]$windowRow.TradesClosed -or $delta -gt [decimal]0.001) {
+            throw ("${tf}: PnL mismatch in window {0}: {1} closed trades; " +
+                "trade sum={2} USDT, window report={3} USDT, delta={4} USDT " +
+                "(raw CSV value='{5}'). Check CSV provenance and decimal locale.") -f
+                $windowRow.Window, $windowTrades.Count, $tradePnl, $windowPnl, $delta,
+                $windowRow.NetClosedUsdt
+        }
+    }
     [decimal]$sumFromTrades = Sum-TradeDecimal @($rows | ForEach-Object { Read-TradeDecimal $_.NetPnlUsdt 'NetPnlUsdt' })
     [decimal]$sumFromWindow = Sum-TradeDecimal @($windowRows | ForEach-Object { Read-TradeDecimal $_.NetClosedUsdt 'NetClosedUsdt' })
-    if ([math]::Abs($sumFromTrades - $sumFromWindow) -gt [decimal]0.01) {
-        throw "${tf}: closed-trade PnL does not reconcile with exported window PnL"
+    if ([math]::Abs($sumFromTrades - $sumFromWindow) -gt [decimal]0.001 * $Windows) {
+        throw ("${tf}: aggregate PnL mismatch: trades={0} USDT, window sum={1} USDT" -f
+            $sumFromTrades, $sumFromWindow)
     }
+    Write-Host "${tf}: verified $($rows.Count) closed trades and PnL across $Windows windows."
     $windowsByTf[$tf] = $windowRows
     $tradesByTf[$tf] = $rows
 }
