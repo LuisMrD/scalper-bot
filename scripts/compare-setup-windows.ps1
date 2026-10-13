@@ -3,7 +3,7 @@
   Compare BOTH, PULLBACK-only and RETEST-only on non-overlapping 1m windows.
 .DESCRIPTION
   Java-only simulated backtest. Requests do not modify app-wide strategy, open
-  real orders, or call Luna. Each window uses 3000 closed 1m candles by default.
+  real orders, or call Luna. Each window uses 18000 closed 1m candles (300 hours) by default.
   -SyncHistory explicitly fetches public historical klines from the selected
   Binance backend into its configured MySQL database (never automatic).
 .EXAMPLE
@@ -19,8 +19,8 @@ param(
     [string]$Symbol = 'SOLUSDT',
     [ValidateRange(2,6)]
     [int]$Windows = 3,
-    [ValidateRange(2,3000)]
-    [int]$Steps = 3000,
+    [ValidateRange(2,18000)]
+    [int]$Steps = 18000,
     [ValidateRange(21,500)]
     [int]$ContextLimit = 200,
     [ValidateRange(1,100)]
@@ -130,7 +130,7 @@ for ($index=0; $index -lt $Windows; $index++) {
     }
 }
 
-Write-Host "Windows (independent 3000-candle periods when Steps=3000):"
+Write-Host "Windows (each contains $Steps closed 1m candles, $([math]::Round($Steps / 60.0, 2)) hours):"
 $windowPlan | Format-Table -AutoSize
 
 if ($SyncHistory) {
@@ -141,14 +141,31 @@ if ($SyncHistory) {
     $from = $windowPlan[-1].FromOpen - $warmupMs
     if ($from -lt 0) { throw 'Sync window begins before Unix epoch.' }
     $until = $AsOf
-    if (($until - $from) -gt ([long]30 * 24 * 60 * $intervalMs)) {
-        throw 'Sync range exceeds backend 30-day limit; reduce Windows/Steps or pre-sync in chunks.'
-    }
+    # The backend permits <=30 days/call and stops after maxPagesPerRequest
+    # (default: 30 pages x 1000 bars). Seven-day chunks keep 1m below
+    # 10080 bars per request and ensure the 40-day test remains complete.
+    # Use closed 1m bar boundaries and advance to the next OPEN (no gaps).
+    $chunkMs = [long]7 * 24 * 60 * $intervalMs
     foreach ($interval in @('1m','5m','15m')) {
-        Write-Host "Synchronizing public $Source klines: $Symbol $interval from $from to $until"
-        $url = "$BaseUrl/api/v1/market-data/sync?symbol=$Symbol&interval=$interval&from=$from&until=$until"
-        $sync = Invoke-RestMethod -Method Post -Uri $url -TimeoutSec $TimeoutSec -ErrorAction Stop
-        Write-Host "$interval -> fetched=$($sync.fetched); persisted=$($sync.persisted); pages=$($sync.pages)"
+        $cursor = [long]$from
+        $chunk = 0
+        while ($cursor -le $until) {
+            $end = [math]::Min($cursor + $chunkMs - 1, $until)
+            $chunk++
+            Write-Host "Synchronizing public $Source klines: $Symbol $interval chunk $chunk from $cursor to $end"
+            $url = "$BaseUrl/api/v1/market-data/sync?symbol=$Symbol&interval=$interval&from=$cursor&until=$end"
+            try {
+                $sync = Invoke-RestMethod -Method Post -Uri $url -TimeoutSec $TimeoutSec -ErrorAction Stop
+            } catch {
+                $errorBody = if ($_.ErrorDetails -and $_.ErrorDetails.Message) { $_.ErrorDetails.Message } else { $_.Exception.Message }
+                throw "History sync failed for $Symbol/$interval chunk $chunk ($cursor..$end): $errorBody"
+            }
+            if (-not $sync -or [long]$sync.until -lt $end -or [int]$sync.pages -lt 0) {
+                throw "History sync returned incomplete response for $Symbol/$interval chunk $chunk"
+            }
+            Write-Host "$interval chunk $chunk -> fetched=$($sync.fetched); persisted=$($sync.persisted); pages=$($sync.pages)"
+            $cursor = [long]$end + 1
+        }
     }
 }
 
