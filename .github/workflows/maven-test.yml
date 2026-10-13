@@ -78,5 +78,8 @@ jobs:
       - name: Smoke dynamic RETEST entry filter 9-window plan (offline)
         shell: pwsh
         run: ./scripts/tests/test-entry-filter-comparison.ps1
+      - name: Smoke replacement entry cohorts and PnL reconciliation (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-replacement-entries.ps1
       - name: Validate and test (no real orders)
         run: mvn -B -ntp verify
