@@ -179,6 +179,8 @@ foreach ($period in $windowPlan) {
             contextLimit = $ContextLimit
             asOf = $period.AsOf
             includeLuna = $false
+            # Per-entry snapshots still included; omit ~18000 decision traces.
+            includeDecisionHistory = $false
             priceTick = $filters.priceTick
             quantityStep = $filters.quantityStep
             minimumQuantity = $filters.minimumQuantity
