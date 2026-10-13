@@ -52,6 +52,33 @@ public class FirstOppositionComparisonService {
             List<RuleSummary> summaries, List<TradeResult> trades,
             String scope, String executionModel) {}
 
+
+    /** Profit threshold is NET estimated liquidation PnL divided by ORIGINAL gross price risk. */
+    public record ProfitProtectionTrade(
+            Rule rule, BigDecimal triggerR, String side,
+            long enteredAtOpenTime, long originalExitAtOpenTime,
+            long hypotheticalExitAtOpenTime, Long qualifiedAtCloseTime,
+            Long signalAtCloseTime, String originalExitReason,
+            boolean thresholdReached, boolean signalTriggered, boolean earlyExit,
+            BigDecimal initialRiskUsdt, BigDecimal quantity, BigDecimal entryPrice,
+            BigDecimal originalNetPnlUsdt, BigDecimal hypotheticalNetPnlUsdt,
+            BigDecimal deltaUsdt, BigDecimal hypotheticalFeesUsdt) {}
+
+    public record ProfitProtectionSummary(
+            Rule rule, BigDecimal triggerR, int trades, int thresholdReached,
+            int signaledTrades, int earlyExits, int originalWins, int hypotheticalWins,
+            int losingToWinning, int winningToLosing,
+            BigDecimal originalNetPnlUsdt, BigDecimal hypotheticalNetPnlUsdt,
+            BigDecimal deltaUsdt, BigDecimal hypotheticalFeesUsdt) {}
+
+    public record ProfitProtectionResult(
+            String symbol, String primaryInterval, long fromOpenTime,
+            long asOfCloseTime, int originalTrades,
+            List<ProfitProtectionSummary> summaries, List<ProfitProtectionTrade> trades,
+            String scope, String executionModel) {}
+
+    record ProtectedSignal(int qualifiedIndex, int signalIndex) {}
+
     private final BacktestService backtests;
     private final MarketDataService market;
     private final PriceActionConfiguration paConfig;
@@ -181,6 +208,145 @@ public class FirstOppositionComparisonService {
                 "FROZEN_ORIGINAL_CLOSED_TRADES_ONLY; original entries do not shift",
                 "SIGNAL_ON_CLOSED_BAR; EXIT_AT_NEXT_OPEN_WITH_ADVERSE_SLIPPAGE; "
                     + "ORIGINAL_STOP_FIRST; NO_FUNDING_OR_REAL_ORDERS");
+    }
+
+
+    /** Six paired scenarios: 0.5R / 1R x the three original opposition signals.
+     *  Entries, sizing, stops, risk policy and original execution boundaries stay frozen.
+     *  A threshold at close i makes the signal eligible only from close i+1 onward.
+     */
+    public ProfitProtectionResult compareProfitProtection(BacktestRequest request) {
+        if (request.includeLuna()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Profit protection is Java-only; includeLuna must be false");
+        }
+        BacktestResult original = backtests.run(request);
+        RiskPolicy policy = backtests.policy(request);
+        String tf = request.intervals().getFirst();
+        int warmup = volumeConfig.lookback();
+        List<MarketCandle> tape = new ArrayList<>(market.recentAtOrBefore(
+                request.symbol(), tf, request.steps() + warmup,
+                original.throughCandleCloseTime()));
+        if (tape.size() != request.steps() + warmup) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+                    "Missing historical candles for profit-protection replay");
+        }
+        Collections.reverse(tape);
+        Map<Long, Integer> index = new HashMap<>();
+        long ms = tape.getFirst().interval().millis();
+        for (int i = 0; i < tape.size(); i++) {
+            MarketCandle candle = tape.get(i);
+            if (!candle.closed() || candle.closeTime() - candle.openTime() != ms - 1
+                    || (i > 0 && candle.openTime() - tape.get(i - 1).openTime() != ms)) {
+                throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+                        "Gapped or unordered primary history in research comparison");
+            }
+            index.put(candle.openTime(), i);
+        }
+        if (tape.get(warmup).openTime() != original.fromCandleOpenTime()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Primary history does not match original backtest interval");
+        }
+
+        List<ProfitProtectionTrade> detail = new ArrayList<>();
+        List<ProfitProtectionSummary> summaries = new ArrayList<>();
+        for (BigDecimal trigger : List.of(new BigDecimal("0.5"), BigDecimal.ONE)) {
+            for (Rule rule : Rule.values()) {
+                int qualified = 0, signals = 0, early = 0, oldWins = 0;
+                int newWins = 0, rescued = 0, spoiled = 0;
+                BigDecimal baseTotal = BigDecimal.ZERO, newTotal = BigDecimal.ZERO;
+                BigDecimal feeTotal = BigDecimal.ZERO;
+                for (BacktestResult.Trade trade : original.javaPortfolio().trades()) {
+                    Integer start = index.get(trade.enteredAtOpenTime());
+                    Integer end = index.get(trade.exitCandleOpenTime());
+                    if (start == null || end == null || start < warmup || end < start
+                            || trade.initialRiskUsdt() == null || trade.initialRiskUsdt().signum() <= 0) {
+                        throw new ResponseStatusException(HttpStatus.CONFLICT,
+                                "Invalid original trade boundaries or initial gross risk");
+                    }
+                    BigDecimal expectedFees = fee(trade.entryPrice(), trade.quantity(), policy)
+                            .add(fee(trade.exitPrice(), trade.quantity(), policy));
+                    if (expectedFees.subtract(trade.feesUsdt()).abs().compareTo(PENNY) > 0) {
+                        throw new ResponseStatusException(HttpStatus.CONFLICT,
+                                "Original trade commission differs from current risk configuration");
+                    }
+                    ProtectedSignal choice = scanProtectedSignal(
+                            trade, tape, start, end, rule, trigger, policy);
+                    int signal = choice.signalIndex();
+                    int exitIndex = signal < 0 ? end : signal + 1;
+                    boolean modified = signal >= 0;
+                    if (exitIndex >= tape.size() || exitIndex > end) {
+                        throw new ResponseStatusException(HttpStatus.CONFLICT,
+                                "Hypothetical exit after the original trade boundary");
+                    }
+                    BigDecimal exitPrice = modified
+                            ? adverseExitFill(tape.get(exitIndex).open(), trade.side(), policy)
+                            : trade.exitPrice();
+                    BigDecimal alternative = modified
+                            ? calculateNet(trade, exitPrice, policy)
+                            : trade.netPnlUsdt();
+                    BigDecimal fees = modified
+                            ? fee(trade.entryPrice(), trade.quantity(), policy)
+                                    .add(fee(exitPrice, trade.quantity(), policy))
+                            : trade.feesUsdt();
+                    boolean wasWin = trade.netPnlUsdt().signum() > 0;
+                    boolean nowWin = alternative.signum() > 0;
+                    if (choice.qualifiedIndex() >= 0) qualified++;
+                    if (modified) signals++;
+                    if (modified && exitIndex < end) early++;
+                    if (wasWin) oldWins++;
+                    if (nowWin) newWins++;
+                    if (!wasWin && nowWin) rescued++;
+                    if (wasWin && !nowWin) spoiled++;
+                    baseTotal = baseTotal.add(trade.netPnlUsdt());
+                    newTotal = newTotal.add(alternative);
+                    feeTotal = feeTotal.add(fees);
+                    detail.add(new ProfitProtectionTrade(
+                            rule, trigger, trade.side(), trade.enteredAtOpenTime(),
+                            trade.exitCandleOpenTime(), tape.get(exitIndex).openTime(),
+                            choice.qualifiedIndex() < 0 ? null :
+                                    tape.get(choice.qualifiedIndex()).closeTime(),
+                            signal < 0 ? null : tape.get(signal).closeTime(),
+                            trade.exitReason(), choice.qualifiedIndex() >= 0,
+                            modified, modified && exitIndex < end,
+                            trade.initialRiskUsdt(), trade.quantity(), trade.entryPrice(),
+                            trade.netPnlUsdt(), alternative,
+                            alternative.subtract(trade.netPnlUsdt()), fees));
+                }
+                summaries.add(new ProfitProtectionSummary(rule, trigger,
+                        original.javaPortfolio().trades().size(), qualified, signals, early,
+                        oldWins, newWins, rescued, spoiled,
+                        baseTotal, newTotal, newTotal.subtract(baseTotal), feeTotal));
+            }
+        }
+        return new ProfitProtectionResult(request.symbol(), tf,
+                original.fromCandleOpenTime(), original.throughCandleCloseTime(),
+                original.javaPortfolio().trades().size(),
+                List.copyOf(summaries), List.copyOf(detail),
+                "FROZEN_ORIGINAL_CLOSED_TRADES; original entries, sizing and original stop precedence",
+                "NET_CLOSE_PNL >= TRIGGER_R * ORIGINAL_GROSS_RISK; "
+                    + "OPPOSITION_ON_SUBSEQUENT_CLOSED_CANDLE; NEXT_OPEN_ADVERSE_SLIPPAGE; "
+                    + "ORIGINAL_STOP_FIRST; FEES_INCLUDED; NO_FUNDING; NO_ORDERS");
+    }
+
+    /** Package-private for deterministic unit tests. No post-exit candle can be considered. */
+    ProtectedSignal scanProtectedSignal(BacktestResult.Trade trade, List<MarketCandle> tape,
+            int start, int end, Rule rule, BigDecimal trigger, RiskPolicy policy) {
+        BigDecimal requiredProfit = trade.initialRiskUsdt().multiply(trigger, MC);
+        int qualifiedIndex = -1;
+        for (int i = start; i < end; i++) {
+            // Qualified at a PRIOR close only; today's opposite signal cannot
+            // retroactively use today's profit threshold to authorize an exit.
+            if (qualifiedIndex >= 0 && matches(rule, trade.side(), tape, i)) {
+                return new ProtectedSignal(qualifiedIndex, i);
+            }
+            BigDecimal netAtClose = calculateNet(trade,
+                    adverseExitFill(tape.get(i).close(), trade.side(), policy), policy);
+            if (qualifiedIndex < 0 && netAtClose.compareTo(requiredProfit) >= 0) {
+                qualifiedIndex = i;
+            }
+        }
+        return new ProtectedSignal(qualifiedIndex, -1);
     }
 
     private boolean matches(Rule rule, String side, List<MarketCandle> tape, int i) {
