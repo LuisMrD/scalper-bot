@@ -81,5 +81,8 @@ jobs:
       - name: Smoke replacement entry cohorts and PnL reconciliation (offline)
         shell: pwsh
         run: ./scripts/tests/test-replacement-entries.ps1
+      - name: Smoke 15m range reentry wait and fixed 15-60 min controls (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-reentry-waits.ps1
       - name: Validate and test (no real orders)
         run: mvn -B -ntp verify
