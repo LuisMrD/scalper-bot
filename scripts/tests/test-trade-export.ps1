@@ -2,7 +2,7 @@
 # No external HTTP, DB, order API, LLM, or 18000-candle replay.
 $ErrorActionPreference = 'Stop'
 $anchor = [long](1791845999999L - 600L * 300000L)
-$script:runs = @()
+$global:runs = @()
 function Invoke-RestMethod {
     [CmdletBinding()]
     param([string]$Uri,[string]$Method='Get',[string]$ContentType,
@@ -33,7 +33,7 @@ function Invoke-RestMethod {
             $req.maxCostToInitialRiskPctOverride -ne 50) {
             throw "Unsafe or wrongly configured 5m-only RETEST: $Body"
         }
-        $script:runs += $req
+        $global:runs += $req
         $first = [long]$req.asOf - $req.steps * 300000L + 1
         $signal = [PSCustomObject]@{
             setup='BREAKOUT_RETEST';primaryTrend='UP';volumeLevel='HIGH'
@@ -82,8 +82,8 @@ try {
     foreach ($path in $paths) { if (Test-Path $path) { throw "Fixture would overwrite existing $path" } }
     & $runner -PrimaryInterval 5m -Symbol SOLUSDT -Setup RETEST -Steps 3 `
         -Windows 2 -AsOf $anchor -ExpectedCapitalUsdt 1500 -ExportTrades | Out-Null
-    if ($script:runs.Count -ne 2 -or
-        @($script:runs | Where-Object { $_.steps -ne 3 }).Count -gt 0) {
+    if ($global:runs.Count -ne 2 -or
+        @($global:runs | Where-Object { $_.steps -ne 3 }).Count -gt 0) {
         throw 'Wrong number of 5m RETEST mock requests'
     }
     foreach ($path in $paths) { if (-not (Test-Path $path)) { throw "Missing output $path" } }
