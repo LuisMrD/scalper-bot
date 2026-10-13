@@ -43,7 +43,7 @@ trading:
 
 integrations:
   binance:
-    rest-base-url: https://demo-fapi.binance.com
+    rest-base-url: ${BINANCE_REST_BASE_URL:https://demo-fapi.binance.com}
     websocket-base-url: wss://demo-fstream.binance.com
   openai:
     # Etapa 8: LUNA_ENABLED=false impede qualquer analise ou chamada externa.
