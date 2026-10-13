@@ -5,6 +5,8 @@ $global:syncCalls = @()
 $global:wrongCutoff = $false
 $anchor = [long]1791846239999
 $testSteps = 3
+$testIntervalMs = [long]60000
+$testIntervals = @('1m','5m','15m')
 
 function Invoke-RestMethod {
     [CmdletBinding()]
@@ -51,14 +53,15 @@ function Invoke-RestMethod {
                 [decimal]$req.priceTick -ne [decimal]0.01 -or [decimal]$req.quantityStep -ne [decimal]0.01) {
             throw "Bad or unsafe historical replay request: $Body"
         }
-        if ($req.steps -ne $testSteps -or @($req.intervals).Count -ne 3) {
+        if ($req.steps -ne $testSteps -or
+                (@($req.intervals) -join ',') -ne ($testIntervals -join ',')) {
             throw "Invalid replay intervals or window size: $Body"
         }
         $global:calls += $req
-        $from = [long]$req.asOf - $req.steps * 60000L + 1
-        $finish = if ($global:wrongCutoff) { [long]$req.asOf - 60000L } else { [long]$req.asOf }
+        $from = [long]$req.asOf - $req.steps * $testIntervalMs + 1
+        $finish = if ($global:wrongCutoff) { [long]$req.asOf - $testIntervalMs } else { [long]$req.asOf }
         return [PSCustomObject]@{
-            symbol='SOLUSDT';replayedCandles=$req.steps
+            symbol='SOLUSDT'; intervals=$req.intervals; replayedCandles=$req.steps
             fromCandleOpenTime=$from;throughCandleCloseTime=$finish
             javaPortfolio=[PSCustomObject]@{
                 totalReturnPct=0.5;maxDrawdownPct=0.1
@@ -138,7 +141,47 @@ foreach ($windowIndex in @(0,1,2)) {
     }
 }
 
+# 5m-only primary experiment must use 3600 5m bars to preserve exactly
+# 300 trading hours. No 1m bar may appear in API requests or sync URLs.
+$fivePlan = @(& $script -PrimaryInterval 5m -PrintOnly)
+if ($fivePlan -notcontains 'PRIMARY_INTERVAL=5m' -or
+        $fivePlan -notcontains 'INTERVALS=5m,15m' -or
+        $fivePlan -notcontains 'STEPS=3600' -or
+        $fivePlan -notcontains 'HOURS_PER_WINDOW=300') {
+    throw "Incorrect 5m-primary time normalization: $($fivePlan -join '; ')"
+}
+$fiveAnchor = [long]1791845999999
+$global:calls = @()
+$global:syncCalls = @()
+$testIntervalMs = [long]300000
+$testIntervals = @('5m','15m')
+$testSteps = 3600
+& $script -PrimaryInterval 5m -Windows 3 -AsOf $fiveAnchor -SyncHistory -NoCsv | Out-Null
+if ($global:calls.Count -ne 9 -or $global:syncCalls.Count -ne 12) {
+    throw "5m scenario must run 9 full replays + 12 history chunks, actual $($global:calls.Count)/$($global:syncCalls.Count)"
+}
+if (@($global:syncCalls | Where-Object { $_ -match 'interval=1m&' }).Count -gt 0) {
+    throw '1m history fetched despite 5m-only experiment.'
+}
+for ($windowIndex = 0; $windowIndex -lt 3; $windowIndex++) {
+    $expectedEnd = $fiveAnchor - ([long]$windowIndex * 3600L * 300000L)
+    $segment = @($global:calls | Select-Object -Skip ($windowIndex*3) -First 3)
+    if ($segment.Count -ne 3 -or
+            @($segment | Where-Object { [long]$_.asOf -ne $expectedEnd }).Count -gt 0) {
+        throw "5m experiment window cutoffs are not separated by exactly 300 hours."
+    }
+}
+$invalid5m = $false
+try {
+    & $script -PrimaryInterval 5m -AsOf $anchor -NoCsv | Out-Null
+} catch {
+    if ($_.Exception.Message -match 'closeTime of a 5m candle') { $invalid5m = $true }
+}
+if (-not $invalid5m) { throw 'Unaligned 1m cutoff accepted as a 5m close.' }
+
 $testSteps = 3
+$testIntervalMs = [long]60000
+$testIntervals = @('1m','5m','15m')
 $global:wrongCutoff=$true
 $blocked=$false
 try {
@@ -163,4 +206,4 @@ try {
 }
 if (-not $blocked) { throw 'Production data did not require isolated database acknowledgement.' }
 
-Write-Host 'Multi-window 300-hour sync chunking, setup isolation and cutoff smoke tests passed.'
+Write-Host '1m baseline + 5m/15m-only 300-hour windows and UTC cutoffs smoke tests passed.'
