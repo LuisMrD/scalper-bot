@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [develop, main]
   push:
-    branches: [develop, main]
+    branches: [develop, main, 'experiment/1m-vs-5m-trade-diagnostics']
 
 permissions:
   contents: read
@@ -69,5 +69,8 @@ jobs:
       - name: Smoke 5m RETEST trade CSV export and capital safety (mock HTTP)
         shell: pwsh
         run: ./scripts/tests/test-trade-export.ps1
+      - name: Smoke OOS profit protection 6 x 300-hour window plan (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-profit-protection-oos.ps1
       - name: Validate and test (no real orders)
         run: mvn -B -ntp verify
