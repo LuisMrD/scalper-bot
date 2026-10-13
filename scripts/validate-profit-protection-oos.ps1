@@ -15,6 +15,7 @@
 param(
     [ValidateSet('SOLUSDT','BTCUSDT','ETHUSDT')][string]$Symbol='SOLUSDT',
     [ValidateSet('RETEST','PULLBACK','BOTH')][string]$Setup='RETEST',
+    [ValidateSet('testnet')][string]$Source='testnet',
     [ValidateRange(4,100)][int]$StartWindow=4,
     [ValidateRange(1,6)][int]$Windows=6,
     [long]$AsOf=1791845999999,
@@ -60,7 +61,20 @@ for ($i=0; $i -lt $Windows; $i++) {
 }
 Write-Host ("OOS - {0} janelas, indices {1}..{2}; 300 horas por janela" -f $Windows,$StartWindow,($StartWindow+$Windows-1))
 $plan | Format-Table Window,FromUtc,UntilUtc,FromOpen,AsOf -AutoSize
-if ($PrintOnly) { Write-Host 'Nenhuma chamada remota foi realizada.'; return }
+if ($PrintOnly) {
+    Write-Output ("OOS_START_WINDOW={0}" -f $StartWindow)
+    Write-Output ("OOS_END_WINDOW={0}" -f ($StartWindow+$Windows-1))
+    Write-Output 'OOS_HOURS_PER_WINDOW=300'
+    Write-Output 'OOS_1M_CANDLES_PER_WINDOW=18000'
+    Write-Output 'OOS_5M_CANDLES_PER_WINDOW=3600'
+    Write-Output 'OOS_NO_LUNA=true'
+    Write-Output 'OOS_NO_ORDERS=true'
+    foreach ($planned in $plan) {
+        Write-Output ("OOS_WINDOW={0};FROM={1};ASOF={2}" -f $planned.Window,$planned.FromOpen,$planned.AsOf)
+    }
+    Write-Host 'Nenhuma chamada remota foi realizada.'
+    return
+}
 
 $health=Invoke-RestMethod -Uri "$BaseUrl/actuator/health" -TimeoutSec 15 -ErrorAction Stop
 if ($health.status -ne 'UP') { throw 'Spring Boot indisponivel' }
