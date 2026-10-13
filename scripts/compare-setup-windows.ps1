@@ -1,9 +1,10 @@
 <#
 .SYNOPSIS
-  Compare BOTH, PULLBACK-only and RETEST-only on non-overlapping 1m windows.
+  Compare BOTH, PULLBACK-only and RETEST-only on non-overlapping 1m or 5m windows.
 .DESCRIPTION
   Java-only simulated backtest. Requests do not modify app-wide strategy, open
-  real orders, or call Luna. Each window uses 18000 closed 1m candles (300 hours) by default.
+  real orders, or call Luna. Each window uses 300 hours by default: 18000 bars
+  of 1m, or 3600 bars of 5m. The 5m experiment excludes 1m entirely.
   -SyncHistory explicitly fetches public historical klines from the selected
   Binance backend into its configured MySQL database (never automatic).
 .EXAMPLE
@@ -21,6 +22,8 @@ param(
     [int]$Windows = 3,
     [ValidateRange(2,18000)]
     [int]$Steps = 18000,
+    [ValidateSet('1m','5m')]
+    [string]$PrimaryInterval = '1m',
     [ValidateRange(21,500)]
     [int]$ContextLimit = 200,
     [ValidateRange(1,100)]
@@ -41,7 +44,14 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $BaseUrl = $BaseUrl.TrimEnd('/')
-$intervalMs = [long]60000
+# Backwards-compatible default for existing 1m experiments. Only the 5m
+# experiment changes the unit; never reinterpret 18000 x 5m as 300 hours.
+if ($PrimaryInterval -eq '5m' -and -not $PSBoundParameters.ContainsKey('Steps')) {
+    $Steps = 3600
+}
+$intervalMs = if ($PrimaryInterval -eq '5m') { [long]300000 } else { [long]60000 }
+$intervals = if ($PrimaryInterval -eq '5m') { @('5m','15m') } else { @('1m','5m','15m') }
+$hoursPerWindow = ($Steps * $intervalMs) / 3600000.0
 $setups = @(
     [PSCustomObject]@{ Name='BOTH'; Pullback=$true; Retest=$true },
     [PSCustomObject]@{ Name='PULLBACK'; Pullback=$true; Retest=$false },
@@ -57,6 +67,9 @@ if ($PrintOnly) {
     Write-Output "SYMBOL=$Symbol"
     Write-Output "WINDOWS=$Windows"
     Write-Output "STEPS=$Steps"
+    Write-Output "PRIMARY_INTERVAL=$PrimaryInterval"
+    Write-Output "INTERVALS=$($intervals -join ',')"
+    Write-Output "HOURS_PER_WINDOW=$hoursPerWindow"
     Write-Output "CONTEXT_LIMIT=$ContextLimit"
     Write-Output "COST_LIMIT_PCT=$CostLimitPct"
     Write-Output "SETUPS=BOTH,PULLBACK,RETEST"
@@ -64,7 +77,7 @@ if ($PrintOnly) {
     Write-Output "LUNA=false"
     Write-Output "ORDERS=false"
     Write-Output "SYNC_HISTORY=$($SyncHistory.ToString().ToLowerInvariant())"
-    Write-Output "AS_OF=$(if ($AsOf) { $AsOf } else { '<latest local closed 1m candle>' })"
+    Write-Output "AS_OF=$(if ($AsOf) { $AsOf } else { "<latest local closed $PrimaryInterval candle>" })"
     return
 }
 
@@ -106,15 +119,15 @@ $filters = Symbol-ContractFilters -ExchangeInfo $exchange -Symbol $Symbol
 $filters | Format-Table -AutoSize
 
 if ($AsOf -eq 0) {
-    $uri = "$BaseUrl/api/v1/market-data/candles?symbol=$Symbol&interval=1m&limit=1"
+    $uri = "$BaseUrl/api/v1/market-data/candles?symbol=$Symbol&interval=$PrimaryInterval&limit=1"
     $latest = As-FlatArray (Invoke-RestMethod -Uri $uri -TimeoutSec 30 -ErrorAction Stop)
     if ($latest.Count -ne 1 -or -not $latest[0].closed) {
-        throw "No locally stored closed 1m candle for $Symbol. Use -AsOf with -SyncHistory or ingest history first."
+        throw "No locally stored closed $PrimaryInterval candle for $Symbol. Use -AsOf with -SyncHistory or ingest history first."
     }
     $AsOf = [long]$latest[0].closeTime
 }
 if ($AsOf % $intervalMs -ne ($intervalMs - 1)) {
-    throw "AsOf=$AsOf must be the UTC closeTime of a 1m candle (epoch milliseconds ending in xx:xx:59.999)."
+    throw "AsOf=$AsOf must be the UTC closeTime of a $PrimaryInterval candle (epoch milliseconds). Align the cutoff to the requested timeframe."
 }
 
 # The replay intervals are disjoint, while older indicator warm-up history can overlap.
@@ -130,14 +143,14 @@ for ($index=0; $index -lt $Windows; $index++) {
     }
 }
 
-Write-Host "Windows (each contains $Steps closed 1m candles, $([math]::Round($Steps / 60.0, 2)) hours):"
+Write-Host "Windows (each contains $Steps closed $PrimaryInterval candles, $([math]::Round($hoursPerWindow, 2)) hours):"
 $windowPlan | Format-Table -AutoSize
 
 if ($SyncHistory) {
     # Warm up higher-timeframe (15m) contexts BEFORE the oldest replay candle.
     # Add 30 bars for pivot/ATR and as-of alignment margin. Sync is idempotent
     # and uses only the local research app's selected Binance public-data URL.
-    $warmupMs = ([long]($ContextLimit + 30) * 15 * $intervalMs)
+    $warmupMs = ([long]($ContextLimit + 30) * 15 * 60000L)
     $from = $windowPlan[-1].FromOpen - $warmupMs
     if ($from -lt 0) { throw 'Sync window begins before Unix epoch.' }
     $until = $AsOf
@@ -145,8 +158,8 @@ if ($SyncHistory) {
     # (default: 30 pages x 1000 bars). Seven-day chunks keep 1m below
     # 10080 bars per request and ensure the 40-day test remains complete.
     # Use closed 1m bar boundaries and advance to the next OPEN (no gaps).
-    $chunkMs = [long]7 * 24 * 60 * $intervalMs
-    foreach ($interval in @('1m','5m','15m')) {
+    $chunkMs = [long]7 * 24 * 60 * 60000L
+    foreach ($interval in $intervals) {
         $cursor = [long]$from
         $chunk = 0
         while ($cursor -le $until) {
@@ -174,7 +187,7 @@ foreach ($period in $windowPlan) {
     foreach ($setup in $setups) {
         $body = @{
             symbol = $Symbol
-            intervals = @('1m','5m','15m')
+            intervals = $intervals
             steps = $Steps
             contextLimit = $ContextLimit
             asOf = $period.AsOf
@@ -197,7 +210,9 @@ foreach ($period in $windowPlan) {
         } catch {
             throw "Replay failed for window $($period.Window) / $($setup.Name), asOf=$($period.AsOf). Missing/gapped candles or insufficient 5m/15m warm-up? $($_.Exception.Message)"
         }
-        if ($run.symbol -ne $Symbol -or [int]$run.replayedCandles -ne $Steps -or
+        if ($run.symbol -ne $Symbol -or
+                (@($run.intervals) -join ',') -ne ($intervals -join ',') -or
+                [int]$run.replayedCandles -ne $Steps -or
                 [long]$run.fromCandleOpenTime -ne [long]$period.FromOpen -or
                 [long]$run.throughCandleCloseTime -ne [long]$period.AsOf) {
             throw "Replay shifted its time period for $($setup.Name) window $($period.Window). Abort without misleading comparison."
@@ -213,6 +228,8 @@ foreach ($period in $windowPlan) {
         $rows += [PSCustomObject]@{
             Source = $Source.ToUpperInvariant()
             Symbol = $Symbol
+            PrimaryInterval = $PrimaryInterval
+            HoursPerWindow = $hoursPerWindow
             Window = $period.Window
             FromOpen = $period.FromOpen
             AsOf = $period.AsOf
@@ -251,6 +268,8 @@ foreach ($setup in $setups) {
     $summary += [PSCustomObject]@{
         Source = $Source.ToUpperInvariant()
         Symbol = $Symbol
+        PrimaryInterval = $PrimaryInterval
+        HoursPerWindow = $hoursPerWindow
         Setup = $setup.Name
         Windows = $subset.Count
         PositiveWindows = @($subset | Where-Object { $_.ReturnPct -gt 0 }).Count
@@ -273,8 +292,9 @@ $summary | Format-Table Setup,Windows,PositiveWindows,AvgReturnPct,MedianReturnP
 if (-not $NoCsv) {
     $out = Join-Path (Resolve-Path (Join-Path $PSScriptRoot '..')).Path 'results'
     New-Item -ItemType Directory -Force -Path $out | Out-Null
-    $rawFile = Join-Path $out ("setup-windows-{0}-{1}.csv" -f $Symbol,$AsOf)
-    $sumFile = Join-Path $out ("setup-summary-{0}-{1}.csv" -f $Symbol,$AsOf)
+    $outputSuffix = if ($PrimaryInterval -eq '5m') { "-5m" } else { "" }
+    $rawFile = Join-Path $out ("setup-windows-{0}{1}-{2}.csv" -f $Symbol,$outputSuffix,$AsOf)
+    $sumFile = Join-Path $out ("setup-summary-{0}{1}-{2}.csv" -f $Symbol,$outputSuffix,$AsOf)
     $rows | Export-Csv -Path $rawFile -NoTypeInformation -Encoding UTF8
     $summary | Export-Csv -Path $sumFile -NoTypeInformation -Encoding UTF8
     Write-Host "Saved: $rawFile"
