@@ -146,7 +146,7 @@ for ($w = 1; $w -le $Windows; $w++) {
     if ($a.Count -ne 1 -or $b.Count -ne 1 -or
         [long]$a[0].FromOpen -ne [long]$b[0].FromOpen -or
         [long]$a[0].AsOf -ne [long]$b[0].AsOf) {
-        throw "1m/5m not aligned on window $w: refusing invalid comparison"
+        throw "1m/5m not aligned on window ${w}: refusing invalid comparison"
     }
 }
 
