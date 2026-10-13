@@ -94,9 +94,11 @@ public class BacktestService {
         var prepared = contexts.prepareReplay(request.symbol(), request.intervals(),
                 request.contextLimit(), tape.getFirst().closeTime(),
                 tape.get(tape.size() - 2).closeTime());
-        var javaHistory = new ArrayList<BacktestResult.DecisionTrace>(tape.size() - 1);
-        var lunaHistory = new ArrayList<BacktestResult.DecisionTrace>(request.includeLuna()
-                ? tape.size() - 1 : 0);
+        boolean includeDecisionHistory = request.shouldIncludeDecisionHistory();
+        var javaHistory = new ArrayList<BacktestResult.DecisionTrace>(
+                includeDecisionHistory ? tape.size() - 1 : 0);
+        var lunaHistory = new ArrayList<BacktestResult.DecisionTrace>(
+                includeDecisionHistory && request.includeLuna() ? tape.size() - 1 : 0);
         // Immutable engine local to this replay; concurrent HTTP requests cannot
         // change another replay's setup flags or the configured global strategy.
         var javaEngine = new JavaDecisionEngine(resolveJavaParameters(request));
@@ -123,19 +125,25 @@ public class BacktestService {
                 var javaSide = javaLedger.side();
                 javaDecision = javaEngine.evaluate(context, new PositionState(javaSide));
                 javaRisk = javaLedger.decide(javaDecision, first);
-                var javaTrace = trace(context, javaDecision, javaRisk, javaSide.name());
-                javaHistory.add(javaTrace);
-                if (javaRisk.action() == RiskPreviewResult.Action.PROPOSED_ENTRY)
-                    javaLedger.attachPendingEntrySnapshot(entrySnapshot(context, javaTrace));
+                if (includeDecisionHistory
+                        || javaRisk.action() == RiskPreviewResult.Action.PROPOSED_ENTRY) {
+                    var javaTrace = trace(context, javaDecision, javaRisk, javaSide.name());
+                    if (includeDecisionHistory) javaHistory.add(javaTrace);
+                    if (javaRisk.action() == RiskPreviewResult.Action.PROPOSED_ENTRY)
+                        javaLedger.attachPendingEntrySnapshot(entrySnapshot(context, javaTrace));
+                }
                 if (lunaLedger != null) {
                     // No second DB read or context build: same snapshot, independent portfolio.
                     var lunaSide = lunaLedger.side();
                     lunaDecision = luna.evaluateContext(context, lunaSide);
                     lunaRisk = lunaLedger.decide(lunaDecision, first);
-                    var lunaTrace = trace(context, lunaDecision, lunaRisk, lunaSide.name());
-                    lunaHistory.add(lunaTrace);
-                    if (lunaRisk.action() == RiskPreviewResult.Action.PROPOSED_ENTRY)
-                        lunaLedger.attachPendingEntrySnapshot(entrySnapshot(context, lunaTrace));
+                    if (includeDecisionHistory
+                            || lunaRisk.action() == RiskPreviewResult.Action.PROPOSED_ENTRY) {
+                        var lunaTrace = trace(context, lunaDecision, lunaRisk, lunaSide.name());
+                        if (includeDecisionHistory) lunaHistory.add(lunaTrace);
+                        if (lunaRisk.action() == RiskPreviewResult.Action.PROPOSED_ENTRY)
+                            lunaLedger.attachPendingEntrySnapshot(entrySnapshot(context, lunaTrace));
+                    }
                 }
             }
             javaLedger.markClose(bar.close(), bar.closeTime(), javaDecision, javaRisk);

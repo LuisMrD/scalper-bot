@@ -441,3 +441,58 @@ olhando a janela de `asOf=1791846239999`, entao essa janela e
 especialmente os historicamente anteriores ou posteriores nao usados
 para definir parametros, e nao ajuste filtros com base apenas no melhor
 resultado de cada janela.
+
+## Replay estendido: tres janelas de 300 horas (SOLUSDT)
+
+A partir desta versao, `compare-setup-windows.ps1` usa por padrao
+**3 janelas x 18.000 candles fechados de 1m** = 300h por janela,
+900h (37,5 dias) de pregacao continua nos contratos futuros.
+Cada janela e um **UNICO replay** com carteira, posicao e stops
+continuos (nao e soma de 6 replays de 3000 candles).
+
+```powershell
+.\scripts\compare-setup-windows.ps1 -PrintOnly
+.\scripts\compare-setup-windows.ps1 `
+    -Source testnet `
+    -Windows 3 `
+    -Steps 18000 `
+    -AsOf 1791846239999 `
+    -SyncHistory
+```
+
+Novo limite do `POST /api/v1/backtest/run`: `steps=2..18000`
+(`includeLuna=true` continua limitado a **10 steps**).
+`GET /api/v1/backtest/status` indica esse limite.
+No comparador a requisicao envia `includeDecisionHistory=false`:
+omite a lista completa de ~18.000 `DecisionTrace` por resposta,
+mas **preserva** as diagnosticas das entradas executadas, as
+operacoes fechadas e a posicao aberta, assim como fee/slippage e
+P&L completo. Para requests anteriores, o campo e opcional:
+ausente ou `true` conserva a resposta detalhada anterior.
+
+A sincronizacao manual usa **chunks contiguos de 7 dias** para os
+intervalos 1m, 5m e 15m. A janela total de coleta costuma cobrir
+aproximadamente **40 dias**, somando 37,5 dias de trades e o
+aquecimento de indicadores (~2,4 dias para contextLimit=200). Isso
+evita o limite de 30 dias por requisicao da API e impede o teto
+configurado de 30 paginas x 1000 candles de truncar uma requisicao
+de 1m. As chamadas sao idempotentes no MySQL.
+
+**Importante:** a Binance Testnet nao garante oferecer os 40 dias
+de dados completos. Se faltarem barras ou historico dos timeframes
+superiores, o replay falha de forma explicita em vez de preencher
+precos artificiais. Caso isso aconteca, use o perfil de pesquisa
+`research` com uma base dedicada, dados publicos de producao e
+`-Source production -ConfirmIsolatedDatabase`, conforme instrucoes
+nesta documentacao. Nao transfira candles de producao para
+o banco da Testnet.
+
+O processamento de 18.000 candles por request e mais pesado:
+9 backtests com analise Price Action/VPA/indicadores podem levar
+bastante tempo em um computador local. `-TimeoutSec` pode ser
+ajustado entre 30 e 1800 segundos caso precise, mas isso nao
+altera a validade do backtest. O parametro `-Steps 3000`
+continua disponivel para comparacoes curtas. Os CSVs usam o mesmo
+padrao `results/setup-windows-<symbol>-<asOf>.csv` e
+`results/setup-summary-<symbol>-<asOf>.csv`, portanto salve os
+anteriores antes de reutilizar o mesmo `asOf`.

@@ -18,9 +18,9 @@ class BacktestDecisionTraceTest {
     }
 
     @Test
-    void accepts3000CandlesButRejects3001AndRetainsTenCandleLunaLimit() {
-        assertEquals(3000, request(3000, false).steps());
-        assertThrows(IllegalArgumentException.class, () -> request(3001, false));
+    void accepts18000CandlesButRejects18001AndRetainsTenCandleLunaLimit() {
+        assertEquals(18000, request(18000, false).steps());
+        assertThrows(IllegalArgumentException.class, () -> request(18001, false));
         assertThrows(IllegalArgumentException.class, () -> request(11, true));
         assertEquals(10, request(10, true).steps());
     }

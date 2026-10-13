@@ -11,7 +11,7 @@ public record BacktestRequest(String symbol, List<String> intervals, int steps, 
         BigDecimal minimumQuantity, BigDecimal minimumNotionalUsdt,
         BigDecimal breakEvenTriggerROverride, BigDecimal maxCostToInitialRiskPctOverride,
         Integer maxHoldingCandles, Boolean pullbackEnabledOverride,
-        Boolean breakoutRetestEnabledOverride) {
+        Boolean breakoutRetestEnabledOverride, Boolean includeDecisionHistory) {
     public BacktestRequest {
         Objects.requireNonNull(symbol, "symbol");
         if (!symbol.matches("[A-Z0-9]{5,32}") || !symbol.endsWith("USDT"))
@@ -20,8 +20,8 @@ public record BacktestRequest(String symbol, List<String> intervals, int steps, 
         if (intervals.isEmpty() || intervals.size() > 5 || new HashSet<>(intervals).size() != intervals.size()
                 || intervals.stream().anyMatch(String::isBlank))
             throw new IllegalArgumentException("Informe 1 a 5 timeframes sem repeticoes");
-        if (steps < 2 || steps > 3000 || contextLimit < 21 || contextLimit > 500)
-            throw new IllegalArgumentException("steps deve ser 2..3000; contextLimit deve ser 21..500");
+        if (steps < 2 || steps > 18000 || contextLimit < 21 || contextLimit > 500)
+            throw new IllegalArgumentException("steps deve ser 2..18000; contextLimit deve ser 21..500");
         if (includeLuna && steps > 10)
             throw new IllegalArgumentException("Backtest Luna limitado a 10 steps pagos por solicitacao");
         if (asOf != null && asOf < 0) throw new IllegalArgumentException("asOf invalido");
@@ -51,7 +51,7 @@ public record BacktestRequest(String symbol, List<String> intervals, int steps, 
             Long asOf, boolean includeLuna, BigDecimal priceTick, BigDecimal quantityStep,
             BigDecimal minimumQuantity, BigDecimal minimumNotionalUsdt) {
         this(symbol, intervals, steps, contextLimit, asOf, includeLuna,
-                priceTick, quantityStep, minimumQuantity, minimumNotionalUsdt, null, null, null, null, null);
+                priceTick, quantityStep, minimumQuantity, minimumNotionalUsdt, null, null, null, null, null, null);
     }
 
     /** Versao preexistente com override apenas do gatilho de break-even. */
@@ -61,7 +61,7 @@ public record BacktestRequest(String symbol, List<String> intervals, int steps, 
             BigDecimal breakEvenTriggerROverride) {
         this(symbol, intervals, steps, contextLimit, asOf, includeLuna,
                 priceTick, quantityStep, minimumQuantity, minimumNotionalUsdt,
-                breakEvenTriggerROverride, null, null, null, null);
+                breakEvenTriggerROverride, null, null, null, null, null);
     }
 
     /** Compatibilidade com override duplo usado pelos replays anteriores. */
@@ -71,7 +71,7 @@ public record BacktestRequest(String symbol, List<String> intervals, int steps, 
             BigDecimal breakEvenTriggerROverride, BigDecimal maxCostToInitialRiskPctOverride) {
         this(symbol, intervals, steps, contextLimit, asOf, includeLuna,
                 priceTick, quantityStep, minimumQuantity, minimumNotionalUsdt,
-                breakEvenTriggerROverride, maxCostToInitialRiskPctOverride, null, null, null);
+                breakEvenTriggerROverride, maxCostToInitialRiskPctOverride, null, null, null, null);
     }
 
     /** Compatibilidade com overrides financeiros e tempo antes da comparacao de setups. */
@@ -83,7 +83,25 @@ public record BacktestRequest(String symbol, List<String> intervals, int steps, 
         this(symbol, intervals, steps, contextLimit, asOf, includeLuna,
                 priceTick, quantityStep, minimumQuantity, minimumNotionalUsdt,
                 breakEvenTriggerROverride, maxCostToInitialRiskPctOverride, maxHoldingCandles,
-                null, null);
+                null, null, null);
+    }
+
+    /** Former canonical signature: keep legacy test helpers and API constructors working. */
+    public BacktestRequest(String symbol, List<String> intervals, int steps, int contextLimit,
+            Long asOf, boolean includeLuna, BigDecimal priceTick, BigDecimal quantityStep,
+            BigDecimal minimumQuantity, BigDecimal minimumNotionalUsdt,
+            BigDecimal breakEvenTriggerROverride, BigDecimal maxCostToInitialRiskPctOverride,
+            Integer maxHoldingCandles, Boolean pullbackEnabledOverride,
+            Boolean breakoutRetestEnabledOverride) {
+        this(symbol, intervals, steps, contextLimit, asOf, includeLuna,
+                priceTick, quantityStep, minimumQuantity, minimumNotionalUsdt,
+                breakEvenTriggerROverride, maxCostToInitialRiskPctOverride, maxHoldingCandles,
+                pullbackEnabledOverride, breakoutRetestEnabledOverride, null);
+    }
+
+    /** Default (null): include full per-candle audit history for compatibility. */
+    public boolean shouldIncludeDecisionHistory() {
+        return !Boolean.FALSE.equals(includeDecisionHistory);
     }
 
     private static void positive(BigDecimal v, String name) {
