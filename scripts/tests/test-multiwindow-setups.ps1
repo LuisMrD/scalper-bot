@@ -37,11 +37,15 @@ function Invoke-RestMethod {
     }
     if ($Uri -match '/api/v1/market-data/sync\?') {
         $global:syncCalls += $Uri
-        return [PSCustomObject]@{fetched=4;persisted=4;pages=1}
+        $endMatch = [regex]::Match($Uri, '[?&]until=(\d+)')
+        if (-not $endMatch.Success) { throw "Sync URL missing until: $Uri" }
+        return [PSCustomObject]@{
+            fetched=4;persisted=4;pages=1;until=[long]$endMatch.Groups[1].Value
+        }
     }
     if ($Uri -match '/api/v1/backtest/run$') {
         $req = $Body | ConvertFrom-Json
-        if ($req.includeLuna -or $req.symbol -ne 'SOLUSDT' -or
+        if ($req.includeLuna -or $req.includeDecisionHistory -ne $false -or $req.symbol -ne 'SOLUSDT' -or
                 $req.maxCostToInitialRiskPctOverride -ne 50 -or
                 $req.breakEvenTriggerROverride -ne '1.0' -or
                 [decimal]$req.priceTick -ne [decimal]0.01 -or [decimal]$req.quantityStep -ne [decimal]0.01) {
@@ -76,6 +80,9 @@ if ($plan -notcontains 'SETUPS=BOTH,PULLBACK,RETEST' -or
         $plan -notcontains 'SOURCE=testnet') {
     throw "Incorrect setup plan: $($plan -join '; ')"
 }
+if ($plan -notcontains 'STEPS=18000') {
+    throw "300-hour scenarios must be the default."
+}
 
 & $script -Steps $testSteps -Windows 2 -AsOf $anchor -SyncHistory -NoCsv | Out-Null
 if ($global:calls.Count -ne 6 -or $global:syncCalls.Count -ne 3) {
@@ -95,6 +102,43 @@ for($i=0; $i -lt 6; $i++) {
     }
 }
 
+# 3 x 18000 contiguous 1m candles = 900 hours of disjoint trading.
+# Includes ~2.4d warmup; 40-day sync must be split into six <=7-day
+# chunks for EACH timeframe and preserve exact boundaries without gaps.
+$global:calls = @()
+$global:syncCalls = @()
+$testSteps = 18000
+& $script -Steps 18000 -Windows 3 -AsOf $anchor -SyncHistory -NoCsv | Out-Null
+if ($global:calls.Count -ne 9 -or $global:syncCalls.Count -ne 18) {
+    throw "300-hour scenario must generate 9 replays and 18 weekly sync calls. Got $($global:calls.Count)/$($global:syncCalls.Count)"
+}
+foreach ($interval in @('1m','5m','15m')) {
+    $history = @($global:syncCalls | Where-Object { $_ -match "interval=$interval&" })
+    if ($history.Count -ne 6) { throw "Expected six sync chunks for $interval" }
+    $previousEnd = $null
+    foreach ($url in $history) {
+        $a = [regex]::Match($url, '[?&]from=(\d+)')
+        $b = [regex]::Match($url, '[?&]until=(\d+)')
+        $from = [long]$a.Groups[1].Value; $end = [long]$b.Groups[1].Value
+        if ($end -lt $from -or ($end - $from) -ge (7L * 24 * 60 * 60000)) {
+            throw "Invalid seven-day chunk $interval : $url"
+        }
+        if ($null -ne $previousEnd -and $from -ne ($previousEnd + 1)) {
+            throw "History chunks have a gap or overlap: $interval $url"
+        }
+        $previousEnd = $end
+    }
+}
+foreach ($windowIndex in @(0,1,2)) {
+    $expectedCutoff = $anchor - ([long]$windowIndex * 18000L * 60000L)
+    $segment = @($global:calls | Select-Object -Skip ($windowIndex*3) -First 3)
+    if ($segment.Count -ne 3 -or
+            @($segment | Where-Object { [long]$_.asOf -ne $expectedCutoff }).Count -gt 0) {
+        throw "300-hour windows are not disjoint at window $windowIndex"
+    }
+}
+
+$testSteps = 3
 $global:wrongCutoff=$true
 $blocked=$false
 try {
@@ -119,4 +163,4 @@ try {
 }
 if (-not $blocked) { throw 'Production data did not require isolated database acknowledgement.' }
 
-Write-Host 'Multi-window offline setup isolation, provenance and cutoff smoke tests passed.'
+Write-Host 'Multi-window 300-hour sync chunking, setup isolation and cutoff smoke tests passed.'
