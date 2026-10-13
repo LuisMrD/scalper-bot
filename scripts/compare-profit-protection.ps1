@@ -51,6 +51,16 @@ foreach ($tf in @('1m','5m')) {
     }
     $windowsOriginal=@(Import-Csv $windowCsv | Where-Object { $_.Setup -eq $Setup })
     $tradesOriginal=@(Import-Csv $tradeCsv | Where-Object { $_.Setup -eq $Setup })
+    # Fail with a schema-specific message if an old or incompatible CSV was supplied.
+    if ($tradesOriginal.Count -gt 0) {
+        $columns=@($tradesOriginal[0].PSObject.Properties.Name)
+        foreach ($required in @('EnteredAtOpenTime','ExitCandleOpenTime','Side','ExitReason',
+                                 'NetPnlUsdt','InitialRiskUsdt','Window','Setup')) {
+            if ($required -notin $columns) {
+                throw ("{0}: coluna obrigatoria ausente no CSV original: {1}" -f $tf,$required)
+            }
+        }
+    }
     if ($windowsOriginal.Count -ne $Windows) { throw ("{0}: janelas incompletas" -f $tf) }
     foreach ($window in $windowsOriginal) {
         $w=[int]$window.Window
@@ -126,9 +136,12 @@ foreach ($tf in @('1m','5m')) {
             }
             $seen[$scenario]=$true
             $old=$originalIndex[$key]
+            # The original setup-trades CSV exports NetPnlUsdt, InitialRiskUsdt,
+            # ExitReason and timestamps, but NOT EntryPrice or Quantity.
+            # Check only data that actually exists in the original export.
             if (-not (Near $old.NetPnlUsdt $t.originalNetPnlUsdt ([decimal]'0.01')) -or
-                -not (Near $old.EntryPrice $t.entryPrice ([decimal]'0.0001')) -or
-                -not (Near $old.Quantity $t.quantity ([decimal]'0.0001')) -or
+                -not (Near $old.InitialRiskUsdt $t.initialRiskUsdt ([decimal]'0.0001')) -or
+                [string]$old.ExitReason -ne [string]$t.originalExitReason -or
                 -not (Near ((Money $t.hypotheticalNetPnlUsdt)-(Money $t.originalNetPnlUsdt)) $t.deltaUsdt ([decimal]'0.0001'))) {
                 throw ("{0}/janela {1}: dados originais divergentes no trade {2}" -f $tf,$w,$key)
             }
