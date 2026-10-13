@@ -50,12 +50,12 @@ if ($AsOf -le 0 -or ($AsOf % 900000L) -ne 899999L) {
 }
 $plan=@()
 for ($i=0; $i -lt $Windows; $i++) {
-    [int]$window=$StartWindow+$i
-    [long]$cutoff=$AsOf-([long]($window-1)*$periodMs)
+    [int]$windowNumber=$StartWindow+$i
+    [long]$cutoff=$AsOf-([long]($windowNumber-1)*$periodMs)
     [long]$first=$cutoff-$periodMs+1
     if ($first -lt 0) { throw 'Periodo anterior a epoca Unix' }
     $plan += [PSCustomObject]@{
-        Window=$window; FromOpen=$first; AsOf=$cutoff
+        Window=$windowNumber; FromOpen=$first; AsOf=$cutoff
         FromUtc=[DateTimeOffset]::FromUnixTimeMilliseconds($first).UtcDateTime.ToString('yyyy-MM-dd HH:mm')
         UntilUtc=[DateTimeOffset]::FromUnixTimeMilliseconds($cutoff).UtcDateTime.ToString('yyyy-MM-dd HH:mm')
     }
@@ -126,11 +126,11 @@ $tradeRows=@()
 foreach ($tf in @('1m','5m')) {
     $steps=if ($tf -eq '1m') { 18000 } else { 3600 }
     $intervals=if ($tf -eq '1m') { @('1m','5m','15m') } else { @('5m','15m') }
-    foreach ($window in $plan) {
-        $w=[int]$window.Window
+    foreach ($windowRecord in $plan) {
+        $w=[int]$windowRecord.Window
         $body=@{
             symbol=$Symbol; intervals=$intervals; steps=$steps
-            contextLimit=$ContextLimit; asOf=[long]$window.AsOf
+            contextLimit=$ContextLimit; asOf=[long]$windowRecord.AsOf
             includeLuna=$false; includeDecisionHistory=$false
             priceTick=$filters.priceTick; quantityStep=$filters.quantityStep
             minimumQuantity=$filters.minimumQuantity
@@ -151,8 +151,8 @@ foreach ($tf in @('1m','5m')) {
             throw ("Falha {0}/janela {1}: {2}. Se faltam candles antigos, execute com -SyncHistory." -f $tf,$w,$_.Exception.Message)
         }
         if ($result.symbol -ne $Symbol -or $result.primaryInterval -ne $tf -or
-            [long]$result.fromOpenTime -ne [long]$window.FromOpen -or
-            [long]$result.asOfCloseTime -ne [long]$window.AsOf) {
+            [long]$result.fromOpenTime -ne [long]$windowRecord.FromOpen -or
+            [long]$result.asOfCloseTime -ne [long]$windowRecord.AsOf) {
             throw ("OOS {0}/janela {1}: replay deslocado" -f $tf,$w)
         }
         Assert-Money $result.startingEquityUsdt $ExpectedCapitalUsdt ([decimal]'0.0001') 'startingEquityUsdt'
@@ -188,8 +188,8 @@ foreach ($tf in @('1m','5m')) {
                 $tradeKey="$($t.side)|$($t.enteredAtOpenTime)|$($t.originalExitAtOpenTime)"
                 if ($seen.ContainsKey($tradeKey)) { throw ("Trade duplicado: {0}" -f $tradeKey) }
                 $seen[$tradeKey]=$true
-                if ([long]$t.enteredAtOpenTime -lt [long]$window.FromOpen -or
-                    [long]$t.originalExitAtOpenTime -gt [long]$window.AsOf -or
+                if ([long]$t.enteredAtOpenTime -lt [long]$windowRecord.FromOpen -or
+                    [long]$t.originalExitAtOpenTime -gt [long]$windowRecord.AsOf -or
                     [long]$t.hypotheticalExitAtOpenTime -gt [long]$t.originalExitAtOpenTime -or
                     [long]$t.hypotheticalExitAtOpenTime -lt [long]$t.enteredAtOpenTime) {
                     throw ("Limite temporal incorreto: {0}" -f $tradeKey)
@@ -202,7 +202,7 @@ foreach ($tf in @('1m','5m')) {
             Assert-Money $newSum $s.hypotheticalNetPnlUsdt ([decimal]'0.001') 'reconciliacao hipotetica'
             $summaryRows += [PSCustomObject]@{
                 Phase='OOS'; Symbol=$Symbol; Timeframe=$tf; Window=$w
-                FromOpen=$window.FromOpen; AsOf=$window.AsOf
+                FromOpen=$windowRecord.FromOpen; AsOf=$windowRecord.AsOf
                 TriggerR=$trigger; Rule=$s.rule; Trades=$count
                 ThresholdReached=$s.thresholdReached; SignalsTriggered=$s.signaledTrades
                 EarlyExits=$s.earlyExits; OriginalWins=$s.originalWins
