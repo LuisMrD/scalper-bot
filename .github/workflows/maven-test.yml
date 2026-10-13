@@ -75,5 +75,8 @@ jobs:
       - name: Smoke audit of 9 entry-signal windows (offline)
         shell: pwsh
         run: ./scripts/tests/test-entry-audit.ps1
+      - name: Smoke dynamic RETEST entry filter 9-window plan (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-entry-filter-comparison.ps1
       - name: Validate and test (no real orders)
         run: mvn -B -ntp verify
