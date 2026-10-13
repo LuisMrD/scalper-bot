@@ -29,16 +29,61 @@ public class EntryFilterComparisonService {
             BigDecimal markedPnlUsdt, BigDecimal totalReturnPct,
             BigDecimal maxDrawdownPct, BigDecimal feesUsdt, String openPositionSide) {}
 
+    /**
+     * Features observed at the CLOSED entry signal or at the subsequent filled
+     * OPEN. No exit information or future candle can enter these fields.
+     */
+    public record EntryFeatures(
+            long signalCloseTime, String primaryTrend, String trend15m,
+            int higherTimeframeConflicts, String volumeLevel, String takerBalance,
+            BigDecimal relativeVolume, BigDecimal relativeSpread, BigDecimal takerBuyShare,
+            String effortResult, String barDirection, Boolean trendBar, Boolean doji,
+            Boolean insideBar, Boolean outsideBar, Boolean bullishRejection,
+            Boolean bearishRejection, boolean pullbackCandidate, int confirmedPivotCount,
+            BigDecimal atrAtSignal, BigDecimal stopDistancePct, BigDecimal entryGapPct,
+            BigDecimal estimatedCostToInitialRiskPct, BigDecimal estimatedRoundTripCostUsdt) {}
+
     public record TradeRow(
             EntryBreakoutFilter filter, String side,
             long enteredAtOpenTime, long exitCandleOpenTime,
             String entryBreakoutState, String exitReason,
             BigDecimal quantity, BigDecimal initialRiskUsdt,
-            BigDecimal netPnlUsdt, BigDecimal feesUsdt) {}
+            BigDecimal netPnlUsdt, BigDecimal feesUsdt,
+            EntryFeatures entryFeatures, int durationCandles,
+            BigDecimal mfeR, BigDecimal maeR, BigDecimal netRMultiple) {}
 
     public record Comparison(String symbol, String primaryInterval,
             long fromOpenTime, long asOfCloseTime, int replayedCandles,
             List<Summary> summaries, List<TradeRow> trades, String scope) {}
+
+    static EntryFeatures features(BacktestResult.EntryExecutionDiagnostics entry) {
+        var atSignal = entry.atSignal();
+        var trace = atSignal.signal();
+        var bar = atSignal.lastBarPattern();
+        String trend15m = trace.timeframeTrends().stream()
+                .filter(frame -> frame.interval().equals("15m"))
+                .map(frame -> frame.trend().name())
+                .findFirst().orElse(null);
+        if (trend15m == null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Entry snapshot missing 15m trend");
+        }
+        return new EntryFeatures(
+                trace.candleCloseTime(), trace.primaryTrend().name(), trend15m,
+                atSignal.higherTimeframeConflicts(), trace.volumeLevel().name(),
+                trace.takerBalance().name(), trace.relativeVolume(), trace.relativeSpread(),
+                atSignal.takerBuyShareAtSignal(), trace.effortResult().name(),
+                bar == null ? null : bar.direction().name(),
+                bar == null ? null : bar.trendBar(),
+                bar == null ? null : bar.doji(),
+                bar == null ? null : bar.insideBar(),
+                bar == null ? null : bar.outsideBar(),
+                bar == null ? null : bar.bullishRejection(),
+                bar == null ? null : bar.bearishRejection(),
+                atSignal.pullbackCandidate(), atSignal.confirmedPivotCount(),
+                atSignal.atrAtSignal(), entry.stopDistancePct(), entry.entryGapPct(),
+                entry.estimatedCostToInitialRiskPct(), entry.estimatedRoundTripCostUsdt());
+    }
 
     public Comparison compare(BacktestRequest request) {
         if (request.includeLuna()) {
@@ -74,14 +119,15 @@ public class EntryFilterComparisonService {
             for (BacktestResult.Trade t : p.trades()) {
                 closedNet = closedNet.add(t.netPnlUsdt());
                 var d = t.entryDiagnostics();
-                if (d == null || d.atSignal() == null) {
+                if (d == null || d.atSignal() == null || d.atSignal().signal() == null) {
                     throw new ResponseStatusException(HttpStatus.CONFLICT,
                             "Closed trade is missing an entry-time snapshot");
                 }
                 trades.add(new TradeRow(filter, t.side(), t.enteredAtOpenTime(),
                         t.exitCandleOpenTime(), d.atSignal().breakoutState().name(),
                         t.exitReason(), t.quantity(), t.initialRiskUsdt(),
-                        t.netPnlUsdt(), t.feesUsdt()));
+                        t.netPnlUsdt(), t.feesUsdt(), features(d),
+                        t.durationCandles(), t.mfeR(), t.maeR(), t.netRMultiple()));
             }
             if (p.tradesClosed() != p.trades().size()) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT,
