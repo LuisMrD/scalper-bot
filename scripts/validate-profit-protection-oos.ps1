@@ -21,6 +21,7 @@ param(
     [long]$AsOf=1791845999999,
     [ValidateRange(21,500)][int]$ContextLimit=200,
     [ValidateRange(1,100)][int]$CostLimitPct=50,
+    [ValidateRange(1,1000000000)][decimal]$ExpectedCapitalUsdt=1500,
     [ValidatePattern('^https?://(127\.0\.0\.1|localhost)(:\d+)?$')]
     [string]$BaseUrl='http://127.0.0.1:8080',
     [ValidateRange(30,1800)][int]$TimeoutSec=900,
@@ -69,6 +70,7 @@ if ($PrintOnly) {
     Write-Output 'OOS_5M_CANDLES_PER_WINDOW=3600'
     Write-Output 'OOS_NO_LUNA=true'
     Write-Output 'OOS_NO_ORDERS=true'
+    Write-Output ("OOS_EXPECTED_CAPITAL_USDT={0}" -f $ExpectedCapitalUsdt)
     foreach ($planned in $plan) {
         Write-Output ("OOS_WINDOW={0};FROM={1};ASOF={2}" -f $planned.Window,$planned.FromOpen,$planned.AsOf)
     }
@@ -83,7 +85,7 @@ if ($status.mode -ne 'SIMULATION_ONLY' -or $status.ordersEnabled) { throw 'Backe
 $market=Invoke-RestMethod -Uri "$BaseUrl/api/v1/market-data/settings" -TimeoutSec 15 -ErrorAction Stop
 if ($market.source -ne 'TESTNET') { throw 'Backend nao configurado para TESTNET' }
 $risk=Invoke-RestMethod -Uri "$BaseUrl/api/v1/risk/status" -TimeoutSec 15 -ErrorAction Stop
-if (-not $risk.configured) { throw 'Politica de risco incompleta' }
+if (-not $risk.configured -or $risk.ordersEnabled) { throw 'Politica de risco incompleta ou ordens habilitadas' }
 
 . (Join-Path $PSScriptRoot 'lib/binance-contract-filters.ps1')
 $exchange=Invoke-RestMethod -Uri 'https://demo-fapi.binance.com/fapi/v1/exchangeInfo' -TimeoutSec 60
@@ -153,6 +155,7 @@ foreach ($tf in @('1m','5m')) {
             [long]$result.asOfCloseTime -ne [long]$window.AsOf) {
             throw ("OOS {0}/janela {1}: replay deslocado" -f $tf,$w)
         }
+        Assert-Money $result.startingEquityUsdt $ExpectedCapitalUsdt ([decimal]'0.0001') 'startingEquityUsdt'
         $summaries=@($result.summaries)
         $trades=@($result.trades)
         $count=[int]$result.originalTrades
