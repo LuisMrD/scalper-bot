@@ -87,6 +87,22 @@ class BacktestServiceTest {
                 null, b("50"), null, false, false));
     }
 
+    @Test void experimentalReentryWaitCannotRunOnUnrelatedTimeframeOrWithoutBlockBoth() {
+        var market=mock(MarketDataService.class);
+        var contexts=mock(MarketContextService.class);
+        var svc=service(market,contexts,mock(LunaDecisionService.class),true);
+        var request1m=request(false);
+        var incompatible=assertThrows(ResponseStatusException.class,
+                () -> svc.runFiltered(request1m, EntryBreakoutFilter.BLOCK_BOTH,
+                        ReentryWaitPolicy.WAIT_WHILE_15M_RANGE));
+        assertEquals(400,incompatible.getStatusCode().value());
+        var wrongFilter=assertThrows(ResponseStatusException.class,
+                () -> svc.runFiltered(request1m, EntryBreakoutFilter.NONE,
+                        ReentryWaitPolicy.WAIT_3_BARS));
+        assertEquals(400,wrongFilter.getStatusCode().value());
+        verifyNoInteractions(market,contexts);
+    }
+
     @Test void insufficientCandlesRejectsAndNeverCallsLuna() {
         var market=mock(MarketDataService.class);
         var contexts=mock(MarketContextService.class);
