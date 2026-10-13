@@ -77,6 +77,35 @@ function GroupBucket([object]$value,[string]$name){
     }
     return 'OTHER'
 }
+function Build-Row([object]$t,[int]$windowId,[string]$cohort,[decimal]$net,[object]$originalNet){
+    return [PSCustomObject]@{
+        Window=$windowId;Cohort=$cohort;Side=$t.Side
+        EnteredAtOpenTime=$t.EnteredAtOpenTime
+        SignalAtCloseTime=$t.SignalAtCloseTime
+        EntryHourUtc=$t.EntryHourUtc
+        ExitCandleOpenTime=$t.ExitCandleOpenTime
+        EntryBreakoutState=$t.EntryBreakoutState
+        PrimaryTrend=$t.PrimaryTrend;Trend15m=$t.Trend15m
+        HigherTimeframeConflicts=$t.HigherTimeframeConflicts
+        VolumeLevel=$t.VolumeLevel;TakerBalance=$t.TakerBalance
+        RelativeVolume=$t.RelativeVolume;RelativeSpread=$t.RelativeSpread
+        TakerBuyShare=$t.TakerBuyShare;EffortResult=$t.EffortResult
+        BarDirection=$t.BarDirection;BarTrend=$t.BarTrend;BarDoji=$t.BarDoji
+        BarInside=$t.BarInside;BarOutside=$t.BarOutside
+        BullishRejection=$t.BullishRejection;BearishRejection=$t.BearishRejection
+        PullbackCandidate=$t.PullbackCandidate
+        ConfirmedPivotCount=$t.ConfirmedPivotCount;AtrAtSignal=$t.AtrAtSignal
+        StopDistancePct=$t.StopDistancePct;EntryGapPct=$t.EntryGapPct
+        EstimatedCostToInitialRiskPct=$t.EstimatedCostToInitialRiskPct
+        EstimatedRoundTripCostUsdt=$t.EstimatedRoundTripCostUsdt
+        InitialRiskUsdt=$t.InitialRiskUsdt
+        NetPnlUsdt=$net;Outcome=(Outcome $net)
+        OriginalNetPnlUsdt=if($null -ne $originalNet){$originalNet}else{''}
+        PreservedPnlDeltaUsdt=if($null -ne $originalNet){$net-[decimal]$originalNet}else{''}
+        ExitReason=$t.ExitReason;DurationCandles=$t.DurationCandles
+        MfeR=$t.MfeR;MaeR=$t.MaeR;NetRMultiple=$t.NetRMultiple
+    }
+}
 if(-not (Test-Path $tradesFile) -or -not(Test-Path $windowsFile)){
     throw "CSV de replays ausente. Execute .\scripts\compare-entry-filters.ps1 primeiro."
 }
@@ -117,7 +146,8 @@ foreach($period in 1..$Windows){
     }
     $keysOriginal=@{}
     $keysFiltered=@{}
-    foreach($source in @(@($original),@($filtered))){
+    foreach($scenarioName in @('NONE','BLOCK_BOTH')){
+        $source=if($scenarioName -eq 'NONE'){$original}else{$filtered}
         foreach($trade in $source){
             [long]$entered=[long]$trade.EnteredAtOpenTime
             [long]$exited=[long]$trade.ExitCandleOpenTime
@@ -132,7 +162,7 @@ foreach($period in 1..$Windows){
                 throw ("Janela {0}: risco inicial invalido" -f $windowId)
             }
             $key="$($trade.Side)|$entered"
-            $map=if($trade.Filter -eq 'NONE'){$keysOriginal}else{$keysFiltered}
+            $map=if($scenarioName -eq 'NONE'){$keysOriginal}else{$keysFiltered}
             if($map.ContainsKey($key)){
                 throw ("Janela {0}: sinal de entrada duplicado em {1}" -f $windowId,$trade.Filter)
             }
@@ -162,7 +192,7 @@ foreach($period in 1..$Windows){
             $cohort='REMOVED';$removed++;$removedTotal+=$pnl
             if($pnl -gt 0){$removedWins++}elseif($pnl -lt 0){$removedLosses++}
         }else{continue}
-        $cohortRows += Build-Row $t $windowId $cohort $pnl $null
+        $cohortRows += (Build-Row $t $windowId $cohort $pnl $null)
     }
     foreach($key in $keysFiltered.Keys){
         $t=$keysFiltered[$key]
@@ -171,11 +201,11 @@ foreach($period in 1..$Windows){
             $cohort='PRESERVED';$preserved++
             [decimal]$prior=Money $keysOriginal[$key].NetPnlUsdt 'OriginalPnl'
             $preservedDelta+=($pnl-$prior)
-            $cohortRows += Build-Row $t $windowId $cohort $pnl $prior
+            $cohortRows += (Build-Row $t $windowId $cohort $pnl $prior)
         }else{
             $cohort='NEW';$added++;$addedTotal+=$pnl
             if($pnl -gt 0){$addedWins++}elseif($pnl -lt 0){$addedLosses++}
-            $cohortRows += Build-Row $t $windowId $cohort $pnl $null
+            $cohortRows += (Build-Row $t $windowId $cohort $pnl $null)
         }
     }
     if($removed+$preserved -ne $original.Count -or
@@ -195,35 +225,7 @@ foreach($period in 1..$Windows){
         TotalDeltaUsdt=$delta
     }
 }
-function Build-Row([object]$t,[int]$windowId,[string]$cohort,[decimal]$net,[object]$originalNet){
-    return [PSCustomObject]@{
-        Window=$windowId;Cohort=$cohort;Side=$t.Side
-        EnteredAtOpenTime=$t.EnteredAtOpenTime
-        SignalAtCloseTime=$t.SignalAtCloseTime
-        EntryHourUtc=$t.EntryHourUtc
-        ExitCandleOpenTime=$t.ExitCandleOpenTime
-        EntryBreakoutState=$t.EntryBreakoutState
-        PrimaryTrend=$t.PrimaryTrend;Trend15m=$t.Trend15m
-        HigherTimeframeConflicts=$t.HigherTimeframeConflicts
-        VolumeLevel=$t.VolumeLevel;TakerBalance=$t.TakerBalance
-        RelativeVolume=$t.RelativeVolume;RelativeSpread=$t.RelativeSpread
-        TakerBuyShare=$t.TakerBuyShare;EffortResult=$t.EffortResult
-        BarDirection=$t.BarDirection;BarTrend=$t.BarTrend;BarDoji=$t.BarDoji
-        BarInside=$t.BarInside;BarOutside=$t.BarOutside
-        BullishRejection=$t.BullishRejection;BearishRejection=$t.BearishRejection
-        PullbackCandidate=$t.PullbackCandidate
-        ConfirmedPivotCount=$t.ConfirmedPivotCount;AtrAtSignal=$t.AtrAtSignal
-        StopDistancePct=$t.StopDistancePct;EntryGapPct=$t.EntryGapPct
-        EstimatedCostToInitialRiskPct=$t.EstimatedCostToInitialRiskPct
-        EstimatedRoundTripCostUsdt=$t.EstimatedRoundTripCostUsdt
-        InitialRiskUsdt=$t.InitialRiskUsdt
-        NetPnlUsdt=$net;Outcome=(Outcome $net)
-        OriginalNetPnlUsdt=if($null -ne $originalNet){$originalNet}else{''}
-        PreservedPnlDeltaUsdt=if($null -ne $originalNet){$net-[decimal]$originalNet}else{''}
-        ExitReason=$t.ExitReason;DurationCandles=$t.DurationCandles
-        MfeR=$t.MfeR;MaeR=$t.MaeR;NetRMultiple=$t.NetRMultiple
-    }
-}
+
 $profiles=@()
 $features=@(
     'Side','EntryBreakoutState','PrimaryTrend','Trend15m',
