@@ -13,7 +13,7 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('SOLUSDT','BTCUSDT','ETHUSDT')][string]$Symbol='SOLUSDT',
+    [ValidateSet('SOLUSDT')][string]$Symbol='SOLUSDT',
     [ValidateSet('testnet')][string]$Source='testnet',
     [ValidateRange(22,100)][int]$StartWindow=22,
     [ValidateSet(3,6,9)][int]$Windows=6,
@@ -119,7 +119,7 @@ $filters=Symbol-ContractFilters -ExchangeInfo $exchange -Symbol $Symbol
 $root=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $out=Join-Path $root 'results'
 $stem="$Symbol-RETEST-$AsOf-5m-w$StartWindow-$($StartWindow+$Windows-1)"
-# No dependency on exploratory windows/CSVs. Frozen OOS starts after w9.
+# Fully fresh outcomes w22..27; no dependence on earlier CSVs.
 if($SyncHistory){
     [long]$warmup=([long]($ContextLimit+30)*15L*60000L)
     [long]$from=[long]$plan[-1].From-$warmup
@@ -299,7 +299,9 @@ $aggregate=@()
 foreach($g in @($windowsOut | Group-Object Policy)){
     if($g.Count -ne $Windows){throw ("Politica incompleta: {0}" -f $g.Name)}
     [decimal]$closed=0;[decimal]$marked=0;[decimal]$deltaClosed=0;[decimal]$deltaMarked=0
-    $trades=0;$wins=0;$longTrades=0;$shortTrades=0;$longPnl=0D;$shortPnl=0D
+    $trades=0;$wins=0;$longTrades=0;$shortTrades=0
+    [decimal]$longPnl=0
+    [decimal]$shortPnl=0
     $filterRejected=0;$waitRejected=0;$macroRejected=0;$shortOnlyRejected=0
     $improved=0;$positiveNet=0
     foreach($r in $g.Group){
