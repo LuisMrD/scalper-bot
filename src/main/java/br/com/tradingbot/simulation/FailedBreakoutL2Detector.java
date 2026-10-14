@@ -32,6 +32,11 @@ final class FailedBreakoutL2Detector {
             BigDecimal priorResistance, BigDecimal priorSupport, BigDecimal failedBreakHigh) {}
 
     private final ClosedRangeLocation ranges;
+    private int zeroActivityFlatCandidates;
+
+    int zeroActivityFlatCandidates() {
+        return zeroActivityFlatCandidates;
+    }
 
     FailedBreakoutL2Detector(ClosedRangeLocation ranges) {
         this.ranges = Objects.requireNonNull(ranges);
@@ -63,14 +68,16 @@ final class FailedBreakoutL2Detector {
             }
             if (!continuous) continue;
 
-            ClosedRangeLocation.Snapshot before;
-            try {
-                before = ranges.at(failed.openTime() - 1L, failed.high());
-            } catch (org.springframework.web.server.ResponseStatusException missing) {
-                // Missing historical range is a DATA INTEGRITY problem, not a
-                // negative signal that should silently bias the sample.
-                throw missing;
+            // A 7.5h stretch with constant OHLC and ZERO volume/trades
+            // cannot define tradeable resistance. Skip this candidate only,
+            // retaining its history and counting skipped evaluations.
+            // A missing/stale 15m bar or active-but-zero-width data still 422s.
+            var previousRange = ranges.atIfTraded(failed.openTime() - 1L, failed.high());
+            if (previousRange.isEmpty()) {
+                zeroActivityFlatCandidates++;
+                continue;
             }
+            var before = previousRange.get();
             var ceiling = before.high30();
             var floor = before.low30();
             if (failed.high().compareTo(ceiling) <= 0
