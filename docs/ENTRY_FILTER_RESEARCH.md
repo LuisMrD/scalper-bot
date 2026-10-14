@@ -343,3 +343,78 @@ PnL dos encerrados, drawdown, cobertura por janela, SHORTs
 inalterados, novas entradas que surgiram, ganhadoras perdidas,
 e maior winner isolado. A soma dos PnLs de 6 carteiras
 independentes nao representa rentabilidade composta.
+
+## Confirmacao SHORT_ONLY vs LONG macro (janelas ineditas 22..27)
+
+Pre-registro realizado **antes de observar** o resultado das janelas 22..27,
+todas anteriores e sem sobreposicao aos estudos 1..21. Sao seis blocos
+independentes de **300 horas** (3600 candles 5m e contexto 15m).
+Capital de 1500 USDT reiniciado por janela, risco 0.5% por trade,
+stop diario 3%, alavancagem 1, fee 0.05% por lado, slippage 0.02%
+por lado, trigger BE 1R e filtro de custo/risco de 50%.
+
+Os **quatro cenarios congelados**:
+
+- `CONTROL`: RETEST com `BLOCK_BOTH + WAIT_12_BARS`, sem filtro macro.
+- `SHORT_ONLY`: mesmo controle, mas rejeita todo sinal de entrada LONG
+  RETEST depois do bloqueio de rompimento e do cooldown de 60 min.
+  **Nao bloqueia entradas SHORT nem altera gerenciamento de posicoes**.
+- `BOTH_UP_6H_DIP_3H`: so permite LONG quando retornos fechados
+  BTC e ETH sao positivos em 6h e negativos em 3h.
+- `BOTH_UP_9H_DIP_3H`: idem com tendencia positiva em 9h e dip negativo em 3h.
+
+Os filtros nao excluem trades de CSV; cada cenario executa o motor
+Java e o ledger desde o inicio da sua janela, com seu proprio stop,
+equity, custos e capacidade disponivel. O SHORT_ONLY pode executar
+novas vendas em timestamps diferentes do controle: as regras SHORT
+sao iguais, **as execucoes SHORT nao precisam ser identicas**.
+
+O metodo `runLongVersusShort` em `BacktestService` aceita apenas
+SOLUSDT, `intervals=[5m,15m]`, `steps=3600`, RETEST-only,
+`includeLuna=false`. O endpoint de pesquisa
+`POST /api/v1/backtest/compare-long-vs-short` retorna os quatro
+portfolios independentes, contadores para entradas rejeitadas
+e PnL separado para LONG e SHORT. O endpoint regular e a estrategia
+principal permanecem inalterados.
+
+Parametros novos usam a familia numerica 3/6/9: macro 3h, 6h e 9h;
+cooldown 60 min; **6 janelas** e **300h** cada. Sao convencoes,
+nao evidencias matematicas de vantagem dos algarismos.
+
+Antes de importar dados, validar as configuracoes efetivas usando
+`GET /api/v1/backtest/research-config`. O script exige todos os
+custos/risco do estudo, TESTNET, WS/bootstrap desligados e
+`TRADING_SYMBOLS` incluindo SOL, BTC e ETH, com ordens/Luna OFF.
+
+Testar plano local sem rede:
+`./scripts/validate-long-vs-short-oos.ps1 -PrintOnly`
+
+Executar:
+`./scripts/validate-long-vs-short-oos.ps1 -Symbol SOLUSDT -StartWindow 22 -Windows 6 -AsOf 1791845999999 -ExpectedCapitalUsdt 1500 -SyncHistory`
+
+`-SyncHistory` busca apenas na Binance Futures Testnet candles
+SOL 5m/15m, BTC 15m e ETH 15m em lotes historicos. Erros de
+disponibilidade, candles ausentes ou gaps invalidam a janela;
+nao gerar dados artificiais e nao alternar silenciosamente
+para producao. Se os candles ja estao completos no MySQL,
+executar sem `-SyncHistory`.
+
+O script exporta tres CSVs com sufixo
+`SOLUSDT-RETEST-1791845999999-5m-w22-27.csv`:
+
+- `long-vs-short-oos-aggregate-...` (resultado acumulado dos 6 replays
+  independentes, melhoria vs controle, trades por direcao)
+- `long-vs-short-oos-windows-...` (custos, drawdown, PnL marcado/fechado,
+  delta, sinais bloqueados, configuracao efetiva)
+- `long-vs-short-oos-trades-...` (operacoes executadas, snapshots de
+  entrada e resultados)
+
+Validacoes automaticas: cada portfolio reporta capital de 1500 USDT,
+PnL marcado = equity marcada - capital; soma PnL trades = PnL fechado,
+soma LONG+SHORT = PnL fechado, SHORT_ONLY nao pode ter trades LONG.
+Conferir se os resultados dependem de uma unica janela/winner e se
+LONGs selecionados superam a alternativa sem nenhuma compra.
+
+OOS vale apenas para os **quatro cenarios predefinidos**.
+Apos inspecionar resultados 22..27, deixa de ser amostra inedita
+para qualquer novo ajuste escolhido em funcao deles.
