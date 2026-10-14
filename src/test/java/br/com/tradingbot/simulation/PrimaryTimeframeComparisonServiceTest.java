@@ -109,7 +109,8 @@ class PrimaryTimeframeComparisonServiceTest {
         var fifteen = mock(BacktestResult.class);
         when(fifteen.intervals()).thenReturn(List.of("15m","1h"));
         when(fifteen.replayedCandles()).thenReturn(1200);
-        when(fifteen.fromCandleOpenTime()).thenReturn(five.fromCandleOpenTime() + 900_000L);
+        long wrongFrom = 1791845999999L - 300L*3_600_000L + 1L + 900_000L;
+        when(fifteen.fromCandleOpenTime()).thenReturn(wrongFrom);
         when(backtests.runPrimary15mComparison(any(BacktestRequest.class)))
                 .thenReturn(new BacktestService.FilteredReplay(fifteen, 0, 0));
         assertEquals(409, assertThrows(ResponseStatusException.class,
