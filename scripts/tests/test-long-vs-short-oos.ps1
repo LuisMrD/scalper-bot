@@ -50,4 +50,22 @@ $small=@(& $runner -PrintOnly -StartWindow 28 -Windows 3)
 if(@($small | Where-Object {$_ -like 'LONG_SHORT_WINDOW=*'}).Count -ne 3){
     throw 'Magic 3-window format is broken'
 }
+# Keep PowerShell export names in lockstep with the Java Summary record.
+# The first execution wrongly mapped these to filteredSignals/reentryBlockedSignals
+# and silently emitted empty cells and misleading aggregate zeros.
+$source=Get-Content -LiteralPath $runner -Raw
+foreach($field in @(
+    'entryFilterBlockedSignals',
+    'reentryWaitBlockedSignals',
+    'macroBlockedLongSignals',
+    'shortOnlyBlockedLongSignals'
+)){
+    if(-not $source.Contains('$s.' + $field)){
+        throw ("API summary mapping missing: {0}" -f $field)
+    }
+}
+if($source.Contains('RejectedByEntryFilter=$s.filteredSignals') -or
+   $source.Contains('RejectedByReentryWait=$s.reentryBlockedSignals')){
+    throw 'Legacy invalid LONG/SHORT rejection mapping must not return'
+}
 Write-Host 'PASS: 4 LONG vs SHORT portfolios, windows 22..27, 6x300h, no HTTP/Luna/orders'
