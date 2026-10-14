@@ -41,7 +41,38 @@ final class CrossAssetMacroMomentum {
         }
     }
 
+    /** Shorter, pre-registered 3/6/9-hour horizons for LONG entry hypotheses. */
+    record MagicSnapshot(long lastClosed15mTime, BigDecimal return3hPct,
+            BigDecimal return6hPct, BigDecimal return9hPct) {
+        BigDecimal returnHours(int hours) {
+            return switch (MagicResearchNumbers.requireHours(hours)) {
+                case 3 -> return3hPct;
+                case 6 -> return6hPct;
+                case 9 -> return9hPct;
+                default -> throw new IllegalArgumentException("Allowed macro hours: 3/6/9");
+            };
+        }
+    }
+
+    MagicSnapshot atMagic(long signalCloseTime) {
+        int last = verifiedIndex(signalCloseTime, 36);
+        var current = candles.get(last);
+        return new MagicSnapshot(current.closeTime(),
+                pctChange(current.close(), candles.get(last - 12).close()),
+                pctChange(current.close(), candles.get(last - 24).close()),
+                pctChange(current.close(), candles.get(last - 36).close()));
+    }
+
     Snapshot at(long signalCloseTime) {
+        int last = verifiedIndex(signalCloseTime, LOOKBACK_24H);
+        var current = candles.get(last);
+        return new Snapshot(current.closeTime(),
+                pctChange(current.close(), candles.get(last - 4).close()),
+                pctChange(current.close(), candles.get(last - 16).close()),
+                pctChange(current.close(), candles.get(last - LOOKBACK_24H).close()));
+    }
+
+    private int verifiedIndex(long signalCloseTime, int requiredBars) {
         int low = 0, high = candles.size() - 1, last = -1;
         while (low <= high) {
             int mid = (low + high) >>> 1;
@@ -52,9 +83,9 @@ final class CrossAssetMacroMomentum {
                 high = mid - 1;
             }
         }
-        if (last < LOOKBACK_24H) {
+        if (last < requiredBars) {
             throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
-                    "Missing 24h macro lookback before SOL signal at " + signalCloseTime);
+                    "Missing macro lookback before SOL signal at " + signalCloseTime);
         }
         var current = candles.get(last);
         long lag = signalCloseTime - current.closeTime();
@@ -62,8 +93,8 @@ final class CrossAssetMacroMomentum {
             throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
                     "15m macro context is stale at SOL signal " + signalCloseTime);
         }
-        // A missing bar anywhere in the 24h lookback invalidates ALL horizons.
-        for (int i = last - LOOKBACK_24H + 1; i <= last; i++) {
+        // A gap in ANY required 15m candle invalidates the signal.
+        for (int i = last - requiredBars + 1; i <= last; i++) {
             if (candles.get(i).openTime() - candles.get(i - 1).openTime()
                     != FIFTEEN_MINUTES) {
                 throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
@@ -71,10 +102,7 @@ final class CrossAssetMacroMomentum {
                                 + signalCloseTime);
             }
         }
-        return new Snapshot(current.closeTime(),
-                pctChange(current.close(), candles.get(last - 4).close()),
-                pctChange(current.close(), candles.get(last - 16).close()),
-                pctChange(current.close(), candles.get(last - LOOKBACK_24H).close()));
+        return last;
     }
 
     private static BigDecimal pctChange(BigDecimal current, BigDecimal previous) {
