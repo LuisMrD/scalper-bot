@@ -87,5 +87,8 @@ jobs:
       - name: Smoke frozen OOS six new 300-hour reentry windows (offline)
         shell: pwsh
         run: ./scripts/tests/test-reentry-oos.ps1
+      - name: Smoke cross-asset SOL-BTC-ETH macro study (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-cross-asset-macro.ps1
       - name: Validate and test (no real orders)
         run: mvn -B -ntp verify
