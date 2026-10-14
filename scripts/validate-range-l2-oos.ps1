@@ -26,7 +26,8 @@ param(
     [string]$BaseUrl='http://127.0.0.1:8080',
     [ValidateRange(30,1800)][int]$TimeoutSec=900,
     [switch]$SyncHistory,
-    [switch]$PrintOnly
+    [switch]$PrintOnly,
+    [ValidateRange(0,100)][int]$DiagnoseWindow=0
 )
 $ErrorActionPreference='Stop'
 $BaseUrl=$BaseUrl.TrimEnd('/')
@@ -82,6 +83,17 @@ if($PrintOnly){
         Write-Output ("RANGE_L2_WINDOW={0};FROM={1};ASOF={2}" -f $record.Window,$record.From,$record.AsOf)
     }
     return
+}
+if($DiagnoseWindow -ne 0){
+    if($DiagnoseWindow -lt $StartWindow -or $DiagnoseWindow -ge $StartWindow+$Windows){
+        throw 'DiagnoseWindow must belong to the frozen six-window study'
+    }
+    if($SyncHistory){
+        throw 'Diagnostic replay uses already synchronized TESTNET candles; omit -SyncHistory'
+    }
+    $plan=@($plan | Where-Object {$_.Window -eq $DiagnoseWindow})
+    if($plan.Count -ne 1){throw 'Exactly one diagnostic window must be selected'}
+    Write-Host ("DIAGNOSTICO somente da janela {0}; nao gera CSV parcial." -f $DiagnoseWindow)
 }
 $health=Invoke-RestMethod -Uri "$BaseUrl/actuator/health" -TimeoutSec 15 -ErrorAction Stop
 $state=Invoke-RestMethod -Uri "$BaseUrl/api/v1/backtest/status" -TimeoutSec 15 -ErrorAction Stop
@@ -177,9 +189,28 @@ foreach($record in $plan){
     }
     try{$response=Invoke-RestMethod @requestArgs}
     catch{
-        $detail=if($_.ErrorDetails -and $_.ErrorDetails.Message){
-            $_.ErrorDetails.Message
-        }else{$_.Exception.Message}
+        # Windows PowerShell 5.1 often hides the response body of HTTP 422.
+        # Read error JSON from HTTP stream, without touching prior API runs.
+        $detail=$null
+        if($_.ErrorDetails -and $_.ErrorDetails.Message){
+            $detail=[string]$_.ErrorDetails.Message
+        }
+        if([string]::IsNullOrWhiteSpace($detail) -and $_.Exception.Response){
+            try {
+                $stream=$_.Exception.Response.GetResponseStream()
+                if($null -ne $stream){
+                    $reader=New-Object System.IO.StreamReader($stream)
+                    try {$detail=$reader.ReadToEnd()} finally {$reader.Dispose()}
+                }
+            } catch {}
+        }
+        if([string]::IsNullOrWhiteSpace($detail)){$detail=$_.Exception.Message}
+        try {
+            $parsed=$detail | ConvertFrom-Json -ErrorAction Stop
+            if($parsed.message){$detail=[string]$parsed.message}
+            elseif($parsed.detail){$detail=[string]$parsed.detail}
+            elseif($parsed.error -and $parsed.error -is [string]){$detail=[string]$parsed.error}
+        } catch {}
         throw ("FAILED BREAK L2 na janela {0}: {1}" -f $w,$detail)
     }
     if($response.symbol -ne $Symbol -or $response.primaryInterval -ne '5m' -or
@@ -315,6 +346,11 @@ foreach($record in $plan){
             EstimatedCostToInitialRiskPct=$f.estimatedCostToInitialRiskPct
         }
     }
+}
+if($DiagnoseWindow -ne 0){
+    if($windowsOut.Count -ne 3){throw 'Diagnostico incompleto: tres portfolios esperados'}
+    Write-Host ("DIAGNOSTICO concluido para janela {0}; nenhum CSV foi gerado." -f $DiagnoseWindow)
+    return
 }
 if($windowsOut.Count -ne (3*$Windows)){throw 'OOS incompleto: nao exportar resultados parciais'}
 # Validate exported window schema before attempting grouping or writing CSVs.
