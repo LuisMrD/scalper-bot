@@ -63,6 +63,37 @@ class CrossAssetMacroMomentumTest {
     }
 
     @Test
+    void threeSixNineHourMomentumNeverSeesUnclosedCandles() {
+        var candles = descending("BTCUSDT");
+        var momentum = new CrossAssetMacroMomentum("BTCUSDT", candles);
+        long close140 = 141L * 900_000L - 1L;
+        var magic = momentum.atMagic(close140);
+        assertEquals(close140, magic.lastClosed15mTime());
+        assertEquals(0, magic.returnHours(3).compareTo(
+                new BigDecimal("12").multiply(new BigDecimal("100"))
+                        .divide(new BigDecimal("228"), java.math.MathContext.DECIMAL64)));
+        assertEquals(0, magic.returnHours(6).compareTo(
+                new BigDecimal("24").multiply(new BigDecimal("100"))
+                        .divide(new BigDecimal("216"), java.math.MathContext.DECIMAL64)));
+        assertEquals(0, magic.returnHours(9).compareTo(
+                new BigDecimal("36").multiply(new BigDecimal("100"))
+                        .divide(new BigDecimal("204"), java.math.MathContext.DECIMAL64)));
+        assertEquals(close140-900_000L,
+                momentum.atMagic(close140-1L).lastClosed15mTime());
+        assertEquals(422, assertThrows(ResponseStatusException.class,
+                () -> momentum.atMagic(36L*900_000L-1)).getStatusCode().value());
+    }
+
+    @Test
+    void magicHorizonsAlsoRejectGaps() {
+        var bars = descending("ETHUSDT");
+        bars.removeIf(c -> c.openTime() == 131L*900_000L);
+        var momentum = new CrossAssetMacroMomentum("ETHUSDT", bars);
+        assertEquals(422, assertThrows(ResponseStatusException.class,
+                () -> momentum.atMagic(141L*900_000L-1)).getStatusCode().value());
+    }
+
+    @Test
     void incompleteLookbackIsNotSilentlyAccepted() {
         var macro = new CrossAssetMacroMomentum("BTCUSDT", descending("BTCUSDT"));
         assertEquals(422, assertThrows(ResponseStatusException.class,
