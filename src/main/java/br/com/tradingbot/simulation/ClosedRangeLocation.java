@@ -6,6 +6,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -42,6 +43,22 @@ final class ClosedRangeLocation {
     }
 
     Snapshot at(long signalCloseTime, BigDecimal signalClosePrice) {
+        return locate(signalCloseTime, signalClosePrice, false)
+                .orElseThrow(() -> new IllegalStateException("Strict range lookup returned no result"));
+    }
+
+    /**
+     * L2-only: a contiguous, flat 30-bar 15m range with ZERO trades
+     * and ZERO volume is not a resistance/support setup. Return empty
+     * rather than making a synthetic trade. Any gap, stale data, invalid
+     * prices or a flat range WITH activity still rejects HTTP 422.
+     */
+    Optional<Snapshot> atIfTraded(long signalCloseTime, BigDecimal signalClosePrice) {
+        return locate(signalCloseTime, signalClosePrice, true);
+    }
+
+    private Optional<Snapshot> locate(long signalCloseTime, BigDecimal signalClosePrice,
+            boolean allowZeroActivityFlat) {
         if (signalClosePrice == null || signalClosePrice.signum() <= 0) {
             throw new IllegalArgumentException("Invalid signal price");
         }
@@ -65,6 +82,7 @@ final class ClosedRangeLocation {
                     "15m range is stale for SHORT signal " + signalCloseTime);
         }
         BigDecimal min = null, max = null;
+        boolean zeroActivity = true;
         for (int i = last - RANGE_BARS_15M + 1; i <= last; i++) {
             var candle = candles.get(i);
             if (i > last - RANGE_BARS_15M + 1
@@ -74,15 +92,24 @@ final class ClosedRangeLocation {
             }
             min = min == null ? candle.low() : min.min(candle.low());
             max = max == null ? candle.high() : max.max(candle.high());
+            zeroActivity &= candle.baseVolume().signum() == 0
+                    && candle.quoteVolume().signum() == 0
+                    && candle.numberOfTrades() == 0
+                    && candle.takerBuyBaseVolume().signum() == 0
+                    && candle.takerBuyQuoteVolume().signum() == 0;
         }
         if (max.compareTo(min) <= 0) {
+            if (max.compareTo(min) == 0 && allowZeroActivityFlat && zeroActivity) {
+                return Optional.empty();
+            }
             throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
-                    "No valid 15m trading range width at signal " + signalCloseTime);
+                    "No valid 15m trading range width at signal " + signalCloseTime
+                    + (zeroActivity ? " (zero activity)" : " (nonzero trading activity)"));
         }
         // signal >= min + (max - min)*2/3; inclusive of exact boundary.
         boolean upper = signalClosePrice.subtract(min).multiply(THREE)
                 .compareTo(max.subtract(min).multiply(TWO)) >= 0;
-        return new Snapshot(candles.get(last).closeTime(), min, max,
-                signalClosePrice, upper);
+        return Optional.of(new Snapshot(candles.get(last).closeTime(), min, max,
+                signalClosePrice, upper));
     }
 }
