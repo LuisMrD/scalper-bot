@@ -34,6 +34,8 @@ param(
     [string]$SlippagePerSidePct = '0.02',
     [string]$BreakEvenTriggerR = '1.0',
 
+    [switch]$IncludeOneHour,
+
     [switch]$PrintOnly
 )
 
@@ -44,7 +46,7 @@ $ErrorActionPreference = 'Stop'
 $settings = [ordered]@{
     SPRING_PROFILES_ACTIVE = 'backtest'
     TRADING_SYMBOLS = ($Symbols -join ',')
-    MARKET_DATA_INTERVALS = '1m,5m,15m'
+    MARKET_DATA_INTERVALS = $(if($IncludeOneHour){'1m,5m,15m,1h'}else{'1m,5m,15m'})
     TRADING_ORDERS_ENABLED = 'false'
     LUNA_ENABLED = 'false'
     MARKET_DATA_WS_ENABLED = 'false'
