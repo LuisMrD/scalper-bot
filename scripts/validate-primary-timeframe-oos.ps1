@@ -201,13 +201,13 @@ foreach($period in $plan){
     }
     if($r.symbol -ne $Symbol -or [long]$r.fromOpenTime -ne [long]$period.From -or
        [long]$r.asOfCloseTime -ne [long]$period.AsOf -or [int]$r.periodHours -ne 300){
-        throw "Window $w: different 300-hour trading period"
+        throw "Window $($w): different 300-hour trading period"
     }
     $summaries=@($r.summaries);$trades=@($r.trades)
-    if($summaries.Count -ne 2){throw "Window $w: two portfolios expected"}
+    if($summaries.Count -ne 2){throw "Window $($w): two portfolios expected"}
     $arms=@($summaries|ForEach-Object {$_.arm}|Sort-Object -Unique)
     if($arms.Count -ne 2 -or @($arms|Where-Object {$_ -notin $scenarios}).Count -gt 0){
-        throw "Window $w: unexpected timeframe arms"
+        throw "Window $($w): unexpected timeframe arms"
     }
     foreach($s in $summaries){
         $primary=if($s.arm -eq 'PRIMARY_5M_CONTEXT_15M'){'5m'}else{'15m'}
@@ -218,7 +218,7 @@ foreach($period in $plan){
            [int]$s.replayedCandles -ne $bars -or [int]$s.cooldownBars -ne $wait -or
            $null -eq $s.entryFilterBlockedSignals -or $null -eq $s.cooldownBlockedSignals -or
            $null -eq $s.longNetClosedUsdt -or $null -eq $s.shortNetClosedUsdt){
-            throw "Window $w: timeframe response fields incomplete"
+            throw "Window $($w): timeframe response fields incomplete"
         }
         Near $s.startingEquityUsdt $ExpectedCapitalUsdt ([decimal]'0.0001') 'capital'
         $matching=@($trades|Where-Object {$_.arm -eq $s.arm})
@@ -226,7 +226,7 @@ foreach($period in $plan){
         $short=@($matching|Where-Object {$_.side -eq 'SHORT'})
         if($matching.Count -ne [int]$s.tradesClosed -or
            $long.Count -ne [int]$s.longTrades -or $short.Count -ne [int]$s.shortTrades){
-            throw "Window $w: trades do not reconcile with portfolio"
+            throw "Window $($w): trades do not reconcile with portfolio"
         }
         [decimal]$l=0;[decimal]$sh=0
         foreach($t in $long){$l+=Money $t.netPnlUsdt 'long pnl'}
@@ -260,7 +260,7 @@ foreach($period in $plan){
            [long]$t.signalCloseTime -ge [long]$t.enteredAtOpenTime -or
            [long]$t.enteredAtOpenTime -lt [long]$period.From -or
            [long]$t.exitCandleOpenTime -gt [long]$period.AsOf){
-            throw "Window $w: out-of-range or lookahead trade"
+            throw "Window $($w): out-of-range or lookahead trade"
         }
         $tradeRows += [pscustomobject]@{
             Window=$w;Arm=$t.arm;Side=$t.side;EntrySetup=$t.entrySetup
