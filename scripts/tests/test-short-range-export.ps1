@@ -90,7 +90,8 @@ function Invoke-RestMethod {
                 }
                 foreach($dir in @('LONG','SHORT')){
                     $profit=if($dir -eq 'LONG'){$spec.Long}else{$spec.Short}
-                    [long]$entry=$from+300000L*(if($dir -eq 'LONG'){100}else{110})
+                    [long]$entryIndex=if($dir -eq 'LONG'){100}else{110}
+                    [long]$entry=$from+300000L*$entryIndex
                     $trades += [pscustomobject]@{
                         policy=$spec.Policy;side=$dir
                         enteredAtOpenTime=$entry
