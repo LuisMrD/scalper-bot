@@ -85,7 +85,7 @@ if(-not $config.requireDominantTakerVolume -or [int]$config.breakoutLookback -ne
 $exchange=Invoke-RestMethod -Uri 'https://demo-fapi.binance.com/fapi/v1/exchangeInfo' -TimeoutSec 60
 $f=Symbol-ContractFilters -ExchangeInfo $exchange -Symbol $Symbol
 $tradeRows=@()
-$windows=@()
+$windowRows=@()
 foreach($w in $plan){
     $body=@{
         symbol='SOLUSDT';intervals=@('5m','15m');steps=3600
@@ -131,7 +131,7 @@ foreach($w in $plan){
            $null -eq $s.blockedByEntryFilter -or $null -eq $s.shortOnlyBlockedLongSignals){
             throw "Window $($w.Window): missing financial/blocked signal counts"
         }
-        $windows += [PSCustomObject]@{
+        $windowRows += [PSCustomObject]@{
             Window=$w.Window;Policy=$s.policy;FromOpen=$w.From;AsOf=$w.AsOf
             Trades=$s.tradesClosed;Wins=$s.winningTrades;Losses=$s.losingTrades
             LongTrades=$longCount;ShortTrades=$shortCount;ShortWins=$shortWins
@@ -184,7 +184,7 @@ foreach($w in $plan){
         }
     }
 }
-if($windows.Count -ne 2*$Windows){throw 'Incomplete research portfolios'}
+if($windowRows.Count -ne 2*$Windows){throw 'Incomplete research portfolios'}
 foreach($w in $plan.Window){
     $control=@($tradeRows | Where-Object {$_.Window -eq $w -and $_.Policy -eq 'CONTROL'})
     $short=@($tradeRows | Where-Object {$_.Window -eq $w -and $_.Policy -eq 'SHORT_ONLY'})
@@ -267,7 +267,7 @@ $stem="$Symbol-RETEST-$AsOf-5m-w$StartWindow-$($StartWindow+$Windows-1)"
 $windowsPath=Join-Path $out "short-regime-windows-$stem.csv"
 $tradesPath=Join-Path $out "short-regime-trades-$stem.csv"
 $patternsPath=Join-Path $out "short-regime-patterns-$stem.csv"
-$windows | Export-Csv -Path $windowsPath -NoTypeInformation -Encoding UTF8
+$windowRows | Export-Csv -Path $windowsPath -NoTypeInformation -Encoding UTF8
 $tradeRows | Export-Csv -Path $tradesPath -NoTypeInformation -Encoding UTF8
 $patterns | Export-Csv -Path $patternsPath -NoTypeInformation -Encoding UTF8
 Write-Host 'SHORT diagnostic (retrospective; MFE/MAE/exit reasons are POST-ENTRY):'
