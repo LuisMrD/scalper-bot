@@ -90,5 +90,8 @@ jobs:
       - name: Smoke cross-asset SOL-BTC-ETH macro study (offline)
         shell: pwsh
         run: ./scripts/tests/test-cross-asset-macro.ps1
+      - name: Smoke frozen 3-6-9h BTC ETH macro research windows (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-magic-macro-oos.ps1
       - name: Validate and test (no real orders)
         run: mvn -B -ntp verify
