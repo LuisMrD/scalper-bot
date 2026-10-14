@@ -96,5 +96,8 @@ jobs:
       - name: Smoke frozen SHORT_ONLY vs selected 6h-3h and 9h-3h macro OOS (offline)
         shell: pwsh
         run: ./scripts/tests/test-long-vs-short-oos.ps1
+      - name: Smoke retrospective SHORT regime and stop diagnostics (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-short-regime-diagnostics.ps1
       - name: Validate and test (no real orders)
         run: mvn -B -ntp verify
