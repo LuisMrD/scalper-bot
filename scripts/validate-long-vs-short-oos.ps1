@@ -210,6 +210,12 @@ foreach($record in $plan){
         Near $s.startingEquityUsdt $ExpectedCapitalUsdt ([decimal]'0.0001') 'capital inicial'
         Near ((Money $s.markedEquityUsdt 'markedEquity')-
               (Money $s.startingEquityUsdt 'capital')) $s.markedPnlUsdt ([decimal]'0.001') 'PnL marcado'
+        if($null -eq $s.entryFilterBlockedSignals -or
+           $null -eq $s.reentryWaitBlockedSignals -or
+           $null -eq $s.macroBlockedLongSignals -or
+           $null -eq $s.shortOnlyBlockedLongSignals){
+            throw ("Janela {0}, {1}: campos de contagem ausentes no endpoint" -f $w,$s.policy)
+        }
         $matching=@($trades | Where-Object {$_.policy -eq $s.policy})
         if($matching.Count -ne [int]$s.tradesClosed){
             throw ("Janela {0}, {1}: trades incompletos" -f $w,$s.policy)
@@ -242,8 +248,8 @@ foreach($record in $plan){
             ResearchSlippagePerSidePct=$config.slippagePerSidePct
             ResearchHigherTimeframeAlignment=$config.requireHigherTimeframeAlignment
             ResearchDominantTaker=$config.requireDominantTakerVolume
-            RejectedByEntryFilter=$s.filteredSignals
-            RejectedByReentryWait=$s.reentryBlockedSignals
+            RejectedByEntryFilter=$s.entryFilterBlockedSignals
+            RejectedByReentryWait=$s.reentryWaitBlockedSignals
             RejectedByMacroLong=$s.macroBlockedLongSignals
             RejectedByShortOnly=$s.shortOnlyBlockedLongSignals
             TradesClosed=$s.tradesClosed;Wins=$s.winningTrades;Losses=$s.losingTrades
