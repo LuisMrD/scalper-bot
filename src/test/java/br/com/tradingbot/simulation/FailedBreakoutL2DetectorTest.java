@@ -87,6 +87,29 @@ class FailedBreakoutL2DetectorTest {
     }
 
     @Test
+    void inactiveFlatTestnetRangeDoesNotAbortAnOtherwiseCompleteReplay() {
+        var flat = ClosedRangeLocationTest.flatHistory(false, false);
+        var detector = new FailedBreakoutL2Detector(flat);
+        var tape = validL2();
+        // Shift the causal L2 tape into the 30x15m flat window.
+        long shift = -120L * 900_000L + 35L * 900_000L;
+        var shifted = new ArrayList<MarketCandle>();
+        for (var candle : tape) {
+            shifted.add(bar("5m", candle.openTime() + shift,
+                    candle.open().toPlainString(), candle.high().toPlainString(),
+                    candle.low().toPlainString(), candle.close().toPlainString()));
+        }
+        assertNull(detector.detect(shifted));
+        assertTrue(detector.zeroActivityFlatCandidates() > 0,
+                "No-trade range candidates must be counted, never filled");
+        var withRecordedTrades = new FailedBreakoutL2Detector(
+                ClosedRangeLocationTest.flatHistory(true, false));
+        assertEquals(422, assertThrows(
+                org.springframework.web.server.ResponseStatusException.class,
+                () -> withRecordedTrades.detect(shifted)).getStatusCode().value());
+    }
+
+    @Test
     void neverAllowsSecondLegNearBottomThird() {
         var bars = validL2();
         // Separate wick/leg example with a failed breakout followed by an
