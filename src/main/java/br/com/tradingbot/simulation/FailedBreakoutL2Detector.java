@@ -29,7 +29,7 @@ final class FailedBreakoutL2Detector {
 
     record Signal(long failureCloseTime, long firstAttemptCloseTime,
             long reboundCloseTime, long secondAttemptCloseTime,
-            BigDecimal priorResistance, BigDecimal priorSupport) {}
+            BigDecimal priorResistance, BigDecimal priorSupport, BigDecimal failedBreakHigh) {}
 
     private final ClosedRangeLocation ranges;
 
@@ -102,7 +102,7 @@ final class FailedBreakoutL2Detector {
                             && rebound.close().compareTo(first.close()) > 0
                             && rebound.high().compareTo(failed.high()) < 0) {
                         return new Signal(failed.closeTime(), first.closeTime(),
-                                rebound.closeTime(), second.closeTime(), ceiling, floor);
+                                rebound.closeTime(), second.closeTime(), ceiling, floor, failed.high());
                     }
                 }
             }
