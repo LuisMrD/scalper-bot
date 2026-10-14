@@ -102,7 +102,11 @@ class PrimaryTimeframeComparisonServiceTest {
         when(five.replayedCandles()).thenReturn(3600);
         when(five.throughCandleCloseTime()).thenReturn(1791845999999L);
         when(five.fromCandleOpenTime()).thenReturn(1791845999999L - 300L*3_600_000L + 1L);
-        when(five.javaPortfolio()).thenReturn(mock(BacktestResult.PortfolioResult.class));
+        var controlPortfolio = mock(BacktestResult.PortfolioResult.class);
+        when(five.javaPortfolio()).thenReturn(controlPortfolio);
+        when(controlPortfolio.trades()).thenReturn(List.of());
+        when(controlPortfolio.startingEquityUsdt()).thenReturn(new BigDecimal("1500"));
+        when(controlPortfolio.markedEquityUsdt()).thenReturn(new BigDecimal("1500"));
         when(backtests.runFiltered(request, EntryBreakoutFilter.BLOCK_BOTH,
                 ReentryWaitPolicy.WAIT_12_BARS)).thenReturn(
                     new BacktestService.FilteredReplay(five, 0, 0));
