@@ -45,3 +45,6 @@ jobs:
         run: |
           .\scripts\validate-range-l2-oos.ps1 -StartWindow 34 -Windows 6 -PrintOnly
           .\scripts\tests\test-range-l2-export.ps1
+      - name: Mock offline financial expectancy audit with Windows PowerShell 5.1
+        shell: powershell
+        run: ./scripts/tests/test-expectancy-audit.ps1
