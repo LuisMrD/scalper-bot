@@ -124,3 +124,65 @@ exatamente o PnL fechado, PnL marcado e numero de trades de
 As 9 janelas ja serviram para identificar a hipotese e sao **exploratorias**,
 nao OOS. Nao declarar lucro demonstrado nem escolher parametrizacao definitiva
 por esses resultados: reservar periodos nao vistos para confirmacao.
+
+## Validacao independente: regras congeladas em janelas 10..15
+
+Pre-registro: os resultados das janelas 1..9 sao apenas exploratorios.
+Nao ajustar criterios apos observar as janelas 10..15. Executar tres
+alternativas ja definidas antes desta etapa, todas com RETEST e BLOCK_BOTH:
+
+1. `NONE`: controle com os dois filtros, sem espera.
+2. `WAIT_WHILE_15M_RANGE`: trava reentrada ate contexto 15m nao RANGE
+   depois de uma rejeicao que ocorreu em RANGE.
+3. `WAIT_12_BARS`: espera fixa de 12 candles fechados de 5m (60 minutos).
+
+O endpoint Java continua devolvendo uma quarta alternativa para compatibilidade,
+mas o runner OOS ignora `WAIT_3_BARS` e exporta apenas as tres acima.
+
+Amostra: seis periodos de 300 horas nao sobrepostos, **indices 10, 11, 12, 13,
+14 e 15**, alinhados com o `AsOf=1791845999999`. Historico total 1800 horas
+(75 dias), sem reutilizar nenhuma barra de resultado das janelas 1..9.
+Dados de contexto anteriores a janela sao usados somente para aquecimento,
+sem PnL durante o aquecimento.
+
+O novo endpoint somente leitura `GET /api/v1/backtest/research-config`
+permite ao runner conferir parametros efetivos, nao apenas o YAML que pode
+ser sobrescrito por variaveis de ambiente. O validador exige:
+
+- `SOLUSDT` configurado; perfil DISABLED ou BACKTEST; ordens bloqueadas.
+- Fonte TESTNET; websocket e bootstrap desativados; 5m e 15m habilitados.
+- Capital 1500, risco 0.5%, stop diario 3%, alavancagem 1.
+- Fee por lado 0.05%, slippage por lado 0.02%, BE 1R,
+  buffer estrutural 0.5, maxCostToInitialRiskPct 50.
+- `JAVA_DECISION_REQUIRE_HIGHER_TF=false`,
+  `JAVA_DECISION_REQUIRE_TAKER=true`, breakoutLookback 10,
+  retestMaxBars 4, maxPrimaryStalenessBars 2.
+
+O request fixa `breakEvenTriggerROverride=1.0`,
+`maxCostToInitialRiskPctOverride=50`, RETEST-only, candles 3600,
+timeframes [5m,15m], sem Luna, para cada cenario.
+
+Ver plano sem HTTP:
+
+`./scripts/validate-reentry-oos.ps1 -PrintOnly -StartWindow 10 -Windows 6`
+
+Executar apos iniciar Spring Boot com as configuracoes congeladas:
+
+`./scripts/validate-reentry-oos.ps1 -Symbol SOLUSDT -Source testnet -StartWindow 10 -Windows 6 -AsOf 1791845999999 -ExpectedCapitalUsdt 1500 -SyncHistory`
+
+A flag `-SyncHistory` recupera historico PUBLICO da Testnet somente em 5m/15m,
+em lotes de ate 7 dias. Se a Testnet nao oferecer historico completo, parar
+e registrar indisponibilidade, **nao substituir silenciosamente por producao,
+outro simbolo ou candles artificiais**. Repeticoes podem omitir `-SyncHistory`
+se os dados ja estiverem completos no MySQL local.
+
+Os tres CSVs sao:
+
+- `results/reentry-oos-aggregate-SOLUSDT-RETEST-1791845999999-5m-w10-15.csv`
+- `results/reentry-oos-windows-SOLUSDT-RETEST-1791845999999-5m-w10-15.csv`
+- `results/reentry-oos-trades-SOLUSDT-RETEST-1791845999999-5m-w10-15.csv`
+
+Analise prioriza PnL marcado e fechado, delta por janela,
+quantas janelas tiveram melhoria, drawdown, taxas, entradas perdidas
+e novas entradas, alavancagem/risco efetivos. Os resultados nao garantem
+viabilidade futura e o PnL de janelas reiniciadas nao e retorno composto.
