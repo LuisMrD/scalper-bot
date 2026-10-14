@@ -48,6 +48,19 @@ class L2RangeComparisonServiceTest {
     }
 
     @Test
+    void l2ControllerReportsHistorical422ReasonInJsonForWindowsPowerShell() {
+        var service = mock(L2RangeComparisonService.class);
+        var controller = new L2RangeComparisonController(service);
+        var response = controller.historicalError(new ResponseStatusException(
+                org.springframework.http.HttpStatus.UNPROCESSABLE_ENTITY,
+                "L2 policy REPLACE_RANGE_SHORT_RETEST_WITH_L2, asOf 1752875999999: "
+                        + "15m range has missing candles before signal 1752700000000"));
+        assertEquals(422, response.getStatusCode().value());
+        assertEquals("REPLAY_REJECTED", response.getBody().get("code"));
+        assertTrue(response.getBody().get("message").contains("missing candles"));
+    }
+
+    @Test
     void unsafeRequestsAreRejectedBeforeAnyReplay() {
         var backtests = mock(BacktestService.class);
         var service = new L2RangeComparisonService(backtests);
