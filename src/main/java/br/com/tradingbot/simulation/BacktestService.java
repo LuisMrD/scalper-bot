@@ -15,6 +15,7 @@ import br.com.tradingbot.market.service.MarketDataService;
 import br.com.tradingbot.risk.RiskManagementConfiguration;
 import br.com.tradingbot.risk.RiskPolicy;
 import br.com.tradingbot.risk.RiskPreviewResult;
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -53,6 +54,30 @@ public class BacktestService {
         this.trading = Objects.requireNonNull(trading);
         this.technical = Objects.requireNonNull(technical);
         this.clock = Objects.requireNonNull(clock);
+    }
+
+    /** Read-only effective configuration; deliberately excludes credentials and DB settings. */
+    public record ResearchConfiguration(
+            List<String> symbols, String executionMode, boolean ordersEnabled,
+            BigDecimal capitalUsdt, BigDecimal riskPerTradePct, BigDecimal dailyStopPct,
+            Integer leverage, BigDecimal feePerSidePct, BigDecimal slippagePerSidePct,
+            BigDecimal breakEvenTriggerR, BigDecimal structuralAtrBuffer,
+            BigDecimal maxCostToInitialRiskPct, boolean requireHigherTimeframeAlignment,
+            boolean requireDominantTakerVolume, int breakoutLookback,
+            int retestMaxBars, int maxPrimaryStalenessBars,
+            boolean pullbackEnabled, boolean breakoutRetestEnabled) {}
+
+    public ResearchConfiguration researchConfiguration() {
+        var risk = trading.risk();
+        var java = defaultJavaParameters;
+        return new ResearchConfiguration(trading.symbols(), trading.execution().mode().name(),
+                trading.execution().ordersEnabled(), risk.capitalUsdt(), risk.riskPerTradePct(),
+                risk.dailyStopPct(), risk.leverage(), technical.feePerSidePct(),
+                technical.slippagePerSidePct(), technical.breakEvenTriggerR(),
+                technical.structuralAtrBuffer(), technical.maxCostToInitialRiskPct(),
+                java.requireHigherTimeframeAlignment(), java.requireDominantTakerVolume(),
+                java.breakoutLookback(), java.retestMaxBars(), java.maxPrimaryStalenessBars(),
+                java.pullbackEnabled(), java.breakoutRetestEnabled());
     }
 
     /** Filtered research replay retains the same dynamic order/position ledger. */
