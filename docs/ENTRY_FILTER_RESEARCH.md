@@ -495,3 +495,100 @@ Interpretacao futura: contrastar w16-21 e w22-27 por
 `VOLUME_LEVEL`, `EXIT_REASON`, excursao em R e timing.
 Depois, se surgir uma hipotese estavel, congelar seus parametros 3/6/9
 e testa-la em historia NAO utilizada anteriormente com replay completo.
+
+## Experimento Brooks: LOCALIZACAO do SHORT no RANGE do 15m (2026-10-14)
+
+Motivacao: em janelas ja observadas 22..27, perdas das vendas estavam
+fortemente concentradas em `trend15m=RANGE`. Entretanto, no bloco 16..21,
+vendas sob `RANGE` foram positivas, tornando injustificavel afirmar
+que lateralizacao sempre implica venda ruim.
+
+Conceito de Brooks (referencias externas): ranges tendem a alternar
+compras/vendas e rejeitar rompimentos; entradas de venda junto ao
+**topo** de uma faixa e testes de rompimentos fracassados podem ter
+melhor localizacao que vendas no meio/fundo. A leitura oficial de
+`Trading Price Action Trends`, capitulo *Horizontal Lines:
+Swing Points and Other Key Price Levels*, trata niveis horizontais e
+reversoes apos falsas quebras, incluindo segundas entradas:
+https://onlinelibrary.wiley.com/doi/10.1002/9781119202592.ch17
+O manual Brooks Trading Course reforca evitar trades no terco central
+e vender perto do extremo superior de um trading range:
+https://www.brookstradingcourse.com/how-to-trade-manual/trading-ranges/
+
+### Tres hipoteses congeladas (nao retocar olhando o OOS)
+
+1. `CONTROL`: RETEST 5m + 15m contexto, BLOCK_BOTH e WAIT_12_BARS
+   (60 minutos), sem restricao adicional.
+2. `BLOCK_ALL_15M_RANGE_SHORTS`: mesma estrategia, rejeitar apenas
+   SHORT em `trend15m=RANGE`; LONGs e SHORTs fora de RANGE iguais
+   na definicao de setup.
+3. `UPPER_THIRD_OF_30_CLOSED_15M_BARS`: mesma estrategia; quando o
+   15m for RANGE, so permitir SHORT se o fechamento do **sinal de 5m**
+   estiver no terco SUPERIOR da faixa high/low dos ultimos 30 candles
+   15m ja fechados. Quando o 15m nao for RANGE, nao aplicar o filtro.
+
+A formula operacional do terceiro teste e uma **heuristica nossa**:
+`(closeSignal5m - minLow30) * 3 >= (maxHigh30 - minLow30) * 2`.
+Nao e uma formula numérica de Al Brooks. Nao exige ou cria um
+setup de reversao nova, segunda entrada L2 ou ordem limite:
+apenas filtra o setup BREAKOUT_RETEST ja existente pela localizacao.
+A selecao deve ser marcada **no candle fechado do sinal**, com
+fill somente na proxima abertura de 5m, sem ler a faixa atual em
+formacao, nem candles futuros. Ausencia de 30 candles 15m contiguos
+e fechados, atraso >=15min ou amplitude zero abortam o replay,
+ao inves de adivinhar a posicao no range.
+
+`BacktestService.runShortRange` e
+`POST /api/v1/backtest/compare-short-range` fazem tres simulacoes
+dinamicas e independentes, recalculando capacidade da carteira,
+ordens SIMULADAS, stops, fees e risco. Nao alteram endpoints antigos,
+motor normal ou posicoes em aberto. O contador de sinais barrados
+`rangeShortBlockedSignals` nao significa trades eliminados na mesma
+quantidade, pois os replays geram entradas substitutas.
+
+Parametros novos obedecem a familia 3/6/9: **3** estrategias,
+**30** candles 15m na faixa, divisoes em **3** partes, cooldown **60**
+minutos, **6** janelas de **300** horas (3600 candles 5m por janela).
+Trata-se de convencao experimental, nao de pressuposto estatistico
+sobre o algarismo.
+
+### Amostra historica reservada
+
+Indices **28..33**, disjuntos de todas as janelas 1..27 ja inspecionadas.
+Cada janela reinicia com 1500 USDT, 0.5% risco, stop diario 3%,
+alavancagem 1, fee 0.05% por lado, slippage 0.02% por lado,
+BE 1R, custo/risco maximo 50%. Mesmo `AsOf=1791845999999`;
+sem Luna, sem ordens, TESTNET somente.
+
+`./scripts/validate-short-range-oos.ps1 -PrintOnly`
+
+`./scripts/validate-short-range-oos.ps1 -Symbol SOLUSDT -StartWindow 28 -Windows 6 -AsOf 1791845999999 -ExpectedCapitalUsdt 1500 -SyncHistory`
+
+O `-SyncHistory` importa SOLUSDT 5m e 15m em lotes de ate sete dias
+na Binance Futures Testnet, com aquecimento. Historico mais antigo
+pode nao existir. Nesse caso parar sem usar futuro, dados de producao
+ou sintese. Se ja estiver no MySQL, omitir a sincronizacao.
+
+O script cria arquivos:
+- `results/short-range-oos-aggregate-SOLUSDT-RETEST-1791845999999-5m-w28-33.csv`
+- `results/short-range-oos-windows-SOLUSDT-RETEST-1791845999999-5m-w28-33.csv`
+- `results/short-range-oos-trades-SOLUSDT-RETEST-1791845999999-5m-w28-33.csv`
+
+Analise primaria: delta de PnL marcado vs controle, consistencia
+por janela, side-specific closed PnL, taxa de acerto, drawdown,
+tamanho da amostra no terco superior, ganhos sacrificados,
+trades novos, pior perdedora e concentracao dos vencedores.
+Se o filtro de faixa superior resultar em pouquissimos SHORTs,
+isso nao estabelece vantagem do PRICE ACTION nem da classificacao
+em tercos. OOS vira conjunto inspecionado depois deste experimento.
+
+### Ideia futura nao implementada
+
+Uma variante ainda mais proxima da logica Brooks seria
+**false breakout da borda superior + segunda entrada de venda (L2)**
+em range, ou aguardando follow-through adverso antes de entrar.
+Isto requer um detector causal de *duas tentativas* e a
+definicao de pivots confirmados; nao e equivalente a simplesmente
+filtrar BREAKOUT_RETEST no topo. Implementar separadamente somente
+se a hipotese de localizacao de RANGE demonstrar sinal suficiente
+e apos reservar historia nova.
