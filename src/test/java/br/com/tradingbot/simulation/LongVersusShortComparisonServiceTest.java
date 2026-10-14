@@ -3,6 +3,7 @@ package br.com.tradingbot.simulation;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
+import br.com.tradingbot.decision.DecisionResult;
 import java.math.BigDecimal;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -58,6 +59,32 @@ class LongVersusShortComparisonServiceTest {
         assertEquals(400, assertThrows(ResponseStatusException.class,
                 () -> service.compare(request(false, true))).getStatusCode().value());
         verifyNoInteractions(backtests);
+    }
+
+    @Test
+    void shortOnlyRejectsLongRetestButNotShortWaitOrPositionExit() {
+        long closed = 1791845999999L;
+        var longRetest = new DecisionResult("JAVA", "SOLUSDT", "5m", closed,
+                closed, DecisionResult.Entry.LONG, DecisionResult.PositionAction.NONE,
+                DecisionResult.Setup.BREAKOUT_RETEST,
+                DecisionResult.Reason.BREAKOUT_RETEST_CONFIRMED);
+        var shortRetest = new DecisionResult("JAVA", "SOLUSDT", "5m", closed,
+                closed, DecisionResult.Entry.SHORT, DecisionResult.PositionAction.NONE,
+                DecisionResult.Setup.BREAKOUT_RETEST,
+                DecisionResult.Reason.BREAKOUT_RETEST_CONFIRMED);
+        var exit = new DecisionResult("JAVA", "SOLUSDT", "5m", closed, closed,
+                DecisionResult.Entry.WAIT, DecisionResult.PositionAction.EXIT,
+                DecisionResult.Setup.NONE, DecisionResult.Reason.CONFIRMED_REVERSAL);
+        var wait = new DecisionResult("JAVA", "SOLUSDT", "5m", closed, closed,
+                DecisionResult.Entry.WAIT, DecisionResult.PositionAction.NONE,
+                DecisionResult.Setup.NONE, DecisionResult.Reason.NO_SETUP);
+        assertTrue(LongVersusShortPolicy.SHORT_ONLY.rejectsLong(longRetest));
+        assertFalse(LongVersusShortPolicy.SHORT_ONLY.rejectsLong(shortRetest));
+        assertFalse(LongVersusShortPolicy.SHORT_ONLY.rejectsLong(exit));
+        assertFalse(LongVersusShortPolicy.SHORT_ONLY.rejectsLong(wait));
+        assertFalse(LongVersusShortPolicy.CONTROL.rejectsLong(longRetest));
+        assertFalse(LongVersusShortPolicy.BOTH_UP_6H_DIP_3H.rejectsLong(longRetest));
+        assertFalse(LongVersusShortPolicy.BOTH_UP_9H_DIP_3H.rejectsLong(longRetest));
     }
 
     @Test
