@@ -991,3 +991,76 @@ anteriores. Se w46..51 tambem o tiver, explicitar o grau de
 atividade antes de inferir que o resultado representa futuros
 reais. Depois de examinar os CSVs w46..51, os dados deixam de
 ser verdadeiramente nao vistos.
+
+## Auditoria retrospectiva do historico 5m/15m/1h, w46..51
+
+Esta auditoria foi planejada **depois de** conhecermos o resultado
+quase sem trades nas seis janelas w46..51. Esses dados estao
+INSPECIONADOS, nao constituem nova validacao OOS.
+O objetivo nao e alterar estrategia ou rentabilidade, mas
+distinguir falta de oportunidades de historico com atividade
+insuficiente na Binance Futures Testnet local (MySQL).
+
+O endpoint de leitura e simulacao
+`POST /api/v1/backtest/audit-primary-timeframes`
+exige SOLUSDT, 3600 barras 5m, 15m e 1h no mesmo recorte de 300h,
+`includeDecisionHistory=true`, RETEST-only, custos originais,
+no Luna e asOf no fechamento de hora UTC.
+
+Para cada janela:
+
+- Lê 3600 candles de 5m, 1200 de 15m e 300 de 1h
+  diretamente do MySQL local, já persistidos e fechados.
+  Exige alinhamento temporal e timestamps consecutivos.
+  Erro 422 se algum candle estiver ausente ou deslocado.
+  `noActivityBars` exige simultaneamente ZERO volume base, quote,
+  taker e zero trades. ZERO volume por si só não vira candle ausente.
+- Registra `zeroTradeBars`, `zeroBaseVolumeBars`, percentual sem
+  atividade, `zeroRangeBars`, preço constante COM trades,
+  volume/trades inconsistentes e sequência consecutiva máxima
+  sem atividade em barras e minutos.
+- Faz rollup de 3 candles 5m → 15m e de 4 candles 15m → 1h,
+  contando divergências de OHLC e volume/trades em separado.
+  Não corrige discrepâncias ou cria candles artificiais.
+- Executa a mesma estratégia experimental w46..51 em duas
+  carteiras dinâmicas completas (5m + 15m versus 15m + 1h),
+  com `BLOCK_BOTH`, espera 60m, RETEST-only e mesma gestão.
+  A cada candle primário fechado, categoriza uma única
+  etapa de decisão: posição já aberta, tendência indefinida,
+  falta de setup, volume não confirmado, filtro de breakout,
+  espera de reentrada, risco bloqueado (com sua causa),
+  proposta de entrada, stale context ou demais waits.
+  A soma obrigatoriamente coincide com 3599 ou 1199
+  fechamentos com decisão; não conta o último candle como
+  chance de entrada, pois não há o próximo open para preenchê-la.
+  Informa `proposedEntries` e `filledEntries` separadamente.
+- Registra distribuições da tendência UP, DOWN, RANGE e
+  UNDETERMINED para o primário e contexto. Candles de contexto
+  repetidos em decisões 5m/15m são deduplicados pelo timestamp
+  de fechamento. `totalUniqueCandles` é a quantidade observada
+  pelos snapshots de decisão, não a totalidade bruta do dataset.
+
+A execução não sincroniza novos candles, não remove operações
+de CSVs, não escolhe filtros e não altera ordens/riscos:
+
+`./scripts/audit-primary-timeframe-history.ps1 -PrintOnly`
+
+`./scripts/audit-primary-timeframe-history.ps1 -Symbol SOLUSDT -StartWindow 46 -Windows 6 -AsOf 1791845999999 -ExpectedCapitalUsdt 1500`
+
+Exige o backend iniciado com `start-backtest.ps1 -IncludeOneHour`,
+perfil SIMULATION_ONLY, sem WS/bootstrap/ordens/Luna; mantém
+preflights de capital, custos e filtros congelados.
+
+Produz 4 arquivos com sufixo
+`SOLUSDT-RETEST-1791845999999-5m-vs-15m-w46-51.csv`:
+- `primary-timeframe-audit-candles-...` — 3 TF × 6 janelas
+- `primary-timeframe-audit-cross-...` — 2 rollups × 6
+- `primary-timeframe-audit-trends-...` — 16 classificações × 6
+- `primary-timeframe-audit-funnel-...` — motivos de rejeição
+  de cada motor e janela, contagem conferida
+
+O script falha se qualquer janela estiver incompleta e não
+sobrescreve relatórios de auditoria anteriores. Zeros e lacunas
+continuam distintos. Atribuir causa exclusivamente à baixa
+atividade só é permitido se os resultados efetivamente a
+demonstrarem, não pela ausência de operações em CSVs.
