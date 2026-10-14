@@ -88,6 +88,7 @@ function Invoke-RestMethod {
                     l2Signals=if($spec.Policy -eq 'REPLACE_RANGE_SHORT_RETEST_WITH_L2'){1}else{0}
                     l2ClosedTrades=if($spec.Policy -eq 'REPLACE_RANGE_SHORT_RETEST_WITH_L2'){1}else{0}
                     l2BlockedByCooldown=if($spec.Policy -eq 'REPLACE_RANGE_SHORT_RETEST_WITH_L2'){1}else{0}
+                    l2FlatHistoryCandidates=if($spec.Policy -eq 'REPLACE_RANGE_SHORT_RETEST_WITH_L2'){3}else{0}
                     startingEquityUsdt='1500';netClosedUsdt=$net
                     shortNetClosedUsdt=$spec.Short;longNetClosedUsdt=$spec.Long
                     markedPnlUsdt=$net;feesUsdt='0.7'
@@ -156,7 +157,8 @@ try {
     }
     foreach($row in $windowRows){
         if($null -eq $row.L2Signals -or $null -eq $row.L2ClosedTrades -or
-           $null -eq $row.L2BlockedByCooldown){
+           $null -eq $row.L2BlockedByCooldown -or
+           $null -eq $row.L2FlatHistoryCandidates){
             throw 'Missing L2 counters in exported windows'
         }
     }
@@ -171,6 +173,9 @@ try {
         if($ln+$sn -ne $net){throw 'PnL side total mismatch in exported CSV'}
     }
     foreach($row in $aggregateRows){
+        if($null -eq $row.L2FlatHistoryCandidates){
+            throw 'Missing flat-range candidate count in aggregate CSV'
+        }
         if([int]$row.Windows -ne 6 -or [int]$row.Trades -ne 12){
             throw 'Aggregate did not include all 6 independent windows'
         }
