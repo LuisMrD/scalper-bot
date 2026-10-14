@@ -254,3 +254,92 @@ de observacoes independentes. Para usar consonancia em uma regra de
 entrada, exigir um novo replay dinamico e um holdout historico inedito.
 A historica da Binance Futures Testnet pode nao reproduzir fielmente
 o comportamento do mercado real de BTC/ETH.
+
+## Politica experimental de parametros 3, 6 e 9 (2026-10-14)
+
+Decisao explicita: **novos parametros de pesquisa** devem usar a
+familia decimal 3/6/9: por exemplo, 3, 6, 9, 30, 60, 90, 300,
+600, 900, 3000 etc. O codigo `MagicResearchNumbers` valida
+inteiros positivos removendo zeros finais e exigindo 3/6/9.
+`60` minutos continua sendo o cooldown valido usado no controle.
+Isso e uma **convencao de selecao de parametros**, nao uma premissa
+estatistica ou causal: valores da familia nao possuem vantagem
+demonstrada por sua representacao decimal.
+
+Nao modificar retroativamente taxas, capital, stops, alavancagem,
+candles 5m, arquitetura ou regras de seguranca para adaptar os numeros:
+a restricao se aplica a **novas hipoteses**, mantendo controles
+comparaveis. Documentar cada variacao antes de testar e avaliar
+custos, trades, perdas, drawdown e consistencia fora da amostra.
+
+### Teste congelado de macro BTC/ETH em SOL LONG
+
+A associacao historica encontrada para macro +24h e dip -1h foi
+exploratoria; como 1h/24h nao pertencem a familia decidida,
+**este teste NAO reproduz exatamente os horizontes anteriores**.
+Ele pre-registra os horizontes novos 3h/6h/9h e dip 3h,
+sem escolher valores olhando os resultados.
+
+Todos os seis cenarios usam a estrategia SOL RETEST 5m/15m,
+`EntryBreakoutFilter.BLOCK_BOTH` e `ReentryWaitPolicy.WAIT_12_BARS`
+(60 min). Somente sinais LONG que passam pelos filtros anteriores
+sao avaliados; **sinais SHORT nunca sao bloqueados pelo macro**.
+
+- `NONE`: controle inalterado.
+- `BOTH_UP_3H`: BTC e ETH estritamente positivos em 3h.
+- `BOTH_UP_6H`: BTC e ETH estritamente positivos em 6h.
+- `BOTH_UP_9H`: BTC e ETH estritamente positivos em 9h.
+- `BOTH_UP_6H_DIP_3H`: ambos positivos em 6h E negativos em 3h.
+- `BOTH_UP_9H_DIP_3H`: ambos positivos em 9h E negativos em 3h.
+
+Igualdade a zero falha no teste de tendencia e no teste de dip.
+O calculo usa 15m fechados do MySQL TESTNET:
+3h = 12 barras, 6h = 24 barras, 9h = 36 barras
+anteriores ao fechamento do sinal da SOL. Nao ha lookahead;
+lacunas ou timestamps defasados invalidam o replay. Cada politica
+possui sua propria simulacao dinamica do livro de ordens e stops,
+incluindo custos. Nenhum filtro e ligado ao motor Java normal.
+
+Endpoint: `POST /api/v1/backtest/compare-magic-macro`
+recebe o mesmo `BacktestRequest` 5m+15m RETEST-only de 3600 candles,
+`includeLuna=false`. Nao envia ordens nem invoca Luna.
+
+### Holdout inedito
+
+O script `scripts/validate-magic-macro-oos.ps1` exige periodos ainda
+nao usados nos estudos de selecao (indices a partir de **16**).
+Padrao: **6 janelas de 300h, indices 16..21**, retrocedendo a partir
+de `AsOf=1791845999999`, cada uma com capital reiniciado de 1500 USDT.
+Aceita 3, 6 ou 9 janelas, nunca escolhe numero de janelas olhando
+o PnL obtido. O script valida o perfil real de risco, codigo Java,
+TESTNET, Luna e ordens desligados, sem ajustar parametros no meio do teste.
+Nenhum arquivo dos 15 periodos anteriores e usado na comparacao.
+
+Verificar plano sem rede:
+
+`./scripts/validate-magic-macro-oos.ps1 -PrintOnly`
+
+Executar (Spring Boot local ja iniciado com BTCUSDT/ETHUSDT/SOLUSDT
+habilitados e os mesmos parametros financeiros do historico):
+
+`./scripts/validate-magic-macro-oos.ps1 -Symbol SOLUSDT -StartWindow 16 -Windows 6 -AsOf 1791845999999 -ExpectedCapitalUsdt 1500 -SyncHistory`
+
+O `-SyncHistory` tenta importar SOL 5m/15m e BTC/ETH 15m
+**somente da Binance Futures TESTNET**, com aquecimento suficiente.
+Se a fonte nao disponibilizar esses meses historicos,
+o estudo e interrompido: nao usar Binance de producao, candles
+inventados ou fontes alternativas sem nova decisao de pesquisa.
+Resultados de simulacao TESTNET nao comprovam desempenho real.
+
+Saidas na pasta `results`, com sufixo
+`SOLUSDT-RETEST-1791845999999-5m-w16-21.csv`:
+
+- `magic-macro-oos-aggregate-...`
+- `magic-macro-oos-windows-...`
+- `magic-macro-oos-trades-...`
+
+Analise deve priorizar PnL liquido marcado vs `NONE`,
+PnL dos encerrados, drawdown, cobertura por janela, SHORTs
+inalterados, novas entradas que surgiram, ganhadoras perdidas,
+e maior winner isolado. A soma dos PnLs de 6 carteiras
+independentes nao representa rentabilidade composta.
