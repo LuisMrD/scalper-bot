@@ -289,8 +289,7 @@ public class BacktestService {
                 }
                 // SHORT_ONLY is tested AFTER original rejection and cooldown,
                 // and BEFORE independent ledger mutation. No future data used.
-                if (blockAllLongs && javaDecision.entry() == DecisionResult.Entry.LONG
-                        && javaDecision.setup() == DecisionResult.Setup.BREAKOUT_RETEST) {
+                if (blockAllLongs && LongVersusShortPolicy.SHORT_ONLY.rejectsLong(javaDecision)) {
                     shortOnlyBlockedSignals++;
                     javaDecision = rejectedEntry(javaDecision, DecisionResult.Reason.ENTRY_SHORT_ONLY_FILTER);
                 }
