@@ -147,6 +147,7 @@ if($SyncHistory){
     }
 }
 
+New-Item -Path $out -ItemType Directory -Force | Out-Null
 $windowsOut=@()
 $tradesOut=@()
 foreach($record in $plan){
@@ -214,6 +215,14 @@ foreach($record in $plan){
         $windowsOut += [PSCustomObject]@{
             Window=$w;Phase='OOS_FROZEN'
             FromOpen=$record.From;AsOf=$record.AsOf;Policy=$s.policy
+            ResearchCapitalUsdt=$config.capitalUsdt
+            ResearchRiskPct=$config.riskPerTradePct
+            ResearchDailyStopPct=$config.dailyStopPct
+            ResearchLeverage=$config.leverage
+            ResearchFeePerSidePct=$config.feePerSidePct
+            ResearchSlippagePerSidePct=$config.slippagePerSidePct
+            ResearchHigherTimeframeAlignment=$config.requireHigherTimeframeAlignment
+            ResearchDominantTaker=$config.requireDominantTakerVolume
             RejectedByEntryFilter=$s.rejectedByEntryFilter
             RejectedByReentryWait=$s.rejectedByReentryWait
             TradesClosed=$s.tradesClosed;Wins=$s.winningTrades;Losses=$s.losingTrades
