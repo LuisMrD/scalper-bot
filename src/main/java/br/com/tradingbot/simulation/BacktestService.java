@@ -360,7 +360,14 @@ public class BacktestService {
             RiskPreviewResult javaRisk = null;
             RiskPreviewResult lunaRisk = null;
             if (i < tape.size()-1) {
-                var context = prepared.at(bar.closeTime());
+                MultiTimeframeMarketContext context;
+                try {
+                    context = prepared.at(bar.closeTime());
+                } catch (ResponseStatusException e) {
+                    throw new ResponseStatusException(e.getStatusCode(),
+                            "Market context on closed 5m bar " + bar.closeTime()
+                                    + ": " + e.getReason(), e);
+                }
                 var first = context.timeframes().getFirst();
                 if (context.requestedAsOfEpochMs() != bar.closeTime()
                         || first.asOfCloseTime() != bar.closeTime()
@@ -449,7 +456,14 @@ public class BacktestService {
                         && (javaDecision.reason() == DecisionResult.Reason.NO_SETUP
                             || javaDecision.reason() == DecisionResult.Reason.TREND_UNCLEAR
                             || javaDecision.reason() == DecisionResult.Reason.ENTRY_SHORT_RANGE_FILTER)) {
-                    var proposed = l2Detector.detect(first.recentCandles());
+                    FailedBreakoutL2Detector.Signal proposed;
+                    try {
+                        proposed = l2Detector.detect(first.recentCandles());
+                    } catch (ResponseStatusException e) {
+                        throw new ResponseStatusException(e.getStatusCode(),
+                                "L2 historical range on closed 5m bar " + bar.closeTime()
+                                        + ": " + e.getReason(), e);
+                    }
                     if (proposed != null && proposed.failureCloseTime() != lastL2FailureUsed) {
                         if (waitState.blocksEntry()) {
                             l2BlockedByCooldown++;
