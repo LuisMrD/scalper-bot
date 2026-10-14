@@ -84,27 +84,28 @@ public class BacktestService {
     public record FilteredReplay(BacktestResult backtest, int filteredSignals,
             int reentryBlockedSignals, int macroBlockedSignals,
             int shortOnlyBlockedSignals, int shortRangeBlockedSignals,
-            int l2Signals, int l2BlockedByCooldown, int l2FlatHistoryCandidates) {
+            int l2Signals, int l2BlockedByCooldown, int l2FlatHistoryCandidates,
+            int longContextBlockedSignals) {
         public FilteredReplay(BacktestResult backtest, int filteredSignals) {
-            this(backtest, filteredSignals, 0, 0, 0, 0, 0, 0, 0);
+            this(backtest, filteredSignals, 0, 0, 0, 0, 0, 0, 0, 0);
         }
         public FilteredReplay(BacktestResult backtest, int filteredSignals, int reentryBlockedSignals) {
-            this(backtest, filteredSignals, reentryBlockedSignals, 0, 0, 0, 0, 0, 0);
+            this(backtest, filteredSignals, reentryBlockedSignals, 0, 0, 0, 0, 0, 0, 0);
         }
         public FilteredReplay(BacktestResult backtest, int filteredSignals,
                 int reentryBlockedSignals, int macroBlockedSignals) {
-            this(backtest, filteredSignals, reentryBlockedSignals, macroBlockedSignals, 0, 0, 0, 0, 0);
+            this(backtest, filteredSignals, reentryBlockedSignals, macroBlockedSignals, 0, 0, 0, 0, 0, 0);
         }
         public FilteredReplay(BacktestResult backtest, int filteredSignals,
                 int reentryBlockedSignals, int macroBlockedSignals, int shortOnlyBlockedSignals) {
             this(backtest, filteredSignals, reentryBlockedSignals, macroBlockedSignals,
-                    shortOnlyBlockedSignals, 0, 0, 0, 0);
+                    shortOnlyBlockedSignals, 0, 0, 0, 0, 0);
         }
         public FilteredReplay(BacktestResult backtest, int filteredSignals,
                 int reentryBlockedSignals, int macroBlockedSignals, int shortOnlyBlockedSignals,
                 int shortRangeBlockedSignals) {
             this(backtest, filteredSignals, reentryBlockedSignals, macroBlockedSignals,
-                    shortOnlyBlockedSignals, shortRangeBlockedSignals, 0, 0, 0);
+                    shortOnlyBlockedSignals, shortRangeBlockedSignals, 0, 0, 0, 0);
         }
 
         public FilteredReplay(BacktestResult backtest, int filteredSignals,
@@ -112,7 +113,15 @@ public class BacktestService {
                 int shortRangeBlockedSignals, int l2Signals, int l2BlockedByCooldown) {
             this(backtest, filteredSignals, reentryBlockedSignals, macroBlockedSignals,
                     shortOnlyBlockedSignals, shortRangeBlockedSignals, l2Signals,
-                    l2BlockedByCooldown, 0);
+                    l2BlockedByCooldown, 0, 0);
+        }
+        public FilteredReplay(BacktestResult backtest, int filteredSignals,
+                int reentryBlockedSignals, int macroBlockedSignals, int shortOnlyBlockedSignals,
+                int shortRangeBlockedSignals, int l2Signals, int l2BlockedByCooldown,
+                int l2FlatHistoryCandidates) {
+            this(backtest, filteredSignals, reentryBlockedSignals, macroBlockedSignals,
+                    shortOnlyBlockedSignals, shortRangeBlockedSignals,
+                    l2Signals, l2BlockedByCooldown, l2FlatHistoryCandidates, 0);
         }
     }
 
@@ -199,6 +208,26 @@ public class BacktestService {
         }
     }
 
+    /**
+     * Frozen SOL 5m RETEST research for new windows 40..45.
+     * Policy only sees CLOSED 5m/15m context and never alters exits.
+     */
+    public FilteredReplay runLongContext(BacktestRequest request, LongContextPolicy policy) {
+        Objects.requireNonNull(policy, "policy");
+        if (request == null || !"SOLUSDT".equals(request.symbol())
+                || !request.intervals().equals(List.of("5m", "15m"))
+                || request.steps() != 3600 || request.asOf() == null
+                || request.includeLuna()
+                || !Boolean.FALSE.equals(request.pullbackEnabledOverride())
+                || !Boolean.TRUE.equals(request.breakoutRetestEnabledOverride())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "LONG context research requires SOLUSDT RETEST 5m/15m, 3600 bars, no Luna");
+        }
+        return runFilteredInternal(request, EntryBreakoutFilter.BLOCK_BOTH,
+                ReentryWaitPolicy.WAIT_12_BARS, MagicMacroLongPolicy.NONE, false,
+                ShortRangePolicy.CONTROL, L2RangePolicy.CONTROL, policy);
+    }
+
     /** Existing six-scenario macro endpoint remains unchanged. */
     public FilteredReplay runFiltered(BacktestRequest request, EntryBreakoutFilter filter,
             ReentryWaitPolicy waitPolicy, MagicMacroLongPolicy macroPolicy) {
@@ -209,20 +238,37 @@ public class BacktestService {
             EntryBreakoutFilter filter, ReentryWaitPolicy waitPolicy,
             MagicMacroLongPolicy macroPolicy, boolean blockAllLongs) {
         return runFilteredInternal(request, filter, waitPolicy, macroPolicy, blockAllLongs,
-                ShortRangePolicy.CONTROL, L2RangePolicy.CONTROL);
+                ShortRangePolicy.CONTROL, L2RangePolicy.CONTROL, LongContextPolicy.CONTROL);
     }
 
     private FilteredReplay runFilteredInternal(BacktestRequest request,
             EntryBreakoutFilter filter, ReentryWaitPolicy waitPolicy,
             MagicMacroLongPolicy macroPolicy, boolean blockAllLongs, ShortRangePolicy shortRange) {
         return runFilteredInternal(request, filter, waitPolicy, macroPolicy, blockAllLongs,
-                shortRange, L2RangePolicy.CONTROL);
+                shortRange, L2RangePolicy.CONTROL, LongContextPolicy.CONTROL);
     }
 
     private FilteredReplay runFilteredInternal(BacktestRequest request,
             EntryBreakoutFilter filter, ReentryWaitPolicy waitPolicy,
             MagicMacroLongPolicy macroPolicy, boolean blockAllLongs, ShortRangePolicy shortRange,
             L2RangePolicy l2Study) {
+        return runFilteredInternal(request, filter, waitPolicy, macroPolicy, blockAllLongs,
+                shortRange, l2Study, LongContextPolicy.CONTROL);
+    }
+
+    private FilteredReplay runFilteredInternal(BacktestRequest request,
+            EntryBreakoutFilter filter, ReentryWaitPolicy waitPolicy,
+            MagicMacroLongPolicy macroPolicy, boolean blockAllLongs, ShortRangePolicy shortRange,
+            L2RangePolicy l2Study, LongContextPolicy longPolicy) {
+        Objects.requireNonNull(longPolicy, "longPolicy");
+        if (longPolicy != LongContextPolicy.CONTROL && (blockAllLongs
+                || shortRange != ShortRangePolicy.CONTROL
+                || l2Study != L2RangePolicy.CONTROL || macroPolicy.active()
+                || filter != EntryBreakoutFilter.BLOCK_BOTH
+                || waitPolicy != ReentryWaitPolicy.WAIT_12_BARS)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "LONG research may not be combined with other experimental gates");
+        }
         Objects.requireNonNull(l2Study, "l2Study");
         Objects.requireNonNull(shortRange, "shortRange");
         if (l2Study != L2RangePolicy.CONTROL
@@ -353,6 +399,7 @@ public class BacktestService {
         int macroBlockedSignals = 0;
         int shortOnlyBlockedSignals = 0;
         int shortRangeBlockedSignals = 0;
+        int longContextBlockedSignals = 0;
         int l2Signals = 0;
         int l2BlockedByCooldown = 0;
         long lastL2FailureUsed = -1L;
@@ -428,6 +475,14 @@ public class BacktestService {
                         macroBlockedSignals++;
                         javaDecision = rejectedEntry(javaDecision, DecisionResult.Reason.ENTRY_MACRO_FILTER);
                     }
+                }
+                if (longPolicy != LongContextPolicy.CONTROL
+                        && longPolicy.blocks(javaDecision, trend15m,
+                                first.priceAction().breakout().state(),
+                                first.volume().recentObservations().getLast().volumeLevel())) {
+                    longContextBlockedSignals++;
+                    javaDecision = rejectedEntry(javaDecision,
+                            DecisionResult.Reason.ENTRY_LONG_CONTEXT_FILTER);
                 }
                 // The new gate acts on a completed signal only, after all
                 // prior filters, before risk and NEXT_OPEN fill. It never
@@ -545,7 +600,8 @@ public class BacktestService {
         return new FilteredReplay(result, filteredSignals, reentryBlockedSignals,
                 macroBlockedSignals, shortOnlyBlockedSignals, shortRangeBlockedSignals,
                 l2Signals, l2BlockedByCooldown,
-                l2Detector == null ? 0 : l2Detector.zeroActivityFlatCandidates());
+                l2Detector == null ? 0 : l2Detector.zeroActivityFlatCandidates(),
+                longContextBlockedSignals);
     }
 
     private static DecisionResult rejectedEntry(DecisionResult original, DecisionResult.Reason reason) {
