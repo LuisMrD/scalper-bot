@@ -37,10 +37,10 @@ for([int]$i=0;$i -lt 6;$i++){
         throw "Invalid window $window"
     }
 }
-$start=@(& (Join-Path (Split-Path $PSScriptRoot -Parent) 'start-backtest.ps1') -IncludeOneHour -PrintOnly)
-if($start -notcontains 'MARKET_DATA_INTERVALS=1m,5m,15m,1h' -or
-   $start -notcontains 'TRADING_ORDERS_ENABLED=false' -or
-   $start -notcontains 'LUNA_ENABLED=false'){
+$startupOutput=@(& (Join-Path (Split-Path $PSScriptRoot -Parent) 'start-backtest.ps1') -IncludeOneHour -PrintOnly)
+if($startupOutput -notcontains 'MARKET_DATA_INTERVALS=1m,5m,15m,1h' -or
+   $startupOutput -notcontains 'TRADING_ORDERS_ENABLED=false' -or
+   $startupOutput -notcontains 'LUNA_ENABLED=false'){
     throw '15m backtest startup must explicitly enable 1h WITHOUT orders or Luna'
 }
 Write-Host 'PASS: six 300-hour matched 5m/15m studies, 1h historical context, Testnet only'
