@@ -228,6 +228,25 @@ public class BacktestService {
                 ShortRangePolicy.CONTROL, L2RangePolicy.CONTROL, policy);
     }
 
+    /**
+     * Research-only 15m primary/1h context: 1200 completed 15m bars = 300h.
+     * No changes to regular engine or already-inspected 5m research.
+     */
+    public FilteredReplay runPrimary15mComparison(BacktestRequest request) {
+        if (request == null || !"SOLUSDT".equals(request.symbol())
+                || !request.intervals().equals(List.of("15m", "1h"))
+                || request.steps() != 1200 || request.asOf() == null
+                || request.includeLuna()
+                || !Boolean.FALSE.equals(request.pullbackEnabledOverride())
+                || !Boolean.TRUE.equals(request.breakoutRetestEnabledOverride())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "15m research requires SOLUSDT 15m+1h, 1200 bars (300 hours), RETEST-only, no Luna");
+        }
+        return runFilteredInternal(request, EntryBreakoutFilter.BLOCK_BOTH,
+                ReentryWaitPolicy.WAIT_4_BARS_15M, MagicMacroLongPolicy.NONE, false,
+                ShortRangePolicy.CONTROL, L2RangePolicy.CONTROL, LongContextPolicy.CONTROL);
+    }
+
     /** Existing six-scenario macro endpoint remains unchanged. */
     public FilteredReplay runFiltered(BacktestRequest request, EntryBreakoutFilter filter,
             ReentryWaitPolicy waitPolicy, MagicMacroLongPolicy macroPolicy) {
@@ -309,12 +328,15 @@ public class BacktestService {
                     + "BLOCK_BOTH, WAIT_12_BARS, RETEST-only, no Luna and BTC/ETH enabled");
         }
         if (waitPolicy != ReentryWaitPolicy.NONE
-                && (filter != EntryBreakoutFilter.BLOCK_BOTH
-                    || !request.intervals().getFirst().equals("5m")
-                    || !request.intervals().contains("15m")
-                    || request.includeLuna())) {
+                && (filter != EntryBreakoutFilter.BLOCK_BOTH || request.includeLuna()
+                    || !(waitPolicy == ReentryWaitPolicy.WAIT_4_BARS_15M
+                        ? request.intervals().equals(List.of("15m", "1h"))
+                            && request.steps() == 1200
+                        : request.intervals().getFirst().equals("5m")
+                            && request.intervals().contains("15m")))) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Reentry research requires BLOCK_BOTH, 5m+15m and no Luna");
+                    "Reentry research requires BLOCK_BOTH with 5m+15m or"
+                            + " WAIT_4_BARS_15M with 15m+1h and 1200 bars, no Luna");
         }
         if (filter != EntryBreakoutFilter.NONE && request.includeLuna())
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -420,7 +442,8 @@ public class BacktestService {
                     context = prepared.at(bar.closeTime());
                 } catch (ResponseStatusException e) {
                     throw new ResponseStatusException(e.getStatusCode(),
-                            "Market context on closed 5m bar " + bar.closeTime()
+                            "Market context on closed " + request.intervals().getFirst()
+                                    + " bar " + bar.closeTime()
                                     + ": " + e.getReason(), e);
                 }
                 var first = context.timeframes().getFirst();
@@ -434,10 +457,11 @@ public class BacktestService {
                 br.com.tradingbot.analysis.brooks.PriceActionSnapshot.Trend trend15m = null;
                 if (waitPolicy != ReentryWaitPolicy.NONE) {
                     trend15m = context.timeframes().stream()
-                            .filter(frame -> frame.interval().equals("15m"))
+                            .filter(frame -> frame.interval().equals(
+                                    waitPolicy == ReentryWaitPolicy.WAIT_4_BARS_15M ? "1h" : "15m"))
                             .findFirst()
                             .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
-                                    "15m context missing from replay"))
+                                    "Required higher-timeframe trend missing from replay"))
                             .priceAction().trend();
                     waitState.onClosedCandle(trend15m);
                 }
