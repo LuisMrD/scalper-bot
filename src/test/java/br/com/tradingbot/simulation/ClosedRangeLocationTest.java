@@ -56,6 +56,45 @@ class ClosedRangeLocationTest {
                 .getStatusCode().value());
     }
 
+    static ClosedRangeLocation flatHistory(boolean hasActivity, boolean missingBar) {
+        var bars = new ArrayList<MarketCandle>();
+        for (int i = 0; i < 45; i++) {
+            if (missingBar && i == 32) continue;
+            long open = i * 900_000L;
+            bars.add(new MarketCandle("SOLUSDT", CandleInterval.M15,
+                    open, open + 899_999, new BigDecimal("147.7"),
+                    new BigDecimal("147.7"), new BigDecimal("147.7"),
+                    new BigDecimal("147.7"),
+                    hasActivity ? BigDecimal.ONE : BigDecimal.ZERO,
+                    hasActivity ? BigDecimal.ONE : BigDecimal.ZERO,
+                    hasActivity ? 1 : 0,
+                    BigDecimal.ZERO, BigDecimal.ZERO, true));
+        }
+        Collections.reverse(bars);
+        return new ClosedRangeLocation("SOLUSDT", bars);
+    }
+
+    @Test
+    void zeroWidthWithoutAnyRecordedTradeIsNotAnL2Opportunity() {
+        var flat = flatHistory(false, false);
+        assertTrue(flat.atIfTraded(45L * 900_000L - 1,
+                new BigDecimal("147.7")).isEmpty());
+        // Existing short-range endpoint retains its strict legacy behavior.
+        assertEquals(422, assertThrows(ResponseStatusException.class,
+                () -> flat.at(45L * 900_000L - 1, new BigDecimal("147.7")))
+                .getStatusCode().value());
+    }
+
+    @Test
+    void zeroWidthWithTradesOrMissingHistoryCannotBeSilentlySkipped() {
+        assertEquals(422, assertThrows(ResponseStatusException.class,
+                () -> flatHistory(true, false).atIfTraded(45L * 900_000L - 1,
+                        new BigDecimal("147.7"))).getStatusCode().value());
+        assertEquals(422, assertThrows(ResponseStatusException.class,
+                () -> flatHistory(false, true).atIfTraded(45L * 900_000L - 1,
+                        new BigDecimal("147.7"))).getStatusCode().value());
+    }
+
     @Test
     void thirtyCompletedBarsAreMandatoryAndBoundaryIsInclusive() {
         var probe = new ClosedRangeLocation("SOLUSDT", history(35, false));
