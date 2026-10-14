@@ -37,4 +37,6 @@ jobs:
             }
             Write-Host 'PASS: real diagnostic path reached intercepted HTTP with typed Windows intact.'
           }
-
+      - name: Mock all six RANGE windows and CSV aggregation under Windows PowerShell 5.1
+        shell: powershell
+        run: ./scripts/tests/test-short-range-export.ps1
