@@ -50,6 +50,9 @@ jobs:
         run: |
           .\scripts\tests\test-long-context-oos.ps1
           .\scripts\tests\test-long-context-export.ps1
+      - name: Test retrospective candle and signal audits in Windows PowerShell 5.1
+        shell: powershell
+        run: .\scripts\tests\test-primary-timeframe-audit.ps1
       - name: Mock primary 15m backtest under Windows PowerShell 5.1
         shell: powershell
         run: |
