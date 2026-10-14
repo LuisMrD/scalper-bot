@@ -898,3 +898,96 @@ substitutas, concentracao dos maiores ganhos e resultados
 na presenca/ausencia de negocacoes.
 Depois de inspecionar w40..45, esse historico nao sera
 novamente OOS para modificacoes decididas com seus resultados.
+
+## Timeframe primario 5m versus 15m (congelado 2026-10-14)
+
+Motivacao: controles das janelas 1..45 tiveram expectativa liquida
+frequentemente negativa, com entradas de continuacao prematuras.
+Hipotese a testar: 15m pode reduzir ruido e frequencia dos sinais,
+mas pode tambem atrasar saidas e aumentar o stop estrutural. Nao
+ha premissa de que timeframes maiores garantam lucratividade.
+
+Dois replays separados e independentes sobre EXATAMENTE as mesmas
+300 horas UTC por janela, em seis janelas nunca analisadas
+**w46..51**, com `AsOf=1791845999999` e deslocamento de 300h
+por janela (nao um conjunto de 5m versus outro periodo 15m):
+
+- `PRIMARY_5M_CONTEXT_15M`: 3600 candles de 5m fechados,
+  o mesmo RETEST-only `BLOCK_BOTH`, `WAIT_12_BARS` (60m)
+  do controle anterior, contexto 15m.
+- `PRIMARY_15M_CONTEXT_1H`: 1200 candles de 15m fechados,
+  RETEST-only `BLOCK_BOTH`, `WAIT_4_BARS_15M` (60m),
+  contexto 1h exclusivamente de candles completos.
+
+Ambos usam: 1500 USDT por janela, risco 0.5%, stop diario 3%,
+alavancagem 1, fees 0.05%/lado, slippage adverso 0.02%/lado,
+BE 1R, buffer estrutural 0.5 ATR, maximo custo/risco 50%,
+`requireHigherTf=false` e `requireDominantTakerVolume=true`.
+Todas as ordens permanecem DESABILITADAS, sem Luna.
+`maxHoldingCandles` continua nao definido.
+
+O algoritmo Java de decisao usa o primeiro timeframe como
+entrada e os demais como contexto; por isso nao foi alterado.
+`ReentryWaitState` so conta candles concluídos. O teste 15m usa
+4 candles em vez de 12, mas o efeito de 60 minutos permanece
+idêntico. O comparador rejeita replays com diferenca de periodo
+ou quantidade de candles. Nao filtra/remaneja trades depois
+de conhece-los; cada portfolio tem risco/stop capital proprios.
+
+**Limite metodologico:** o lookback de rompimento (10 barras) e
+janela de reteste (4 barras) permanecem iguais em numero de
+candles. Isso muda suas duracoes de relogio:
+5m = 50m lookback, 20m retest; 15m = 150m lookback, 60m retest.
+O estudo compara as CONFIGURACOES 5m/15m versus 15m/1h,
+nao efeito isolado e puramente causal do tamanho do candle.
+
+Endpoint read-only:
+`POST /api/v1/backtest/compare-5m-15m`,
+que recebe o request de baseline 5m/15m, 3600 barras, asOf
+alinhado a fechamento de 1h, no Luna. Internamente cria um
+request 15m/1h de 1200 barras mantendo todos os custos,
+parametros e contrato. A resposta traz PnL marcado, realizado,
+LONG/SHORT, taxas, drawdown, trades executados e entradas
+rejeitadas no mesmo intervalo de 300h, alem de MFE/MAE
+somente como indicadores APOS a entrada.
+
+Para suportar 1h sem alterar launch habitual, o start local
+aceita `-IncludeOneHour` (opt-in). Testar sem ordens:
+
+`./scripts/start-backtest.ps1 -Symbols SOLUSDT -CapitalUsdt 1500 -MaxCostToInitialRiskPct 50 -RequireHigherTf false -IncludeOneHour`
+
+Em outro terminal:
+
+`./scripts/validate-primary-timeframe-oos.ps1 -PrintOnly`
+
+`./scripts/validate-primary-timeframe-oos.ps1 -StartWindow 46 -Windows 6 -AsOf 1791845999999 -ExpectedCapitalUsdt 1500 -SyncHistory`
+
+`-SyncHistory` na PRIMEIRA execucao, para SOL 5m/15m/1h,
+com aquecimento de ao menos 230h de 1h antes da primeira
+janela. Nas proximas execucoes, omitir. A rede permitida
+nesse script e apenas API local e a Binance Futures TESTNET
+para dados de mercado e filtros do contrato.
+Sem candles suficientes na Testnet, ou com lacunas/integridade
+invalidas, abortar em vez de trocar para producao, fabricar
+historico ou substituir silently janelas.
+
+Arquivos de saida em `results`, com sufixo
+`SOLUSDT-RETEST-1791845999999-5m-vs-15m-w46-51.csv`:
+- `primary-timeframe-oos-aggregate-...`
+- `primary-timeframe-oos-windows-...`
+- `primary-timeframe-oos-trades-...`
+
+O script só exporta dados completos (12 carteiras), e reconcilia
+cada PnL LONG + SHORT e a soma de trades versus portfolio.
+Na analise, priorizar: delta de PnL marcado, Profit Factor
+liquido, expectancy liquida por trade em USDT e R, custos,
+drawdown, janelas melhoradas, trades LONG/SHORT, MFE/MAE e
+concentracao dos maiores ganhos. A contagem de oportunidades
+nao e comparavel diretamente entre 5m e 15m; contar tambem
+a frequencia por hora e por cada 300h.
+
+A Testnet mostrou trechos de SOL sem volume/trades em janelas
+anteriores. Se w46..51 tambem o tiver, explicitar o grau de
+atividade antes de inferir que o resultado representa futuros
+reais. Depois de examinar os CSVs w46..51, os dados deixam de
+ser verdadeiramente nao vistos.
