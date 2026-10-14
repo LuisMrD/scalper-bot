@@ -48,7 +48,12 @@ public class ReentryComparisonService {
         Long until = null;
         Integer bars = null;
 
-        for (ReentryWaitPolicy policy : ReentryWaitPolicy.values()) {
+        // Freeze original 5m four-arm study. Research-only 15m four-bar
+        // cooldown is intentionally NOT an additional 5m comparison arm.
+        for (ReentryWaitPolicy policy : List.of(ReentryWaitPolicy.NONE,
+                ReentryWaitPolicy.WAIT_WHILE_15M_RANGE,
+                ReentryWaitPolicy.WAIT_3_BARS,
+                ReentryWaitPolicy.WAIT_12_BARS)) {
             var replay = backtests.runFiltered(request, EntryBreakoutFilter.BLOCK_BOTH, policy);
             var result = replay.backtest();
             var p = result.javaPortfolio();
