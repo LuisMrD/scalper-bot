@@ -1,0 +1,22 @@
+name: Windows PowerShell 5.1 script compatibility
+
+on:
+  push:
+    branches: ['experiment/1m-vs-5m-trade-diagnostics']
+
+permissions:
+  contents: read
+
+jobs:
+  windows-ps51:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate short regime script parameter binding in Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          Write-Host "PSVersion: $($PSVersionTable.PSVersion)"
+          .\scripts\diagnose-short-regimes.ps1 -PrintOnly
+          .\scripts\diagnose-short-regimes.ps1 -StartWindow 16 -Windows 6 -PrintOnly
+          .\scripts\diagnose-short-regimes.ps1 -StartWindow 22 -Windows 6 -PrintOnly
