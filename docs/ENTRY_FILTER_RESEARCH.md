@@ -694,3 +694,41 @@ e sinais rejeitados. Se nao houver L2 suficiente, reportar
 baixa cobertura, nao concluir que a estrategia funciona ou
 falha por ausencia de trades. Ao inspecionar 34..39, esses
 periodos deixam de ser holdout para eventuais regras seguintes.
+
+### Testnet w39: faixa de 15m constante SEM negociacoes
+
+Auditoria direta do MySQL local, 2026-10-14. Em torno do sinal
+`1750215599999`, o banco tinha exatamente **30 candles fechados
+15m** e **90 candles 5m** contiguos com OHLC = **147.70 USDT**,
+volume base/quote = 0, trades = 0. Portanto, nao era uma
+resistencia operavel: nao ocorreu negociacao nessas 7,5 horas,
+e nenhum timeframe contradiz o outro.
+
+Mudanca de tratamento **apenas no detector L2 experimental**:
+`ClosedRangeLocation.atIfTraded` retorna `Optional.empty()`
+SOMENTE quando os 30 candles contiguos possuem high=low E
+volume/trades/taker igual a zero. A oportunidade L2 desse candidato
+e descartada; nao gera sinal, ordem, pivots nem precos sinteticos.
+`FailedBreakoutL2Detector` acumula
+`zeroActivityFlatCandidates`, exposto no replay/API/CSVs
+como `L2FlatHistoryCandidates` (contador de **avaliacoes de
+candidatos**, nao de candles unicos ou sinais suprimidos).
+
+Os erros verdadeiros continuam retornando HTTP 422: falta de
+historico, buracos nos timestamps, candle do 15m defasado, ou
+amplitude zero COM volume/trades diferente de zero. A antiga
+`ClosedRangeLocation.at` usada pela pesquisa anterior do terco
+superior continua estrita, sem novo comportamento.
+
+O tratamento de **nao ha setup** em ausencia de negociacoes foi
+definido em resposta a um erro de dados, depois de ja inspecionar
+o historico da janela 39. Logo, a reexecucao das janelas 34..39
+deve ser identificada como **reparo metodologico retrospectivo**
+da amostra, nao holdout estritamente intocado para escolha de
+variacoes adicionais. Mantem-se os parametros congelados
+do setup (3, 9, 30, 60 e seis vezes 300 horas).
+
+Mesmo que o replay passe, horas sem trades da Testnet reduzem a
+representatividade da simulacao para o mercado real. Nao substituir
+por dados de producao, nao eliminar janelas silenciosamente e
+nao declarar lucratividade comprovada.
