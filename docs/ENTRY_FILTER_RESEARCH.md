@@ -186,3 +186,71 @@ Analise prioriza PnL marcado e fechado, delta por janela,
 quantas janelas tiveram melhoria, drawdown, taxas, entradas perdidas
 e novas entradas, alavancagem/risco efetivos. Os resultados nao garantem
 viabilidade futura e o PnL de janelas reiniciadas nao e retorno composto.
+
+## Analise observacional da macro BTC/ETH nas entradas SOL
+
+Objetivo: testar **consonancia contemporanea**, nao filtrar nem alterar
+a estrategia. O resultado das operacoes ja e conhecido e os 15 periodos
+anteriores ja foram inspecionados. Todas as associacoes deste estudo sao
+**retrospectivas**; mesmo as janelas 10..15 NAO sao uma nova validacao
+fora da amostra da hipotese de consonancia.
+
+Dados: trade CSVs de reentrada das janelas 1..9 e 10..15 (original
+`BLOCK_BOTH`, `WAIT_WHILE_15M_RANGE`, `WAIT_12_BARS`) e candles
+TESTNET 15m de BTCUSDT e ETHUSDT gravados no MySQL local. Nao usa
+candle atual incompleto, mercado spot, ordens ou Luna. A configuracao
+precisa incluir `TRADING_SYMBOLS=SOLUSDT,BTCUSDT,ETHUSDT` para permitir
+sincronizar/ler esses pares. Isto NAO habilita negociacao.
+
+Para cada fechamento do sinal de entrada SOL:
+- localizar o ultimo candle BTC/ETH de 15m com fechamento <= sinal SOL;
+- computar retornos percentuais acumulados nas 4 barras anteriores (1h),
+  nas 16 barras anteriores (4h) e nas 96 barras anteriores (24h);
+- invalidar a janela caso exista gap entre barras, atraso >=15min ou
+  timestamps BTC/ETH dessincronizados;
+- classificar retornos positivos/negativos por direcao da entrada
+  SOL (LONG e SHORT), independentemente de resultados posteriores.
+
+Classes:
+- `CONSONANT_BOTH`: BTC e ETH se moveram na direcao da entrada SOL.
+- `CONTRARY_BOTH`: ambos se moveram contra a direcao da entrada SOL.
+- `MIXED`: um concorda, outro discorda.
+- `NEUTRAL`: um dos retornos e exatamente zero.
+
+Tambem mostrar `BTC_ETH_UP`, `BTC_ETH_DOWN`,
+`BTC_ETH_SPLIT` e `NEUTRAL` independentemente da direcao SOL.
+Retornos continuos ficam no CSV detalhado, permitindo analises posteriores
+sem criar limiares otimizados no historico.
+
+Executar com Spring Boot local e TESTNET (somente leitura/market-data):
+
+`./scripts/analyze-cross-asset-macro.ps1 -PrintOnly`
+
+`./scripts/analyze-cross-asset-macro.ps1 -Symbol SOLUSDT -StartWindow 1 -Windows 15 -AsOf 1791845999999 -SyncHistory`
+
+`-SyncHistory` importa BTC/ETH 15m ate 25h antes do inicio da janela
+mais antiga e ate o final da janela mais recente, em lotes de 7 dias.
+Os candles da SOL ja constam do CSV, portanto nao sao sincronizados
+novamente neste estudo. Em execucoes posteriores, omitir o parametro.
+Se nao houver BTC/ETH 15m historico suficiente na Testnet, o estudo
+PARA, sem recorrer silenciosamente a fontes reais, candles inventados
+ou valores futuros.
+
+Saidas:
+- `results/macro-consonance-trades-SOLUSDT-1791845999999-w1-15.csv`
+- `results/macro-consonance-patterns-SOLUSDT-1791845999999-w1-15.csv`
+- `results/macro-consonance-windows-SOLUSDT-1791845999999-w1-15.csv`
+
+O relatorio agrupa LONG/SHORT separadamente, horizontes 1h/4h/24h,
+politicas de reentrada e janelas 1..9, 10..15 e agregadas. Agrupamentos
+com menos de 10 trades ou menos de tres janelas sao sinalizados como
+amostra pequena. PnL ja inclui custos. A soma dos trades fechados
+deve reconciliar exatamente ao CSV previo. Cada janela parte do capital
+original; somar os PnLs nao significa compor um portfolio unico.
+
+Atencao: um conjunto de 15 janelas consecutivas, operacoes serialmente
+correlacionadas e retornos com intervalos sobrepostos NAO gera centenas
+de observacoes independentes. Para usar consonancia em uma regra de
+entrada, exigir um novo replay dinamico e um holdout historico inedito.
+A historica da Binance Futures Testnet pode nao reproduzir fielmente
+o comportamento do mercado real de BTC/ETH.
