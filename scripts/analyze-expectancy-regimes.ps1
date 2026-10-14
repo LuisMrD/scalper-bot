@@ -159,7 +159,15 @@ foreach($w in $windows){
     Eq $all $w.NetClosedUsdt "w$($w.Window) trade totals"
     Eq $lng $w.LongClosedPnlUsdt "w$($w.Window) LONG reconciliation"
     Eq $shr $w.ShortClosedPnlUsdt "w$($w.Window) SHORT reconciliation"
-    Eq $fees $w.FeesUsdt "w$($w.Window) fee reconciliation"
+    # Portfolio fees can include the entry fee of a still-open position,
+    # while CSV closed-trade fees include ONLY fully closed positions.
+    # Do not silently infer that all portfolios are flat at window end.
+    [decimal]$portfolioFees=$w.FeesUsdt
+    if($w.OpenPositionSide -eq 'FLAT' -or [string]::IsNullOrWhiteSpace($w.OpenPositionSide)){
+        Eq $fees $portfolioFees "w$($w.Window) fee reconciliation (flat)"
+    }elseif($portfolioFees -lt $fees){
+        throw "w$($w.Window): total portfolio fees cannot be less than closed-trade fees"
+    }
 }
 function Metric([object[]]$subset,[string]$scope,[string]$side,
                 [string]$feature,[string]$value,[string]$knownAt) {
