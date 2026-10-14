@@ -592,3 +592,105 @@ definicao de pivots confirmados; nao e equivalente a simplesmente
 filtrar BREAKOUT_RETEST no topo. Implementar separadamente somente
 se a hipotese de localizacao de RANGE demonstrar sinal suficiente
 e apos reservar historia nova.
+
+## L2 apos falso rompimento: setup novo e separado (2026-10-14)
+
+Esta implementacao e uma **aproximacao operacional inspirada** na
+leitura de falha de rompimento e segunda tentativa de venda descrita
+por Al Brooks. Nao e uma traducao integral dos seus setups L2, nem
+a simples aplicacao de um filtro sobre `BREAKOUT_RETEST`.
+
+As janelas 1..33 foram previamente analisadas e nao sao uma nova
+amostra independente. Antes de olhar os resultados seguintes, ficam
+**congeladas** as janelas 34..39 (6 periodos de 300 horas independentes,
+a partir do mesmo `AsOf=1791845999999`), os parametros e os 3
+cenarios abaixo:
+
+- `CONTROL`: RETEST 5m, contexto 15m, `BLOCK_BOTH` e
+  `WAIT_12_BARS` (60 min), sem novo setup L2.
+- `BLOCK_ALL_15M_RANGE_SHORTS`: controle bloqueando SHORT RETEST
+  se a tendencia fechada do 15m for `RANGE`.
+- `REPLACE_RANGE_SHORT_RETEST_WITH_L2`: bloqueia os SHORT RETEST
+  originais em `RANGE`, mas pode gerar uma **nova entrada SHORT**
+  de setup `RANGE_FALSE_BREAK_L2` segundo o detector abaixo.
+  Fora do `RANGE`, mantem a estrategia RETEST anterior, sem mudancas.
+  LONGs, saidas e gestao das posicoes existentes seguem iguais.
+
+Detector causal (dados exclusivamente encerrados):
+1. Um candle de 5m testa acima da **resistencia anterior**, definida
+   pelo MAX HIGH de **30 candles de 15m fechados ANTES da barra de
+   falha**. A mesma barra de 5m fecha ABAIXO da antiga resistencia
+   (falso rompimento, wick). Nao calcula o range incluindo essa
+   maxima futura/atual.
+2. Dentro de **3 candles de 5m** apos a falha, exige uma primeira
+   barra baixista cujo fechamento fica abaixo do fechamento da falha.
+3. Exige um repique bullish posterior, fechado acima do primeiro
+   fechamento de venda mas abaixo da maxima do falso rompimento,
+   sem outra superacao dessa maxima.
+4. Em ate **9 candles de 5m** desde a falha, exige segunda barra
+   baixista fechando abaixo da minima da primeira barra baixista e
+   da minima da barra imediatamente anterior. Nao vender se esse
+   segundo fechamento ja estiver no terco inferior da antiga faixa.
+5. O contexto 15m atual tem de ser `RANGE`; agressao no ultimo 5m
+   `SELL_DOMINANT`, volume diferente de LOW/UNAVAILABLE; posicao
+   FLAT. Um **pivo HIGH confirmado** e escolhido pelo mesmo
+   `RiskEngine` existente; deve estar >= maxima do falso rompimento
+   para que o stop estrutural com buffer fique alem da invalidacao.
+6. Se `BLOCK_BOTH` tiver rejeitado o sinal original, a nova entrada
+   nao o burla. Se a espera de 60 min estiver ativa, nenhum L2 abre.
+   O mesmo rompimento falho nao pode originar varias novas entradas.
+   O L2, se aprovado pelo motor de risco, entra **apenas na proxima
+   abertura de 5m**, com slippage adverso, taxa, risco, validacoes de
+   Binance Testnet, stop-first e trailing existentes.
+
+O novo `DecisionResult.Setup.RANGE_FALSE_BREAK_L2` e
+`Reason.RANGE_FALSE_BREAK_L2_CONFIRMED` sao emitidos SOMENTE
+pela rota experimental `BacktestService.runL2Range`. A checagem
+de risco aceita o novo motivo somente para SHORTs com esse setup;
+o motor normal `JavaDecisionEngine` nao passa a produzir L2.
+
+A nova API `POST /api/v1/backtest/compare-range-l2`
+executa tres portfolios inteiramente independentes, com
+`includeLuna=false`, RETEST-only original e precos/custos reais
+do modelo de simulacao. A resposta traz PnL LONG e SHORT separado,
+quantos sinais L2 foram emitidos, quantos foram bloqueados pelo
+cooldown e quantos trades encerrados eram de setup L2.
+Esses numeradores SAO DIFERENTES, devido a bloqueios do risco,
+gaps ou posicoes abertas no fim de janela.
+
+A familia numerica: 3 cenarios, maximo 3 barras para primeiro
+impulso, 9 barras para segunda tentativa, 30 candles de 15m para
+resistencia anterior, espera 60 minutos, 6 janelas de 300 horas.
+O numero 3/6/9 seleciona nossas heuristicas; nao e uma regra
+matematica prescrita por Al Brooks.
+
+Plano sem rede:
+
+`./scripts/validate-range-l2-oos.ps1 -PrintOnly`
+
+Com backend Spring Boot local iniciado em TESTNET/SIMULATION_ONLY,
+capital 1500, risco 0.5%, stop diario 3%, leverage 1, fee 0.05%
+por lado, slippage 0.02%, BE 1R, alinhamento 15m nao obrigatorio
+e Luna/ordens/WS/bootstrap desligados:
+
+`./scripts/validate-range-l2-oos.ps1 -Symbol SOLUSDT -StartWindow 34 -Windows 6 -AsOf 1791845999999 -ExpectedCapitalUsdt 1500 -SyncHistory`
+
+A sincronizacao usa APENAS SOL 5m/15m Testnet; se nao houver
+dados suficientes ou aparecerem lacunas, o estudo deve falhar,
+sem buscar candles da Binance producao ou fabricados.
+Para repetir com historico completo ja salvo no MySQL, omitir
+`-SyncHistory`. Nao e necessaria integracao BTC/ETH.
+
+Arquivos `results`, com sufixo
+`SOLUSDT-RETEST-1791845999999-5m-w34-39.csv`:
+- `range-l2-oos-aggregate-...`
+- `range-l2-oos-windows-...`
+- `range-l2-oos-trades-...`
+
+Auditar por janela PnL fechado e marcado, drawdown, custos,
+quantos trades LONG/SHORT, numero de L2 realmente executados,
+concentracao nos maiores ganhadores, oportunidades substituidas
+e sinais rejeitados. Se nao houver L2 suficiente, reportar
+baixa cobertura, nao concluir que a estrategia funciona ou
+falha por ausencia de trades. Ao inspecionar 34..39, esses
+periodos deixam de ser holdout para eventuais regras seguintes.
