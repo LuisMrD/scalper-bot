@@ -177,9 +177,18 @@ public class BacktestService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "L2 OOS requires SOLUSDT, 3600 5m bars, 15m RANGE, RETEST-only, no Luna");
         }
-        return runFilteredInternal(request, EntryBreakoutFilter.BLOCK_BOTH,
-                ReentryWaitPolicy.WAIT_12_BARS, MagicMacroLongPolicy.NONE, false,
-                ShortRangePolicy.CONTROL, study);
+        try {
+            return runFilteredInternal(request, EntryBreakoutFilter.BLOCK_BOTH,
+                    ReentryWaitPolicy.WAIT_12_BARS, MagicMacroLongPolicy.NONE, false,
+                    ShortRangePolicy.CONTROL, study);
+        } catch (ResponseStatusException e) {
+            // Public research diagnostics only: names the independent
+            // replay that failed while preserving the original HTTP status.
+            throw new ResponseStatusException(e.getStatusCode(),
+                    "L2 policy " + study + ", asOf " + request.asOf() + ": "
+                            + (e.getReason() == null ? "historical data rejected" : e.getReason()),
+                    e);
+        }
     }
 
     /** Existing six-scenario macro endpoint remains unchanged. */
