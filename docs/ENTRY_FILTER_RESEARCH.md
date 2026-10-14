@@ -814,3 +814,87 @@ Reduzir quantidade de trades pode apenas reduzir tamanho da
 perda, sem criar edge. Preservar vencedoras excepcionais
 pode ser mais importante que elevar marginalmente win rate,
 mas requer testes de gestao causal em candles fechados.
+
+## Contexto LONG: duas hipoteses congeladas em seis janelas novas (2026-10-14)
+
+Base empirica exploratoria: a auditoria dos CONTROLS em w16..39
+identificou prejuizos historicos nas operacoes LONG quando
+`trend15m=RANGE` e `breakout5m=UP_FOLLOW_THROUGH`, e quando
+`trend15m=UP` mas `volumeLevel5m=NORMAL`.
+Esses grupos foram selecionados APOS examinarmos w16..39.
+Nao sao evidencia de causalidade. O novo experimento testa
+ambas separadamente, nunca combinadas nesta etapa.
+
+Tres estrategias congeladas antes de inspecionar w40..45:
+
+1. `CONTROL`: RETEST 5m e tendencia 15m; `BLOCK_BOTH` +
+   `WAIT_12_BARS` (60 minutos), sem novo filtro LONG.
+2. `BLOCK_LONG_RANGE_FOLLOW_THROUGH`: mesmo controle, mas
+   rejeita apenas entrada LONG RETEST com tendencia 15m RANGE e
+   estado de rompimento **UP_FOLLOW_THROUGH** no ultimo 5m fechado.
+3. `BLOCK_LONG_UP_NORMAL_VOLUME`: mesmo controle, rejeitando
+   somente LONG RETEST quando 15m UP e classificacao de volume
+   **NORMAL** no ultimo 5m fechado.
+
+Nenhum desses filtros altera SHORT, setups diferentes de RETEST,
+ordens de saida, regras de stop, trailing ou risco. Bloqueia sinais
+SOMENTE apos a precedencia original do BLOCK_BOTH e cooldown,
+ANTES de qualquer nova decisao financeira do ledger. Os filtros
+nao usam taxa de acerto, lucro futuro, MFE/MAE, outcome ou cohort
+de trades removidos, e nao filtram CSV retrospectivamente.
+
+`BacktestService.runLongContext` e
+`POST /api/v1/backtest/compare-long-context` executam tres
+portfolios isolados desde o primeiro candle de cada janela. Cada
+cenario recalcula capital disponivel, posicoes LONG/SHORT, stop
+diario, risco 0.5%, slippage/taxas e eventual PnL marcado.
+O relatorio possui `longContextBlockedSignals` por politica;
+**sinais rejeitados nao sao necessariamente trades eliminados**.
+O endpoint nao esta conectado ao motor normal.
+
+OOS reservado, nao inspecionado antes da definicao:
+**w40..45**, seis blocos nao sobrepostos de **300 horas**
+(3600 candles 5m por bloco), `AsOf=1791845999999`,
+1500 USDT independentes por janela. Setup RETEST-only, 15m
+contexto sem alinhamento obrigatorio, `BLOCK_BOTH` + 60 min,
+stop diario 3%, alavancagem 1, fee por lado 0.05%,
+slippage por lado 0.02%, BE 1R e filtro custo/risco maximo 50%.
+Nunca pagar Luna ou executar ordens.
+A familia numerica 3/6/9 continua como convencao de experimentos
+(3 politicas, 6 janelas, 300 horas, cooldown 60 min),
+nao uma prova de vantagem estatistica.
+
+Executar com Spring Boot local TESTNET/SIMULATION_ONLY,
+Java 25 compilado, WS/bootstrap/ordens/Luna desligados:
+
+`./scripts/validate-long-context-oos.ps1 -PrintOnly`
+
+`./scripts/validate-long-context-oos.ps1 -Symbol SOLUSDT -StartWindow 40 -Windows 6 -AsOf 1791845999999 -ExpectedCapitalUsdt 1500 -SyncHistory`
+
+`-SyncHistory` somente na primeira vez, SOL 5m/15m Testnet,
+em lotes historicos. Dados antigos da Testnet podem conter
+candles de volume e negociacoes zerados e longos trechos
+sem atividade. **Isso limita a extrapolacao dos resultados
+para a Binance Futures real.** Lacunas, contexto invalido,
+historico insuficiente ou ranges ativos inconsistentes
+devem produzir falha, nao trocas de origem nem candles falsos.
+
+No diretorio `results`, tres arquivos com sufixo
+`SOLUSDT-RETEST-1791845999999-5m-w40-45.csv`:
+- `long-context-oos-aggregate-...`
+- `long-context-oos-windows-...`
+- `long-context-oos-trades-...`
+
+Os checks reconciliam os dados de cada uma das 18 carteiras:
+capital inicial e parametros efetivos, mesmo tape 5m,
+PnL fechado de trades versus portfolio, LONG+SHORT=total,
+contagem de sinais rejeitados e timestamps anteriores ao fill.
+O script nao exporta resultado parcial se uma janela falhar.
+
+As comparacoes primarias sao delta de PnL **marcado** versus
+CONTROL, janelas melhoradas, drawdown, fees, expectancy por
+trade LONG e SHORT, vencedoras sacrificadas, entradas
+substitutas, concentracao dos maiores ganhos e resultados
+na presenca/ausencia de negocacoes.
+Depois de inspecionar w40..45, esse historico nao sera
+novamente OOS para modificacoes decididas com seus resultados.
