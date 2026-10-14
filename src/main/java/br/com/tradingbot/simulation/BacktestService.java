@@ -84,27 +84,35 @@ public class BacktestService {
     public record FilteredReplay(BacktestResult backtest, int filteredSignals,
             int reentryBlockedSignals, int macroBlockedSignals,
             int shortOnlyBlockedSignals, int shortRangeBlockedSignals,
-            int l2Signals, int l2BlockedByCooldown) {
+            int l2Signals, int l2BlockedByCooldown, int l2FlatHistoryCandidates) {
         public FilteredReplay(BacktestResult backtest, int filteredSignals) {
-            this(backtest, filteredSignals, 0, 0, 0, 0, 0, 0);
+            this(backtest, filteredSignals, 0, 0, 0, 0, 0, 0, 0);
         }
         public FilteredReplay(BacktestResult backtest, int filteredSignals, int reentryBlockedSignals) {
-            this(backtest, filteredSignals, reentryBlockedSignals, 0, 0, 0, 0, 0);
+            this(backtest, filteredSignals, reentryBlockedSignals, 0, 0, 0, 0, 0, 0);
         }
         public FilteredReplay(BacktestResult backtest, int filteredSignals,
                 int reentryBlockedSignals, int macroBlockedSignals) {
-            this(backtest, filteredSignals, reentryBlockedSignals, macroBlockedSignals, 0, 0, 0, 0);
+            this(backtest, filteredSignals, reentryBlockedSignals, macroBlockedSignals, 0, 0, 0, 0, 0);
         }
         public FilteredReplay(BacktestResult backtest, int filteredSignals,
                 int reentryBlockedSignals, int macroBlockedSignals, int shortOnlyBlockedSignals) {
             this(backtest, filteredSignals, reentryBlockedSignals, macroBlockedSignals,
-                    shortOnlyBlockedSignals, 0, 0, 0);
+                    shortOnlyBlockedSignals, 0, 0, 0, 0);
         }
         public FilteredReplay(BacktestResult backtest, int filteredSignals,
                 int reentryBlockedSignals, int macroBlockedSignals, int shortOnlyBlockedSignals,
                 int shortRangeBlockedSignals) {
             this(backtest, filteredSignals, reentryBlockedSignals, macroBlockedSignals,
-                    shortOnlyBlockedSignals, shortRangeBlockedSignals, 0, 0);
+                    shortOnlyBlockedSignals, shortRangeBlockedSignals, 0, 0, 0);
+        }
+
+        public FilteredReplay(BacktestResult backtest, int filteredSignals,
+                int reentryBlockedSignals, int macroBlockedSignals, int shortOnlyBlockedSignals,
+                int shortRangeBlockedSignals, int l2Signals, int l2BlockedByCooldown) {
+            this(backtest, filteredSignals, reentryBlockedSignals, macroBlockedSignals,
+                    shortOnlyBlockedSignals, shortRangeBlockedSignals, l2Signals,
+                    l2BlockedByCooldown, 0);
         }
     }
 
@@ -536,7 +544,8 @@ public class BacktestService {
                 javaHistory, lunaHistory);
         return new FilteredReplay(result, filteredSignals, reentryBlockedSignals,
                 macroBlockedSignals, shortOnlyBlockedSignals, shortRangeBlockedSignals,
-                l2Signals, l2BlockedByCooldown);
+                l2Signals, l2BlockedByCooldown,
+                l2Detector == null ? 0 : l2Detector.zeroActivityFlatCandidates());
     }
 
     private static DecisionResult rejectedEntry(DecisionResult original, DecisionResult.Reason reason) {
