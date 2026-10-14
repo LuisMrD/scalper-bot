@@ -244,7 +244,8 @@ foreach($record in $plan){
            $null -eq $s.rangeRetestBlockedSignals -or
            $null -eq $s.l2Signals -or
            $null -eq $s.l2ClosedTrades -or
-           $null -eq $s.l2BlockedByCooldown){
+           $null -eq $s.l2BlockedByCooldown -or
+           $null -eq $s.l2FlatHistoryCandidates){
             throw ("Janela {0}, {1}: campos de contagem ausentes no endpoint" -f $w,$s.policy)
         }
         $matching=@($trades | Where-Object {$_.policy -eq $s.policy})
@@ -301,6 +302,7 @@ foreach($record in $plan){
             RejectedByRangeShort=$s.rangeRetestBlockedSignals
             L2Signals=$s.l2Signals;L2ClosedTrades=$s.l2ClosedTrades
             L2BlockedByCooldown=$s.l2BlockedByCooldown
+            L2FlatHistoryCandidates=$s.l2FlatHistoryCandidates
             TradesClosed=$s.tradesClosed;Wins=$s.winningTrades;Losses=$s.losingTrades
             LongTrades=$s.longTrades
             ShortTrades=$s.shortTrades;ShortWins=$s.shortWinners
@@ -371,7 +373,7 @@ foreach($g in @($windowsOut | Group-Object Policy)){
     [decimal]$longPnl=0
     [decimal]$shortPnl=0
     $filterRejected=0;$waitRejected=0;$rangeRejected=0
-    $l2Signals=0;$l2Trades=0;$l2Wait=0
+    $l2Signals=0;$l2Trades=0;$l2Wait=0;$l2Flat=0
     $improved=0;$positiveNet=0
     foreach($r in $g.Group){
         $closed+=Money $r.NetClosedUsdt 'closed'
@@ -388,6 +390,7 @@ foreach($g in @($windowsOut | Group-Object Policy)){
         $l2Signals+=[int]$r.L2Signals
         $l2Trades+=[int]$r.L2ClosedTrades
         $l2Wait+=[int]$r.L2BlockedByCooldown
+        $l2Flat+=[int]$r.L2FlatHistoryCandidates
         $longTrades+=[int]$r.LongTrades;$shortTrades+=[int]$r.ShortTrades
         $longPnl+=Money $r.LongClosedPnlUsdt 'long PnL'
         $shortPnl+=Money $r.ShortClosedPnlUsdt 'short PnL'
@@ -400,6 +403,7 @@ foreach($g in @($windowsOut | Group-Object Policy)){
         RangeShortRejections=$rangeRejected
         L2Signals=$l2Signals;L2ClosedTrades=$l2Trades
         L2BlockedByCooldown=$l2Wait
+        L2FlatHistoryCandidates=$l2Flat
         LongTrades=$longTrades;ShortTrades=$shortTrades
         LongClosedPnlUsdt=$longPnl;ShortClosedPnlUsdt=$shortPnl
         ImprovedWindows=$improved;PositiveNetWindows=$positiveNet
