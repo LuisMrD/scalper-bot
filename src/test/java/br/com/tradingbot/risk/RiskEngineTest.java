@@ -81,6 +81,28 @@ class RiskEngineTest {
         assertEquals(0, out.initialStop().compareTo(bd("109.0")));
         assertEquals("LUNA", out.engine());
     }
+    @Test void researchL2ShortUsesExistingConservativeStructuralStop() {
+        var decision = new DecisionResult("JAVA", "BTCUSDT", "1m", TIME, TIME,
+                DecisionResult.Entry.SHORT, DecisionResult.PositionAction.NONE,
+                DecisionResult.Setup.RANGE_FALSE_BREAK_L2,
+                DecisionResult.Reason.RANGE_FALSE_BREAK_L2_CONFIRMED);
+        var outcome = new RiskEngine().preview(
+                request(decision, null, "0", "0.001", "0.001"),
+                context(PriceActionSnapshot.Trend.RANGE, true, "99", "102", "98",
+                        TIME-100), policy());
+        assertEquals(RiskPreviewResult.Action.PROPOSED_ENTRY, outcome.action());
+        assertEquals(0, outcome.initialStop().compareTo(bd("109.0")));
+        // Do not allow a LONG to abuse the research-only L2 approval reason.
+        var invalidLong = new DecisionResult("JAVA", "BTCUSDT", "1m", TIME, TIME,
+                DecisionResult.Entry.LONG, DecisionResult.PositionAction.NONE,
+                DecisionResult.Setup.RANGE_FALSE_BREAK_L2,
+                DecisionResult.Reason.RANGE_FALSE_BREAK_L2_CONFIRMED);
+        assertEquals(RiskPreviewResult.Reason.INVALID_DECISION_OR_POSITION,
+                new RiskEngine().preview(request(invalidLong, null, "0", "0.001", "0.001"),
+                        context(PriceActionSnapshot.Trend.RANGE, true, "101", "102", "100",
+                                TIME-100), policy()).reason());
+    }
+
     @Test void missingPivotBlocksEntry() {
         var req = request(decision(DecisionResult.Entry.LONG, DecisionResult.PositionAction.NONE, "JAVA"), null,
                 "0", "0.001", "0.001");
