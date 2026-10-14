@@ -82,16 +82,22 @@ public class BacktestService {
 
     /** Filtered research replay retains the same dynamic order/position ledger. */
     public record FilteredReplay(BacktestResult backtest, int filteredSignals,
-            int reentryBlockedSignals, int macroBlockedSignals, int shortOnlyBlockedSignals) {
+            int reentryBlockedSignals, int macroBlockedSignals,
+            int shortOnlyBlockedSignals, int shortRangeBlockedSignals) {
         public FilteredReplay(BacktestResult backtest, int filteredSignals) {
-            this(backtest, filteredSignals, 0, 0, 0);
+            this(backtest, filteredSignals, 0, 0, 0, 0);
         }
         public FilteredReplay(BacktestResult backtest, int filteredSignals, int reentryBlockedSignals) {
-            this(backtest, filteredSignals, reentryBlockedSignals, 0, 0);
+            this(backtest, filteredSignals, reentryBlockedSignals, 0, 0, 0);
         }
         public FilteredReplay(BacktestResult backtest, int filteredSignals,
                 int reentryBlockedSignals, int macroBlockedSignals) {
-            this(backtest, filteredSignals, reentryBlockedSignals, macroBlockedSignals, 0);
+            this(backtest, filteredSignals, reentryBlockedSignals, macroBlockedSignals, 0, 0);
+        }
+        public FilteredReplay(BacktestResult backtest, int filteredSignals,
+                int reentryBlockedSignals, int macroBlockedSignals, int shortOnlyBlockedSignals) {
+            this(backtest, filteredSignals, reentryBlockedSignals, macroBlockedSignals,
+                    shortOnlyBlockedSignals, 0);
         }
     }
 
@@ -133,6 +139,22 @@ public class BacktestService {
                 ReentryWaitPolicy.WAIT_12_BARS, experiment.macro(), experiment.shortOnly());
     }
 
+    /** Causal range-entry research only; no changes to normal Java strategy. */
+    public FilteredReplay runShortRange(BacktestRequest request, ShortRangePolicy rangePolicy) {
+        Objects.requireNonNull(rangePolicy, "rangePolicy");
+        if (request == null || !"SOLUSDT".equals(request.symbol())
+                || !request.intervals().equals(List.of("5m", "15m"))
+                || request.steps() != 3600 || request.asOf() == null
+                || request.includeLuna()
+                || !Boolean.FALSE.equals(request.pullbackEnabledOverride())
+                || !Boolean.TRUE.equals(request.breakoutRetestEnabledOverride())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Short-range research requires SOLUSDT 5m+15m, 3600 RETEST candles, no Luna");
+        }
+        return runFilteredInternal(request, EntryBreakoutFilter.BLOCK_BOTH,
+                ReentryWaitPolicy.WAIT_12_BARS, MagicMacroLongPolicy.NONE, false, rangePolicy);
+    }
+
     /** Existing six-scenario macro endpoint remains unchanged. */
     public FilteredReplay runFiltered(BacktestRequest request, EntryBreakoutFilter filter,
             ReentryWaitPolicy waitPolicy, MagicMacroLongPolicy macroPolicy) {
@@ -142,6 +164,20 @@ public class BacktestService {
     private FilteredReplay runFilteredInternal(BacktestRequest request,
             EntryBreakoutFilter filter, ReentryWaitPolicy waitPolicy,
             MagicMacroLongPolicy macroPolicy, boolean blockAllLongs) {
+        return runFilteredInternal(request, filter, waitPolicy, macroPolicy, blockAllLongs,
+                ShortRangePolicy.CONTROL);
+    }
+
+    private FilteredReplay runFilteredInternal(BacktestRequest request,
+            EntryBreakoutFilter filter, ReentryWaitPolicy waitPolicy,
+            MagicMacroLongPolicy macroPolicy, boolean blockAllLongs, ShortRangePolicy shortRange) {
+        Objects.requireNonNull(shortRange, "shortRange");
+        if (shortRange.active() && (blockAllLongs || macroPolicy.active()
+                || filter != EntryBreakoutFilter.BLOCK_BOTH
+                || waitPolicy != ReentryWaitPolicy.WAIT_12_BARS)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Short-range study must preserve BLOCK_BOTH and 60-minute cooldown");
+        }
         Objects.requireNonNull(filter, "filter");
         Objects.requireNonNull(waitPolicy, "waitPolicy");
         Objects.requireNonNull(macroPolicy, "macroPolicy");
@@ -225,6 +261,14 @@ public class BacktestService {
             ethMacro = new CrossAssetMacroMomentum("ETHUSDT",
                     market.recentAtOrBefore("ETHUSDT", "15m", 1350, cutoff));
         }
+        // This is a separate read-only research dataset of CLOSED SOL 15m bars.
+        // Only the upper-third arm needs it. Blocking all RANGE shorts needs
+        // only the already as-of-safe 15m trend from prepared context.
+        ClosedRangeLocation rangeLocation = null;
+        if (shortRange == ShortRangePolicy.UPPER_THIRD_OF_30_CLOSED_15M_BARS) {
+            rangeLocation = new ClosedRangeLocation(request.symbol(),
+                    market.recentAtOrBefore(request.symbol(), "15m", 1350, cutoff));
+        }
         // Uma carga por timeframe, seguida de janelas asOf isoladas em memoria.
         // A barra final nao emite decisao, pois nao existe T+1 para executa-la.
         var prepared = contexts.prepareReplay(request.symbol(), request.intervals(),
@@ -244,6 +288,7 @@ public class BacktestService {
         int reentryBlockedSignals = 0;
         int macroBlockedSignals = 0;
         int shortOnlyBlockedSignals = 0;
+        int shortRangeBlockedSignals = 0;
         var waitState = new ReentryWaitState(waitPolicy);
         for (int i=0; i<tape.size(); i++) {
             MarketCandle bar = tape.get(i);
@@ -308,6 +353,23 @@ public class BacktestService {
                         javaDecision = rejectedEntry(javaDecision, DecisionResult.Reason.ENTRY_MACRO_FILTER);
                     }
                 }
+                // The new gate acts on a completed signal only, after all
+                // prior filters, before risk and NEXT_OPEN fill. It never
+                // changes LONG, exits, HOLD, or already-open positions.
+                if (shortRange.active()
+                        && javaDecision.entry() == DecisionResult.Entry.SHORT
+                        && javaDecision.setup() == DecisionResult.Setup.BREAKOUT_RETEST
+                        && javaDecision.positionAction() == DecisionResult.PositionAction.NONE
+                        && trend15m == br.com.tradingbot.analysis.brooks.PriceActionSnapshot.Trend.RANGE) {
+                    boolean block = shortRange == ShortRangePolicy.BLOCK_ALL_15M_RANGE_SHORTS;
+                    if (shortRange == ShortRangePolicy.UPPER_THIRD_OF_30_CLOSED_15M_BARS) {
+                        block = !rangeLocation.at(bar.closeTime(), bar.close()).upperThird();
+                    }
+                    if (block) {
+                        shortRangeBlockedSignals++;
+                        javaDecision = rejectedEntry(javaDecision, DecisionResult.Reason.ENTRY_SHORT_RANGE_FILTER);
+                    }
+                }
                 javaRisk = javaLedger.decide(javaDecision, first);
                 if (includeDecisionHistory
                         || javaRisk.action() == RiskPreviewResult.Action.PROPOSED_ENTRY) {
@@ -342,7 +404,7 @@ public class BacktestService {
                 lunaLedger == null ? null : lunaLedger.result(last.close()), lunaLedger != null,
                 javaHistory, lunaHistory);
         return new FilteredReplay(result, filteredSignals, reentryBlockedSignals,
-                macroBlockedSignals, shortOnlyBlockedSignals);
+                macroBlockedSignals, shortOnlyBlockedSignals, shortRangeBlockedSignals);
     }
 
     private static DecisionResult rejectedEntry(DecisionResult original, DecisionResult.Reason reason) {
