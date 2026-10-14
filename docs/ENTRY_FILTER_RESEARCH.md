@@ -418,3 +418,80 @@ LONGs selecionados superam a alternativa sem nenhuma compra.
 OOS vale apenas para os **quatro cenarios predefinidos**.
 Apos inspecionar resultados 22..27, deixa de ser amostra inedita
 para qualquer novo ajuste escolhido em funcao deles.
+
+## Diagnostico retrospectivo de SHORTs: tendencia, volume, stops, saidas (2026-10-14)
+
+Problema observado: nas janelas 10..15, perdas SHORT concentradas; nas janelas
+22..27, o `CONTROL` registrou 53 SHORTs com PnL fechado agregado de
+aproximadamente -149.86 USDT, mais que as perdas das LONGs. A hipotese nao
+e de que basta bloquear SHORTs: as janelas 16..21 registraram SHORTs
+positivos. A deterioracao pode depender do contexto de mercado e da saida.
+
+Esta etapa e **diagnostico**, nao nova estrategia nem validacao OOS.
+Usa apenas periodos ja inspecionados, reexecutando os mesmos controles
+`CONTROL` e `SHORT_ONLY` do experimento anterior de forma dinamica,
+com `BLOCK_BOTH + WAIT_12_BARS`. Comparar os dois permite distinguir
+SHORTs compartilhados de novos SHORTs que surgiram por capacidade de
+carteira liberada. As regras SHORT nao mudam entre as carteiras.
+
+Endpoint read-only: `POST /api/v1/backtest/short-regime-diagnostics`.
+Exige SOLUSDT 5m+15m, 3600 candles, RETEST-only, `includeLuna=false`.
+Cada portfolio e isolado, sem ordens e sem chamadas pagas a IA.
+
+Os diagnosticos sao divididos em categorias com cronologia explicita:
+
+- **Disponiveis na entrada:** tendencia 5m/15m, estado do rompimento,
+  volume, agressividade taker, padrao da barra, spread/volume relativo,
+  stop inicial estrutural, ATR, distancia percentual do stop, gap
+  e custo esperado em relacao ao risco inicial.
+- **Somente depois da abertura e saida:** MFE/MAE, R realizado,
+  stops ajustados, motivo da saida, duracao, custos realizados,
+  melhor PnL em candle fechado e devolucao do melhor resultado
+  ate a saida. Estas variaveis NAO podem ser usadas como condicoes
+  de entrada sem um segundo estudo causal/temporal apropriado.
+- **Comparacao retrospectiva entre carteiras:** entradas `SHARED`,
+  `CONTROL_ONLY` e `SHORT_ONLY_ONLY`, por lado e timestamp.
+  Este grupo tambem NAO era conhecido no momento do sinal.
+
+As faixas exploratorias 3/6/9 sao usadas somente para **agrupar
+distribuicoes**, nao para bloquear sinal:
+distancia stop de 0.3/0.6/0.9%,
+custo/risco 30/60/90%,
+excursao MFE/MAE 0.3/0.6/0.9 R,
+duracao 3/6/9 candles de 5m.
+As faixas NAO sao calibradas por desempenho.
+
+Executar em Spring Boot TESTNET, com mesmas configuracoes financeiras
+dos testes anteriores e candles SOL ja sincronizados:
+
+`./scripts/diagnose-short-regimes.ps1 -PrintOnly`
+
+`./scripts/diagnose-short-regimes.ps1 -StartWindow 22 -Windows 6`
+
+`./scripts/diagnose-short-regimes.ps1 -StartWindow 16 -Windows 6`
+
+Nao precisa sincronizar BTC/ETH (o controle nao consulta macro) nem
+importar candles outra vez. Se faltar historico SOL 5m/15m, importar
+somente da Testnet antes de rodar; nunca preencher lacunas com candles
+sinteticos. Outras janelas anteriores podem ser examinadas com
+`-StartWindow` e `-Windows 3|6|9` contanto que nao ultrapassem 27.
+
+Para cada grupo solicitado (por exemplo, `w22-27`) sao gerados:
+
+- `results/short-regime-windows-SOLUSDT-RETEST-1791845999999-5m-w22-27.csv`
+- `results/short-regime-trades-SOLUSDT-RETEST-1791845999999-5m-w22-27.csv`
+- `results/short-regime-patterns-SOLUSDT-RETEST-1791845999999-5m-w22-27.csv`
+
+O script valida numero de trades e PnL em cada portfolio e lado,
+periodos disjuntos, timestamps do sinal anteriores a entrada,
+dados de risco efetivos e contagens de sinais bloqueados. Os grupos
+marcam `FeatureTiming=ENTRY|OUTCOME|RETROSPECTIVE` e
+`SmallSample` quando poucos trades ou menos de 3 janelas.
+Media/expectativa negativas por subtipo sao associacoes retrospectivas;
+nao filtram entradas e NAO demonstram causalidade.
+
+Interpretacao futura: contrastar w16-21 e w22-27 por
+`TREND_15M`, `BREAKOUT_STATE`, `STOP_DISTANCE`,
+`VOLUME_LEVEL`, `EXIT_REASON`, excursao em R e timing.
+Depois, se surgir uma hipotese estavel, congelar seus parametros 3/6/9
+e testa-la em historia NAO utilizada anteriormente com replay completo.
