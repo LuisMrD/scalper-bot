@@ -83,21 +83,28 @@ public class BacktestService {
     /** Filtered research replay retains the same dynamic order/position ledger. */
     public record FilteredReplay(BacktestResult backtest, int filteredSignals,
             int reentryBlockedSignals, int macroBlockedSignals,
-            int shortOnlyBlockedSignals, int shortRangeBlockedSignals) {
+            int shortOnlyBlockedSignals, int shortRangeBlockedSignals,
+            int l2Signals, int l2BlockedByCooldown) {
         public FilteredReplay(BacktestResult backtest, int filteredSignals) {
-            this(backtest, filteredSignals, 0, 0, 0, 0);
+            this(backtest, filteredSignals, 0, 0, 0, 0, 0, 0);
         }
         public FilteredReplay(BacktestResult backtest, int filteredSignals, int reentryBlockedSignals) {
-            this(backtest, filteredSignals, reentryBlockedSignals, 0, 0, 0);
+            this(backtest, filteredSignals, reentryBlockedSignals, 0, 0, 0, 0, 0);
         }
         public FilteredReplay(BacktestResult backtest, int filteredSignals,
                 int reentryBlockedSignals, int macroBlockedSignals) {
-            this(backtest, filteredSignals, reentryBlockedSignals, macroBlockedSignals, 0, 0);
+            this(backtest, filteredSignals, reentryBlockedSignals, macroBlockedSignals, 0, 0, 0, 0);
         }
         public FilteredReplay(BacktestResult backtest, int filteredSignals,
                 int reentryBlockedSignals, int macroBlockedSignals, int shortOnlyBlockedSignals) {
             this(backtest, filteredSignals, reentryBlockedSignals, macroBlockedSignals,
-                    shortOnlyBlockedSignals, 0);
+                    shortOnlyBlockedSignals, 0, 0, 0);
+        }
+        public FilteredReplay(BacktestResult backtest, int filteredSignals,
+                int reentryBlockedSignals, int macroBlockedSignals, int shortOnlyBlockedSignals,
+                int shortRangeBlockedSignals) {
+            this(backtest, filteredSignals, reentryBlockedSignals, macroBlockedSignals,
+                    shortOnlyBlockedSignals, shortRangeBlockedSignals, 0, 0);
         }
     }
 
@@ -155,6 +162,26 @@ public class BacktestService {
                 ReentryWaitPolicy.WAIT_12_BARS, MagicMacroLongPolicy.NONE, false, rangePolicy);
     }
 
+    /**
+     * Independent 34..39 L2 research only. The ordinary Java engine never
+     * creates L2 orders; it is generated after causal analysis of CLOSED bars.
+     */
+    public FilteredReplay runL2Range(BacktestRequest request, L2RangePolicy study) {
+        Objects.requireNonNull(study, "study");
+        if (request == null || !"SOLUSDT".equals(request.symbol())
+                || !request.intervals().equals(List.of("5m", "15m"))
+                || request.steps() != 3600 || request.asOf() == null
+                || request.includeLuna()
+                || !Boolean.FALSE.equals(request.pullbackEnabledOverride())
+                || !Boolean.TRUE.equals(request.breakoutRetestEnabledOverride())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "L2 OOS requires SOLUSDT, 3600 5m bars, 15m RANGE, RETEST-only, no Luna");
+        }
+        return runFilteredInternal(request, EntryBreakoutFilter.BLOCK_BOTH,
+                ReentryWaitPolicy.WAIT_12_BARS, MagicMacroLongPolicy.NONE, false,
+                ShortRangePolicy.CONTROL, study);
+    }
+
     /** Existing six-scenario macro endpoint remains unchanged. */
     public FilteredReplay runFiltered(BacktestRequest request, EntryBreakoutFilter filter,
             ReentryWaitPolicy waitPolicy, MagicMacroLongPolicy macroPolicy) {
@@ -165,13 +192,29 @@ public class BacktestService {
             EntryBreakoutFilter filter, ReentryWaitPolicy waitPolicy,
             MagicMacroLongPolicy macroPolicy, boolean blockAllLongs) {
         return runFilteredInternal(request, filter, waitPolicy, macroPolicy, blockAllLongs,
-                ShortRangePolicy.CONTROL);
+                ShortRangePolicy.CONTROL, L2RangePolicy.CONTROL);
     }
 
     private FilteredReplay runFilteredInternal(BacktestRequest request,
             EntryBreakoutFilter filter, ReentryWaitPolicy waitPolicy,
             MagicMacroLongPolicy macroPolicy, boolean blockAllLongs, ShortRangePolicy shortRange) {
+        return runFilteredInternal(request, filter, waitPolicy, macroPolicy, blockAllLongs,
+                shortRange, L2RangePolicy.CONTROL);
+    }
+
+    private FilteredReplay runFilteredInternal(BacktestRequest request,
+            EntryBreakoutFilter filter, ReentryWaitPolicy waitPolicy,
+            MagicMacroLongPolicy macroPolicy, boolean blockAllLongs, ShortRangePolicy shortRange,
+            L2RangePolicy l2Study) {
+        Objects.requireNonNull(l2Study, "l2Study");
         Objects.requireNonNull(shortRange, "shortRange");
+        if (l2Study != L2RangePolicy.CONTROL
+                && (shortRange != ShortRangePolicy.CONTROL || blockAllLongs
+                    || macroPolicy.active() || filter != EntryBreakoutFilter.BLOCK_BOTH
+                    || waitPolicy != ReentryWaitPolicy.WAIT_12_BARS)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "L2 cannot be combined with other experimental entry filters");
+        }
         if (shortRange.active() && (blockAllLongs || macroPolicy.active()
                 || filter != EntryBreakoutFilter.BLOCK_BOTH
                 || waitPolicy != ReentryWaitPolicy.WAIT_12_BARS)) {
@@ -265,10 +308,14 @@ public class BacktestService {
         // Only the upper-third arm needs it. Blocking all RANGE shorts needs
         // only the already as-of-safe 15m trend from prepared context.
         ClosedRangeLocation rangeLocation = null;
-        if (shortRange == ShortRangePolicy.UPPER_THIRD_OF_30_CLOSED_15M_BARS) {
+        if (shortRange == ShortRangePolicy.UPPER_THIRD_OF_30_CLOSED_15M_BARS
+                || l2Study == L2RangePolicy.REPLACE_RANGE_SHORT_RETEST_WITH_L2) {
             rangeLocation = new ClosedRangeLocation(request.symbol(),
                     market.recentAtOrBefore(request.symbol(), "15m", 1350, cutoff));
         }
+        FailedBreakoutL2Detector l2Detector =
+                l2Study == L2RangePolicy.REPLACE_RANGE_SHORT_RETEST_WITH_L2
+                    ? new FailedBreakoutL2Detector(rangeLocation) : null;
         // Uma carga por timeframe, seguida de janelas asOf isoladas em memoria.
         // A barra final nao emite decisao, pois nao existe T+1 para executa-la.
         var prepared = contexts.prepareReplay(request.symbol(), request.intervals(),
@@ -289,6 +336,9 @@ public class BacktestService {
         int macroBlockedSignals = 0;
         int shortOnlyBlockedSignals = 0;
         int shortRangeBlockedSignals = 0;
+        int l2Signals = 0;
+        int l2BlockedByCooldown = 0;
+        long lastL2FailureUsed = -1L;
         var waitState = new ReentryWaitState(waitPolicy);
         for (int i=0; i<tape.size(); i++) {
             MarketCandle bar = tape.get(i);
@@ -322,7 +372,9 @@ public class BacktestService {
                 }
                 // BLOCK_BOTH gets precedence over wait so a fresh rejected
                 // signal restarts the fixed delay without ever becoming an entry.
-                if (filter.blocks(javaDecision, first.priceAction().breakout().state())) {
+                boolean originalFiltered = filter.blocks(javaDecision,
+                        first.priceAction().breakout().state());
+                if (originalFiltered) {
                     filteredSignals++;
                     if (waitPolicy != ReentryWaitPolicy.NONE) waitState.onEntryRejected(trend15m);
                     javaDecision = rejectedEntry(javaDecision, DecisionResult.Reason.ENTRY_BREAKOUT_FILTER);
@@ -370,6 +422,62 @@ public class BacktestService {
                         javaDecision = rejectedEntry(javaDecision, DecisionResult.Reason.ENTRY_SHORT_RANGE_FILTER);
                     }
                 }
+                // Retest SHORT continuation in RANGE is suppressed in BOTH
+                // non-control arms. L2 arm may propose its separate reversal
+                // signal on the same closed bar if it fulfills ALL safety
+                // conditions, with no pending position and no original
+                // BLOCK_BOTH rejection.
+                if (l2Study != L2RangePolicy.CONTROL
+                        && trend15m == br.com.tradingbot.analysis.brooks.PriceActionSnapshot.Trend.RANGE
+                        && javaDecision.entry() == DecisionResult.Entry.SHORT
+                        && javaDecision.setup() == DecisionResult.Setup.BREAKOUT_RETEST) {
+                    shortRangeBlockedSignals++;
+                    javaDecision = rejectedEntry(javaDecision, DecisionResult.Reason.ENTRY_SHORT_RANGE_FILTER);
+                }
+                if (l2Detector != null && javaSide == br.com.tradingbot.decision.PositionState.Side.FLAT
+                        && trend15m == br.com.tradingbot.analysis.brooks.PriceActionSnapshot.Trend.RANGE
+                        && !originalFiltered
+                        && (javaDecision.reason() == DecisionResult.Reason.NO_SETUP
+                            || javaDecision.reason() == DecisionResult.Reason.TREND_UNCLEAR
+                            || javaDecision.reason() == DecisionResult.Reason.ENTRY_SHORT_RANGE_FILTER)) {
+                    var proposed = l2Detector.detect(first.recentCandles());
+                    if (proposed != null && proposed.failureCloseTime() != lastL2FailureUsed) {
+                        if (waitState.blocksEntry()) {
+                            l2BlockedByCooldown++;
+                        } else {
+                            // The shared risk engine chooses the LATEST
+                            // confirmed HIGH pivot as the structural stop.
+                            // Ensure that pivot is AT/ABOVE the failed
+                            // breakout wick, otherwise reject the L2 signal.
+                            var riskPivot = first.priceAction().confirmedPivots().stream()
+                                    .filter(p -> p.type() ==
+                                        br.com.tradingbot.analysis.brooks.PriceActionSnapshot.PivotType.HIGH
+                                            && p.confirmedAtCloseTime() <= bar.closeTime()
+                                            && p.price().compareTo(bar.close()) > 0)
+                                    .max(java.util.Comparator.comparingLong(
+                                            br.com.tradingbot.analysis.brooks.PriceActionSnapshot
+                                            .ConfirmedPivot::confirmedAtCloseTime));
+                            var volume = first.volume().recentObservations().getLast();
+                            if (riskPivot.isPresent()
+                                    && riskPivot.get().price().compareTo(proposed.failedBreakHigh()) >= 0
+                                    && volume.takerBalance() ==
+                                        br.com.tradingbot.analysis.volume.VolumeSnapshot.TakerBalance.SELL_DOMINANT
+                                    && volume.volumeLevel() !=
+                                        br.com.tradingbot.analysis.volume.VolumeSnapshot.VolumeLevel.LOW
+                                    && volume.volumeLevel() !=
+                                        br.com.tradingbot.analysis.volume.VolumeSnapshot.VolumeLevel.UNAVAILABLE) {
+                                javaDecision = new DecisionResult("JAVA", request.symbol(), "5m",
+                                        context.requestedAsOfEpochMs(), bar.closeTime(),
+                                        DecisionResult.Entry.SHORT,
+                                        DecisionResult.PositionAction.NONE,
+                                        DecisionResult.Setup.RANGE_FALSE_BREAK_L2,
+                                        DecisionResult.Reason.RANGE_FALSE_BREAK_L2_CONFIRMED);
+                                l2Signals++;
+                                lastL2FailureUsed = proposed.failureCloseTime();
+                            }
+                        }
+                    }
+                }
                 javaRisk = javaLedger.decide(javaDecision, first);
                 if (includeDecisionHistory
                         || javaRisk.action() == RiskPreviewResult.Action.PROPOSED_ENTRY) {
@@ -404,7 +512,8 @@ public class BacktestService {
                 lunaLedger == null ? null : lunaLedger.result(last.close()), lunaLedger != null,
                 javaHistory, lunaHistory);
         return new FilteredReplay(result, filteredSignals, reentryBlockedSignals,
-                macroBlockedSignals, shortOnlyBlockedSignals, shortRangeBlockedSignals);
+                macroBlockedSignals, shortOnlyBlockedSignals, shortRangeBlockedSignals,
+                l2Signals, l2BlockedByCooldown);
     }
 
     private static DecisionResult rejectedEntry(DecisionResult original, DecisionResult.Reason reason) {
