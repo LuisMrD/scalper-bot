@@ -129,9 +129,9 @@ $reconciled=@()
 foreach($period in $plan){
     [int]$w=$period.Window
     $phase=if($w -le 9){'HISTORICAL_1_9'}else{'HISTORICAL_10_15'}
-    $input=$inputData[$phase]
-    $trades=@($input.Trades | Where-Object {[int]$_.Window -eq $w -and $_.Policy -in $policies})
-    $summaries=@($input.Summaries | Where-Object {[int]$_.Window -eq $w -and $_.Policy -in $policies})
+    $sourceGroup=$inputData[$phase]
+    $trades=@($sourceGroup.Trades | Where-Object {[int]$_.Window -eq $w -and $_.Policy -in $policies})
+    $summaries=@($sourceGroup.Summaries | Where-Object {[int]$_.Window -eq $w -and $_.Policy -in $policies})
     if($trades.Count -eq 0 -or $summaries.Count -ne 3){
         throw ("Window {0}: missing data for frozen policies" -f $w)
     }
