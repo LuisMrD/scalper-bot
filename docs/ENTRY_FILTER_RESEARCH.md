@@ -732,3 +732,85 @@ Mesmo que o replay passe, horas sem trades da Testnet reduzem a
 representatividade da simulacao para o mercado real. Nao substituir
 por dados de producao, nao eliminar janelas silenciosamente e
 nao declarar lucratividade comprovada.
+
+## Auditoria de expectativa financeira, LONG/SHORT e contexto (2026-10-14)
+
+A etapa seguinte **nao implementa mais um filtro** de entrada ou saida.
+O objetivo e entender por que taxa de acerto e ganho/perda medio nao
+produzem expectativa positiva, antes de tentar "maximizar lucro".
+
+Fonte unica do controle: quatro blocos de CSVs historicos ja
+processados (w16..21, w22..27, w28..33, w34..39), cada um
+com seis janelas de 300h e 1500 USDT de capital reiniciado.
+Para cada janela utiliza **somente Policy=CONTROL**, jamais
+mistura trades de dois replays independentes no mesmo portfolio.
+As pesquisas w1..15 usam uma definicao e fases de selecao
+distintas e nao entram automaticamente nesta comparacao w16..39.
+
+Execute **offline**, sem iniciar Spring Boot, Binance, Luna
+ou sincronizar candles:
+
+`./scripts/analyze-expectancy-regimes.ps1 -PrintOnly`
+
+`./scripts/analyze-expectancy-regimes.ps1`
+
+O script exige, na pasta `results`, os arquivos
+`short-regime-{trades,windows}-...w16-21.csv`,
+`short-regime-{trades,windows}-...w22-27.csv`,
+`short-range-oos-{trades,windows}-...w28-33.csv`
+e `range-l2-oos-{trades,windows}-...w34-39.csv`.
+Na ausencia de um arquivo, falha explicitamente; nao completa
+historico ou gera metricas com janelas silenciosamente faltantes.
+
+Cria tres arquivos:
+- `expectancy-audit-windows-SOLUSDT-RETEST-1791845999999-5m-w16-39.csv`
+- `expectancy-audit-trades-SOLUSDT-RETEST-1791845999999-5m-w16-39.csv`
+- `expectancy-audit-regimes-SOLUSDT-RETEST-1791845999999-5m-w16-39.csv`
+
+Valida os 24 portfolios, capital inicial, contagem e soma de trades,
+PnL LONG+SHORT, fees e timestamps pre-entrada. Para portfolios com
+posicao ainda aberta, distingue a taxa de entrada pendente no
+balanco total das taxas dos trades ja encerrados. O PnL marcado
+continua diferente do realizado se ha posicao aberta.
+
+Calcula, por LONG/SHORT, bloco historico e contexto de entrada:
+- taxa de acerto, ganho medio das vencedoras, perda media dos
+  resultados nao positivos, expectativa liquida por trade em
+  USDT e em R, Profit Factor, quantidade de janelas cobertas
+- `RequiredWinRatePctWithCurrentPayoff`, um calculo **algebrico**
+  do acerto necessario para equilibrio, mantendo os payoffs do
+  historico, nao predicao do mercado
+- `RequiredMeanWinUsdtWithCurrentWinRate`, o ganho medio
+  necessario para cobrir as perdas observadas, mantendo
+  a contagem de wins e losses, nao promessa de alvo executavel
+- contribuicao das tres maiores vencedoras, para medir concentracao
+- tendencia 15m, tendencia 5m, estado de breakout, volume, setup,
+  bins de stop 0.3/0.6/0.9% e custo/risco 30/60/90%
+- agrupamento combinado 15m+breakout, reduzindo conclusoes
+  precipitadas baseadas em uma unica variavel.
+- Motivo da saida e MFE/MAE, **explicitamente POST-ENTRY**.
+  MFE/MAE so sao exportados pelos CSVs w16..27; valores
+  ausentes no restante NUNCA sao tratados como zero.
+  A cobertura consta em `PostEntryMetricTradeCount`.
+
+`FeatureTiming=ENTRY` NAO certifica potencial de lucro futuro:
+apenas diz que a caracteristica ja era observavel ao abrir
+a posicao. `FeatureTiming=OUTCOME` serve apenas para
+diagnosticar o comportamento e nao pode ser usada diretamente
+como filtro. Tabelas pequenas sao sinalizadas
+`SmallSample` se <9 trades ou <3 janelas.
+
+A soma do PnL de 24 carteiras de 1500 USDT independentes
+NAO corresponde ao crescimento composto de uma carteira.
+A amostra esta inteiramente **INSPECIONADA**, sem OOS novo.
+Nenhuma remocao retrospectiva de trades constitui prova do
+resultado de um filtro executavel. Qualquer configuracao de
+saida/trailing ou entrada baseada nesses achados exigiria
+novo replay completo e validacao em historico ainda nao visto.
+
+Para ganhos reais, nao elevar alavancagem/risco antes de
+observar expectativa liquida positiva com amostra robusta.
+Reduzir quantidade de trades pode apenas reduzir tamanho da
+perda, sem criar edge. Preservar vencedoras excepcionais
+pode ser mais importante que elevar marginalmente win rate,
+mas requer testes de gestao causal em candles fechados.
