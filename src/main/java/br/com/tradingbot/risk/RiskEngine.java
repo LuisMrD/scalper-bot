@@ -46,7 +46,10 @@ public final class RiskEngine {
             return outcome(decision, context, Action.NO_ACTION, Reason.NO_ENTRY_SIGNAL,
                     null, null, null, null, null, null, false);
         if (!decision.reason().equals(DecisionResult.Reason.PULLBACK_CONFIRMED)
-                && !decision.reason().equals(DecisionResult.Reason.BREAKOUT_RETEST_CONFIRMED))
+                && !decision.reason().equals(DecisionResult.Reason.BREAKOUT_RETEST_CONFIRMED)
+                && !(decision.reason() == DecisionResult.Reason.RANGE_FALSE_BREAK_L2_CONFIRMED
+                    && decision.setup() == DecisionResult.Setup.RANGE_FALSE_BREAK_L2
+                    && decision.entry() == DecisionResult.Entry.SHORT))
             return outcome(decision, context, Action.BLOCKED, Reason.INVALID_DECISION_OR_POSITION,
                     null, null, null, null, null, null, false);
         return entry(request, context, policy);
