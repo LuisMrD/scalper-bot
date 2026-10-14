@@ -93,7 +93,7 @@ class PrimaryTimeframeQualityServiceTest {
                 br.com.tradingbot.analysis.volume.VolumeSnapshot.VolumeLevel.LOW,
                 br.com.tradingbot.analysis.volume.VolumeSnapshot.TakerBalance.BALANCED,
                 ZERO, ZERO,
-                br.com.tradingbot.analysis.volume.VolumeSnapshot.EffortResult.NEUTRAL,
+                br.com.tradingbot.analysis.volume.VolumeSnapshot.EffortResult.NONE,
                 action, RiskPreviewResult.Reason.NO_ENTRY_SIGNAL);
     }
 
