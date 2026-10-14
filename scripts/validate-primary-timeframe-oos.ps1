@@ -282,15 +282,15 @@ foreach($g in @($windowRows | Group-Object Arm)){
     if($g.Count -ne $Windows){throw "Incomplete arm $($g.Name)"}
     [decimal]$net=0;[decimal]$marked=0;[decimal]$l=0;[decimal]$sh=0;[decimal]$fees=0
     [decimal]$maxDD=0;[int]$trades=0;[int]$wins=0
-    foreach($w in $g.Group){
-        $net+=Money $w.NetClosedUsdt 'closed'
-        $marked+=Money $w.MarkedPnlUsdt 'marked'
-        $l+=Money $w.LongClosedPnlUsdt 'long'
-        $sh+=Money $w.ShortClosedPnlUsdt 'short'
-        $fees+=Money $w.FeesUsdt 'fees'
-        $dd=Money $w.MaxDrawdownPct 'drawdown'
+    foreach($row in $g.Group){
+        $net+=Money $row.NetClosedUsdt 'closed'
+        $marked+=Money $row.MarkedPnlUsdt 'marked'
+        $l+=Money $row.LongClosedPnlUsdt 'long'
+        $sh+=Money $row.ShortClosedPnlUsdt 'short'
+        $fees+=Money $row.FeesUsdt 'fees'
+        $dd=Money $row.MaxDrawdownPct 'drawdown'
         if($dd -gt $maxDD){$maxDD=$dd}
-        $trades+=[int]$w.Trades;$wins+=[int]$w.Wins
+        $trades+=[int]$row.Trades;$wins+=[int]$row.Wins
     }
     Near ($l+$sh) $net ([decimal]'0.001') 'aggregate pnl'
     $aggregate += [pscustomobject]@{
