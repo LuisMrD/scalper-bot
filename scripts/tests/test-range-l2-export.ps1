@@ -1,7 +1,7 @@
 # Real end-to-end export using mock HTTP responses, without network, Binance,
 # database or actual trades. Exercises exact Java DTO fields through CSV write.
 $ErrorActionPreference='Stop'
-$script:mockBacktestPosts=0
+$global:mockBacktestPosts=0
 $runner=Join-Path (Split-Path $PSScriptRoot -Parent) 'validate-range-l2-oos.ps1'
 $root=(Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 $stem='SOLUSDT-RETEST-1791845999999-5m-w34-39'
@@ -60,7 +60,7 @@ function Invoke-RestMethod {
             }
         }
         '*/api/v1/backtest/compare-range-l2' {
-            $script:mockBacktestPosts++
+            $global:mockBacktestPosts++
             $request=ConvertFrom-Json $Body
             if($Method -ne 'Post' -or $request.symbol -ne 'SOLUSDT' -or
                [int]$request.steps -ne 3600 -or $request.includeLuna -or
@@ -131,14 +131,14 @@ function Invoke-RestMethod {
 }
 try {
     & $runner -StartWindow 34 -Windows 6 -AsOf 1791845999999 -DiagnoseWindow 39
-    if($script:mockBacktestPosts -ne 1){
-        throw "Single-window diagnostic invoked $script:mockBacktestPosts backtests, expected 1"
+    if($global:mockBacktestPosts -ne 1){
+        throw "Single-window diagnostic invoked $global:mockBacktestPosts backtests, expected 1"
     }
     foreach($path in $paths) {
         if(Test-Path $path){throw "Diagnostic mode must not write partial CSV: $path"}
     }
     & $runner -StartWindow 34 -Windows 6 -AsOf 1791845999999
-    if($script:mockBacktestPosts -ne 7){
+    if($global:mockBacktestPosts -ne 7){
         throw "Full and diagnostic mode must invoke 7 total API comparisons"
     }
     foreach($path in $paths){
