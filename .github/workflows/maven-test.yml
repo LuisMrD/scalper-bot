@@ -120,5 +120,11 @@ jobs:
       - name: Verify full mocked LONG context OOS CSV export
         shell: pwsh
         run: ./scripts/tests/test-long-context-export.ps1
+      - name: Freeze 5m and 15m matched 300-hour OOS plan (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-primary-timeframe-oos.ps1
+      - name: Full six-window mocked 5m vs 15m financial CSV export
+        shell: pwsh
+        run: ./scripts/tests/test-primary-timeframe-export.ps1
       - name: Validate and test (no real orders)
         run: mvn -B -ntp verify
