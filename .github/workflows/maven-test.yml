@@ -105,5 +105,11 @@ jobs:
       - name: Full RANGE SHORT OOS CSV export against mock REST schema
         shell: pwsh
         run: ./scripts/tests/test-short-range-export.ps1
+      - name: Frozen L2 OOS schedule contract (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-range-l2-oos.ps1
+      - name: Full mocked L2 OOS financial CSV export
+        shell: pwsh
+        run: ./scripts/tests/test-range-l2-export.ps1
       - name: Validate and test (no real orders)
         run: mvn -B -ntp verify
