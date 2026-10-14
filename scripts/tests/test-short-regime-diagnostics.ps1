@@ -45,6 +45,16 @@ if($older -notcontains 'SHORT_DIAG_START=16' -or
     throw 'Previously inspected regime cohort 16..21 missing'
 }
 $source=Get-Content -LiteralPath $script -Raw
+# PowerShell identifiers are case-insensitive. $Windows is a typed [int]
+# parameter: an internal $windows=@() caused Object[] -> Int32 binding errors
+# in real runs, while -PrintOnly (which returns early) appeared healthy.
+if($source -match '(?im)^\s*\$windows\s*(?:\+?=)\s*@\('){
+    throw 'Internal result array shadows the typed $Windows parameter'
+}
+if($source -notmatch '(?m)^\s*\$windowRows\s*=\s*@\('){
+    throw 'Window result array must be named $windowRows'
+}
+
 foreach($marker in @(
     '/short-regime-diagnostics',
     'SHORT_ONLY',
