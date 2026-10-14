@@ -102,5 +102,8 @@ jobs:
       - name: Smoke frozen 30-closed-15m range SHORT OOS (offline)
         shell: pwsh
         run: ./scripts/tests/test-short-range-oos.ps1
+      - name: Full RANGE SHORT OOS CSV export against mock REST schema
+        shell: pwsh
+        run: ./scripts/tests/test-short-range-export.ps1
       - name: Validate and test (no real orders)
         run: mvn -B -ntp verify
