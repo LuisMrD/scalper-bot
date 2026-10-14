@@ -82,12 +82,16 @@ public class BacktestService {
 
     /** Filtered research replay retains the same dynamic order/position ledger. */
     public record FilteredReplay(BacktestResult backtest, int filteredSignals,
-            int reentryBlockedSignals, int macroBlockedSignals) {
+            int reentryBlockedSignals, int macroBlockedSignals, int shortOnlyBlockedSignals) {
         public FilteredReplay(BacktestResult backtest, int filteredSignals) {
-            this(backtest, filteredSignals, 0, 0);
+            this(backtest, filteredSignals, 0, 0, 0);
         }
         public FilteredReplay(BacktestResult backtest, int filteredSignals, int reentryBlockedSignals) {
-            this(backtest, filteredSignals, reentryBlockedSignals, 0);
+            this(backtest, filteredSignals, reentryBlockedSignals, 0, 0);
+        }
+        public FilteredReplay(BacktestResult backtest, int filteredSignals,
+                int reentryBlockedSignals, int macroBlockedSignals) {
+            this(backtest, filteredSignals, reentryBlockedSignals, macroBlockedSignals, 0);
         }
     }
 
@@ -110,12 +114,46 @@ public class BacktestService {
         return runFiltered(request, filter, waitPolicy, MagicMacroLongPolicy.NONE);
     }
 
-    /** Magic-macro gates exist ONLY in this explicit research replay overload. */
+    /**
+     * Four-arm experiment: SHORT_ONLY rejects executable LONG signals before
+     * ledger changes. Freed capacity can generate different later SHORT trades.
+     */
+    public FilteredReplay runLongVersusShort(BacktestRequest request,
+            LongVersusShortPolicy experiment) {
+        Objects.requireNonNull(experiment, "experiment");
+        if (!"SOLUSDT".equals(request.symbol())
+                || !request.intervals().equals(List.of("5m", "15m"))
+                || request.steps() != 3600 || request.includeLuna()
+                || !Boolean.FALSE.equals(request.pullbackEnabledOverride())
+                || !Boolean.TRUE.equals(request.breakoutRetestEnabledOverride())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "LONG/SHORT comparison requires SOL RETEST 5m/15m and 3600 bars");
+        }
+        return runFilteredInternal(request, EntryBreakoutFilter.BLOCK_BOTH,
+                ReentryWaitPolicy.WAIT_12_BARS, experiment.macro(), experiment.shortOnly());
+    }
+
+    /** Existing six-scenario macro endpoint remains unchanged. */
     public FilteredReplay runFiltered(BacktestRequest request, EntryBreakoutFilter filter,
             ReentryWaitPolicy waitPolicy, MagicMacroLongPolicy macroPolicy) {
+        return runFilteredInternal(request, filter, waitPolicy, macroPolicy, false);
+    }
+
+    private FilteredReplay runFilteredInternal(BacktestRequest request,
+            EntryBreakoutFilter filter, ReentryWaitPolicy waitPolicy,
+            MagicMacroLongPolicy macroPolicy, boolean blockAllLongs) {
         Objects.requireNonNull(filter, "filter");
         Objects.requireNonNull(waitPolicy, "waitPolicy");
         Objects.requireNonNull(macroPolicy, "macroPolicy");
+        if (blockAllLongs && (macroPolicy != MagicMacroLongPolicy.NONE
+                || filter != EntryBreakoutFilter.BLOCK_BOTH
+                || waitPolicy != ReentryWaitPolicy.WAIT_12_BARS
+                || !"SOLUSDT".equals(request.symbol())
+                || !request.intervals().equals(List.of("5m", "15m"))
+                || request.steps() != 3600 || request.includeLuna())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "SHORT_ONLY can only run in BLOCK_BOTH + 60min SOL RETEST study");
+        }
         if (macroPolicy.active() && (filter != EntryBreakoutFilter.BLOCK_BOTH
                 || waitPolicy != ReentryWaitPolicy.WAIT_12_BARS
                 || !request.symbol().equals("SOLUSDT")
@@ -205,6 +243,7 @@ public class BacktestService {
         int filteredSignals = 0;
         int reentryBlockedSignals = 0;
         int macroBlockedSignals = 0;
+        int shortOnlyBlockedSignals = 0;
         var waitState = new ReentryWaitState(waitPolicy);
         for (int i=0; i<tape.size(); i++) {
             MarketCandle bar = tape.get(i);
@@ -248,8 +287,14 @@ public class BacktestService {
                     reentryBlockedSignals++;
                     javaDecision = rejectedEntry(javaDecision, DecisionResult.Reason.ENTRY_REENTRY_WAIT);
                 }
-                // NEVER change SHORT entries; each LONG is evaluated using only
-                // BTC/ETH candles that had CLOSED by the SOL signal candle.
+                // SHORT_ONLY is tested AFTER original rejection and cooldown,
+                // and BEFORE independent ledger mutation. No future data used.
+                if (blockAllLongs && javaDecision.entry() == DecisionResult.Entry.LONG
+                        && javaDecision.setup() == DecisionResult.Setup.BREAKOUT_RETEST) {
+                    shortOnlyBlockedSignals++;
+                    javaDecision = rejectedEntry(javaDecision, DecisionResult.Reason.ENTRY_SHORT_ONLY_FILTER);
+                }
+                // Never alter SHORT entry rules; LONG macro inputs are completed 15m bars.
                 if (macroPolicy.active()
                         && javaDecision.entry() == DecisionResult.Entry.LONG
                         && javaDecision.setup() == DecisionResult.Setup.BREAKOUT_RETEST) {
@@ -297,7 +342,8 @@ public class BacktestService {
                 javaLedger.result(last.close()),
                 lunaLedger == null ? null : lunaLedger.result(last.close()), lunaLedger != null,
                 javaHistory, lunaHistory);
-        return new FilteredReplay(result, filteredSignals, reentryBlockedSignals, macroBlockedSignals);
+        return new FilteredReplay(result, filteredSignals, reentryBlockedSignals,
+                macroBlockedSignals, shortOnlyBlockedSignals);
     }
 
     private static DecisionResult rejectedEntry(DecisionResult original, DecisionResult.Reason reason) {
