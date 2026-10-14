@@ -223,6 +223,15 @@ foreach($record in $plan){
            $shortTrades.Count -ne [int]$s.shortTrades){
             throw ("Janela {0}: contagem LONG/SHORT invalida" -f $w)
         }
+        # No implicit empty PowerShell properties: the API record schema is
+        # longNetClosedUsdt / shortNetClosedUsdt. A misspelled property became
+        # $null and failed only at the final aggregate, after 6 full replays.
+        if($null -eq $s.longNetClosedUsdt -or
+           [string]::IsNullOrWhiteSpace([string]$s.longNetClosedUsdt) -or
+           $null -eq $s.shortNetClosedUsdt -or
+           [string]::IsNullOrWhiteSpace([string]$s.shortNetClosedUsdt)){
+            throw ("Janela {0}, cenario {1}: PnL LONG/SHORT ausente no DTO da API" -f $w,$s.policy)
+        }
         [decimal]$longPnl=0;[decimal]$shortPnl=0
         foreach($t in $longTrades){$longPnl+=Money $t.netPnlUsdt 'long pnl'}
         foreach($t in $shortTrades){$shortPnl+=Money $t.netPnlUsdt 'short pnl'}
@@ -247,8 +256,8 @@ foreach($record in $plan){
             TradesClosed=$s.tradesClosed;Wins=$s.winningTrades;Losses=$s.losingTrades
             LongTrades=$s.longTrades
             ShortTrades=$s.shortTrades;ShortWins=$s.shortWinners
-            LongClosedPnlUsdt=$s.longClosedNetPnlUsdt
-            ShortClosedPnlUsdt=$s.shortClosedNetPnlUsdt
+            LongClosedPnlUsdt=$s.longNetClosedUsdt
+            ShortClosedPnlUsdt=$s.shortNetClosedUsdt
             StartingEquityUsdt=$s.startingEquityUsdt
             NetClosedUsdt=$s.netClosedUsdt
             MarkedPnlUsdt=$s.markedPnlUsdt;MaxDrawdownPct=$s.maxDrawdownPct
@@ -290,6 +299,16 @@ foreach($record in $plan){
     }
 }
 if($windowsOut.Count -ne (3*$Windows)){throw 'OOS incompleto: nao exportar resultados parciais'}
+# Validate exported window schema before attempting grouping or writing CSVs.
+foreach($row in $windowsOut){
+    if($null -eq $row.LongClosedPnlUsdt -or
+       $null -eq $row.ShortClosedPnlUsdt){
+        throw ("Janela {0}, cenario {1}: PnL por lado nao foi exportado" -f $row.Window,$row.Policy)
+    }
+    Near ((Money $row.LongClosedPnlUsdt 'PnL LONG')+
+          (Money $row.ShortClosedPnlUsdt 'PnL SHORT')) $row.NetClosedUsdt ([decimal]'0.001') 'PnL total por lado'
+}
+
 $aggregate=@()
 foreach($g in @($windowsOut | Group-Object Policy)){
     if($g.Count -ne $Windows){throw ("Politica incompleta: {0}" -f $g.Name)}
