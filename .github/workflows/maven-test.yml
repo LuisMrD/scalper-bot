@@ -114,5 +114,11 @@ jobs:
       - name: Audit historical net expectancy in 24 CONTROL windows (offline)
         shell: pwsh
         run: ./scripts/tests/test-expectancy-audit.ps1
+      - name: Verify frozen LONG context w40-45 plan (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-long-context-oos.ps1
+      - name: Verify full mocked LONG context OOS CSV export
+        shell: pwsh
+        run: ./scripts/tests/test-long-context-export.ps1
       - name: Validate and test (no real orders)
         run: mvn -B -ntp verify
