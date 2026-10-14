@@ -82,9 +82,12 @@ public class BacktestService {
 
     /** Filtered research replay retains the same dynamic order/position ledger. */
     public record FilteredReplay(BacktestResult backtest, int filteredSignals,
-            int reentryBlockedSignals) {
+            int reentryBlockedSignals, int macroBlockedSignals) {
         public FilteredReplay(BacktestResult backtest, int filteredSignals) {
-            this(backtest, filteredSignals, 0);
+            this(backtest, filteredSignals, 0, 0);
+        }
+        public FilteredReplay(BacktestResult backtest, int filteredSignals, int reentryBlockedSignals) {
+            this(backtest, filteredSignals, reentryBlockedSignals, 0);
         }
     }
 
@@ -104,8 +107,27 @@ public class BacktestService {
      */
     public FilteredReplay runFiltered(BacktestRequest request, EntryBreakoutFilter filter,
             ReentryWaitPolicy waitPolicy) {
+        return runFiltered(request, filter, waitPolicy, MagicMacroLongPolicy.NONE);
+    }
+
+    /** Magic-macro gates exist ONLY in this explicit research replay overload. */
+    public FilteredReplay runFiltered(BacktestRequest request, EntryBreakoutFilter filter,
+            ReentryWaitPolicy waitPolicy, MagicMacroLongPolicy macroPolicy) {
         Objects.requireNonNull(filter, "filter");
         Objects.requireNonNull(waitPolicy, "waitPolicy");
+        Objects.requireNonNull(macroPolicy, "macroPolicy");
+        if (macroPolicy.active() && (filter != EntryBreakoutFilter.BLOCK_BOTH
+                || waitPolicy != ReentryWaitPolicy.WAIT_12_BARS
+                || !request.symbol().equals("SOLUSDT")
+                || !request.intervals().equals(List.of("5m", "15m"))
+                || request.steps() != 3600 || request.includeLuna()
+                || !Boolean.FALSE.equals(request.pullbackEnabledOverride())
+                || !Boolean.TRUE.equals(request.breakoutRetestEnabledOverride())
+                || !trading.symbols().containsAll(List.of("BTCUSDT", "ETHUSDT")))) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Magic macro research requires SOLUSDT, 3600 5m, 15m context, "
+                    + "BLOCK_BOTH, WAIT_12_BARS, RETEST-only, no Luna and BTC/ETH enabled");
+        }
         if (waitPolicy != ReentryWaitPolicy.NONE
                 && (filter != EntryBreakoutFilter.BLOCK_BOTH
                     || !request.intervals().getFirst().equals("5m")
@@ -150,6 +172,21 @@ public class BacktestService {
                 throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
                         "Historico com lacunas, candlesticks abertos ou timestamps invalidos");
         }
+        // Macro data are read from LOCAL CLOSED TESTNET 15m candles, only
+        // when the explicit macro experiment is active. 1350 bars cover
+        // 1200x15m (300 hours) plus >9h lookback without future peeking.
+        CrossAssetMacroMomentum btcMacro = null;
+        CrossAssetMacroMomentum ethMacro = null;
+        if (macroPolicy.active()) {
+            if (cutoff % 900_000L != 899_999L) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Macro asOf must be aligned to closed UTC 15m");
+            }
+            btcMacro = new CrossAssetMacroMomentum("BTCUSDT",
+                    market.recentAtOrBefore("BTCUSDT", "15m", 1350, cutoff));
+            ethMacro = new CrossAssetMacroMomentum("ETHUSDT",
+                    market.recentAtOrBefore("ETHUSDT", "15m", 1350, cutoff));
+        }
         // Uma carga por timeframe, seguida de janelas asOf isoladas em memoria.
         // A barra final nao emite decisao, pois nao existe T+1 para executa-la.
         var prepared = contexts.prepareReplay(request.symbol(), request.intervals(),
@@ -167,6 +204,7 @@ public class BacktestService {
         BacktestLedger lunaLedger = request.includeLuna() ? new BacktestLedger("LUNA", policy, request) : null;
         int filteredSignals = 0;
         int reentryBlockedSignals = 0;
+        int macroBlockedSignals = 0;
         var waitState = new ReentryWaitState(waitPolicy);
         for (int i=0; i<tape.size(); i++) {
             MarketCandle bar = tape.get(i);
@@ -210,6 +248,22 @@ public class BacktestService {
                     reentryBlockedSignals++;
                     javaDecision = rejectedEntry(javaDecision, DecisionResult.Reason.ENTRY_REENTRY_WAIT);
                 }
+                // NEVER change SHORT entries; each LONG is evaluated using only
+                // BTC/ETH candles that had CLOSED by the SOL signal candle.
+                if (macroPolicy.active()
+                        && javaDecision.entry() == DecisionResult.Entry.LONG
+                        && javaDecision.setup() == DecisionResult.Setup.BREAKOUT_RETEST) {
+                    var btcAtSignal = btcMacro.atMagic(bar.closeTime());
+                    var ethAtSignal = ethMacro.atMagic(bar.closeTime());
+                    if (btcAtSignal.lastClosed15mTime() != ethAtSignal.lastClosed15mTime()) {
+                        throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+                                "BTC/ETH macro candle close times differ at SOL signal");
+                    }
+                    if (!macroPolicy.allows(btcAtSignal, ethAtSignal)) {
+                        macroBlockedSignals++;
+                        javaDecision = rejectedEntry(javaDecision, DecisionResult.Reason.ENTRY_MACRO_FILTER);
+                    }
+                }
                 javaRisk = javaLedger.decide(javaDecision, first);
                 if (includeDecisionHistory
                         || javaRisk.action() == RiskPreviewResult.Action.PROPOSED_ENTRY) {
@@ -243,7 +297,7 @@ public class BacktestService {
                 javaLedger.result(last.close()),
                 lunaLedger == null ? null : lunaLedger.result(last.close()), lunaLedger != null,
                 javaHistory, lunaHistory);
-        return new FilteredReplay(result, filteredSignals, reentryBlockedSignals);
+        return new FilteredReplay(result, filteredSignals, reentryBlockedSignals, macroBlockedSignals);
     }
 
     private static DecisionResult rejectedEntry(DecisionResult original, DecisionResult.Reason reason) {
