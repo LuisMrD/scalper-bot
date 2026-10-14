@@ -20,3 +20,21 @@ jobs:
           .\scripts\diagnose-short-regimes.ps1 -PrintOnly
           .\scripts\diagnose-short-regimes.ps1 -StartWindow 16 -Windows 6 -PrintOnly
           .\scripts\diagnose-short-regimes.ps1 -StartWindow 22 -Windows 6 -PrintOnly
+      - name: Probe real execution path with HTTP intercepted (Windows PowerShell 5.1)
+        shell: powershell
+        run: |
+          function Invoke-RestMethod {
+            [CmdletBinding()]
+            param([string]$Uri, [int]$TimeoutSec)
+            throw 'MOCK_HTTP_INTERCEPTED_NO_NETWORK'
+          }
+          try {
+            .\scripts\diagnose-short-regimes.ps1 -StartWindow 16 -Windows 6
+            throw 'DIAGNOSTIC_DID_NOT_ATTEMPT_HTTP'
+          } catch {
+            if ($_.Exception.Message -notlike '*MOCK_HTTP_INTERCEPTED_NO_NETWORK*') {
+              throw
+            }
+            Write-Host 'PASS: real diagnostic path reached intercepted HTTP with typed Windows intact.'
+          }
+
