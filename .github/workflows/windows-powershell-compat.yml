@@ -53,6 +53,9 @@ jobs:
       - name: Test retrospective candle and signal audits in Windows PowerShell 5.1
         shell: powershell
         run: .\scripts\tests\test-primary-timeframe-audit.ps1
+      - name: Verify BB20 strict close and frozen SMA mean-reversion reports under Windows 5.1
+        shell: powershell
+        run: .\scripts\tests\test-bollinger-export.ps1
       - name: Mock primary 15m backtest under Windows PowerShell 5.1
         shell: powershell
         run: |
