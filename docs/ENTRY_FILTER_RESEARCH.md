@@ -1064,3 +1064,79 @@ sobrescreve relatórios de auditoria anteriores. Zeros e lacunas
 continuam distintos. Atribuir causa exclusivamente à baixa
 atividade só é permitido se os resultados efetivamente a
 demonstrarem, não pela ausência de operações em CSVs.
+
+## Bandas Bollinger 5m: reversao a media ate SMA central (2026-10-15)
+
+Pesquisa adicional **isolada** da estrategia normal, somente em
+`experiment/1m-vs-5m-trade-diagnostics`. Nao promove configuracoes
+experimentais de LONG context ou L2 para o controle.
+A referencia permanece `RETEST-only BLOCK_BOTH + WAIT_12_BARS`
+(60 minutos), incluindo os mesmos 15m de contexto, stops por
+pivo confirmado + buffer ATR, limites de capital/risco, custos,
+slippage e risco diario.
+
+Definicao inicial congelada antes de observar os resultados
+Bollinger: SMA de **20 fechamentos completos de 5m** e bandas
+a **2 desvios-padrao populacionais** (divisao por N=20).
+Exige pelo menos 20 candles continuos, validos e com
+negociacao/volume base e quote **positivos em todos**.
+Se a variancia for zero, nao existe sinal.
+As bandas incluem o fechamento do candle do sinal.
+SO é candidato quando `close < lower` para LONG ou
+`close > upper` para SHORT (comparacao estrita);
+pavio fora ou candle com close igual a borda NAO serve.
+Sinais candidatos so surgem depois do fechamento completo.
+
+A estrategia BB adicional so tenta entrada se o decisor normal
+estava em WAIT, nao existe posicao aberta, `BLOCK_BOTH`
+nao rejeitou o sinal atual e o cooldown de 60 min permite.
+Candidatos BB nao exigem tendencia UP/DOWN, reteste confirmado,
+taker dominante ou volume relativo HIGH. **Assim BB nao
+preserva a qualificacao por price action/volume na nova
+entrada**, embora preservem-se os calculos desses indicadores,
+a exigencia de negociacoes reais nos 20 candles, o stop
+estrutural e todo o motor de risco original.
+A diferenca sera avaliada e nao mascara o CONTROLE.
+
+Qualquer nova operacao BB recebe a mesma avaliacao financeira
+de stop, custo/risco e dimensionamento; se aprovada, so abre
+na **abertura seguinte**, com slippage adverso e limites
+usuais. `BacktestLedger` congela o alvo como a **SMA20 no
+fechamento do sinal**, nao recalcula futuro retroativamente,
+e encerra por ordem limite simulada no primeiro candle cujo
+extremo alcance a SMA. No mesmo candle em que o stop estrutural
+e o alvo sao tocados, **STOP prevalece**, conservadoramente.
+Se gap de abertura ja ultrapassou a SMA ou tornou o potencial
+de lucro liquido nao positivo, a entrada BB e bloqueada.
+Enquanto BB aberta, a saida original por reversao e o trailing
+sao suprimidos: teste de **stop original versus alvo central
+congelado**, nao uma suposta protecao de lucro sem backtest.
+
+Duas carteiras realmente independentes no endpoint
+`POST /api/v1/backtest/compare-bollinger-5m`:
+`CONTROL` versus `CONTROL_PLUS_BOLLINGER_SMA20_2SIGMA`.
+Cada carteira recalcula exposicao, ordens hipoteticas,
+capital, stop diario e trades posteriores; nao remove
+trades de um CSV.
+
+Script de exploracao em dados JA INSPECIONADOS w34..39,
+somente para testar a implementacao e sinal economico
+preliminar (NAO OOS):
+`./scripts/compare-bollinger-5m.ps1 -PrintOnly`
+`./scripts/compare-bollinger-5m.ps1 -StartWindow 34 -Windows 6 -AsOf 1791845999999 -ExpectedCapitalUsdt 1500`
+`-SyncHistory` apenas se o MySQL local nao contiver
+os 5m e 15m daquela epoca. Exige backend local
+TESTNET/SIMULATION_ONLY, sem ordens nem Luna.
+Nao gera CSVs parciais e nao sobrescreve resultados
+existentes.
+
+Resultados `results/bollinger-5m-{aggregate,windows,trades}-SOLUSDT-RETEST-1791845999999-5m-w34-39.csv`.
+Campos de trade incluem setup, lado, horario de sinal
+e execucao, risco, R, custo, motivo de saida e
+`FrozenMiddleTargetUsdt`. Contabilizar quanto BB
+melhora ou piora PnL marcado, expectativa liquida por
+trade, numero de entradas e stops.
+**Nao presumir lucratividade** pela frequencia de
+reversoes nem por uma unica janela Testnet; validar a
+qualidade do historico e exigir testes posteriores
+de dados realmente nunca vistos.
