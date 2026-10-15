@@ -51,6 +51,56 @@ class BacktestLedgerTest {
         return ledger;
     }
 
+    @Test void bollingerFrozenMiddleTargetClosesWhenReachedNextOpenCandle() {
+        var ledger = new BacktestLedger("JAVA",policy("0","0"),request());
+        ledger.begin(bar(0,"100","100","100","100"));
+        ledger.applyPreview(preview(DecisionResult.Entry.LONG,"90"),
+                enter(DecisionResult.Entry.LONG),T+59999);
+        ledger.attachPendingBollingerTarget(T+59999,b("105"));
+        ledger.begin(bar(1,"100","105","95","104"));
+        var outcome=ledger.result(b("104"));
+        assertEquals(1,outcome.tradesClosed());
+        assertEquals("BB_MIDDLE_TARGET",outcome.trades().getFirst().exitReason());
+        assertEquals(0,outcome.trades().getFirst().exitPrice().compareTo(b("105")));
+        assertTrue(outcome.trades().getFirst().netPnlUsdt().signum()>0);
+    }
+
+    @Test void bollingerStopWinsEvenWhenSameCandleReachesMiddle() {
+        var ledger = new BacktestLedger("JAVA",policy("0","0"),request());
+        ledger.begin(bar(0,"100","100","100","100"));
+        ledger.applyPreview(preview(DecisionResult.Entry.LONG,"90"),
+                enter(DecisionResult.Entry.LONG),T+59999);
+        ledger.attachPendingBollingerTarget(T+59999,b("105"));
+        ledger.begin(bar(1,"100","108","85","103"));
+        var result=ledger.result(b("103"));
+        assertEquals(1,result.tradesClosed());
+        assertEquals("STOP",result.trades().getFirst().exitReason());
+        assertTrue(result.trades().getFirst().netPnlUsdt().signum()<0);
+    }
+
+    @Test void bollingerRejectsEntryGapPastProfitAdjustedMiddle() {
+        var ledger=new BacktestLedger("JAVA",policy("0.05","0.02"),request());
+        ledger.begin(bar(0,"100","100","100","100"));
+        ledger.applyPreview(preview(DecisionResult.Entry.LONG,"90"),
+                enter(DecisionResult.Entry.LONG),T+59999);
+        ledger.attachPendingBollingerTarget(T+59999,b("105"));
+        ledger.begin(bar(1,"106","108","103","106"));
+        assertEquals("FLAT",ledger.result(b("106")).openPositionSide());
+        assertEquals(1,ledger.result(b("106")).entriesBlocked());
+        assertEquals(0,ledger.result(b("106")).tradesClosed());
+    }
+
+    @Test void bollingerShortTargetsMiddleBelowEntry() {
+        var ledger=new BacktestLedger("JAVA",policy("0","0"),request());
+        ledger.begin(bar(0,"100","100","100","100"));
+        ledger.applyPreview(preview(DecisionResult.Entry.SHORT,"110"),
+                enter(DecisionResult.Entry.SHORT),T+59999);
+        ledger.attachPendingBollingerTarget(T+59999,b("95"));
+        ledger.begin(bar(1,"100","105","94","96"));
+        assertEquals("BB_MIDDLE_TARGET",ledger.result(b("96")).trades().getFirst().exitReason());
+        assertEquals(0,ledger.result(b("96")).trades().getFirst().exitPrice().compareTo(b("95")));
+    }
+
     @Test void entryFillsNextBarNotOnSignalClose() {
         var ledger = new BacktestLedger("JAVA", policy("0","0"), request());
         ledger.begin(bar(0,"100","101","99","100"));
