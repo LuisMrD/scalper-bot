@@ -43,7 +43,8 @@ final class BacktestLedger {
 
     private record PendingEntry(PositionState.Side side, BigDecimal quantity,
             BigDecimal stop, BigDecimal budget, long signalCloseTime,
-            BacktestResult.EntrySignalSnapshot snapshot, BigDecimal bollingerTarget) {}
+            BacktestResult.EntrySignalSnapshot snapshot, BigDecimal bollingerTarget,
+            BigDecimal minimumNetRewardRisk) {}
     /**
      * One trade in progress. High/low are observed only while the trade is open.
      * If the stop is crossed intrabar, the unknown OHLC ordering is conservative:
@@ -186,12 +187,20 @@ final class BacktestLedger {
             // A gap may already pass the frozen middle SMA. In that case the
             // trade has no remaining positive cost-adjusted mean-reversion edge.
             BigDecimal rate = fraction(policy.feePerSidePct().add(policy.slippagePerSidePct()));
-            boolean invalidTarget = target != null
-                    && ((longSide ? target.subtract(fill) : fill.subtract(target))
-                        .compareTo(fill.add(target).multiply(rate, MC)) <= 0);
+            BigDecimal netReward = target == null ? null
+                    : (longSide ? target.subtract(fill) : fill.subtract(target))
+                        .subtract(fill.add(target).multiply(rate, MC));
+            boolean invalidTarget = netReward != null && netReward.signum() <= 0;
+            boolean invalidRewardRisk = netReward != null
+                    && proposal.minimumNetRewardRisk() != null
+                    && netReward.compareTo(
+                        fill.subtract(proposal.stop()).abs()
+                            .add(fill.add(proposal.stop()).multiply(rate, MC))
+                            .multiply(proposal.minimumNetRewardRisk(), MC)) < 0;
             if (fill.signum() <= 0 || (longSide ? fill.compareTo(proposal.stop()) <= 0
                     : fill.compareTo(proposal.stop()) >= 0)
-                    || invalidTarget || policy.costToInitialRiskTooHigh(fill, proposal.stop())) { blocked++; }
+                    || invalidTarget || invalidRewardRisk
+                    || policy.costToInitialRiskTooHigh(fill, proposal.stop())) { blocked++; }
             else {
                 // Gap at next open may increase risk; resize down, NEVER enlarge the approved quantity.
                 BigDecimal distance = fill.subtract(proposal.stop()).abs();
@@ -252,6 +261,12 @@ final class BacktestLedger {
 
     /** Applied only after the candle closes; proposed stops become active at the next bar. */
     RiskPreviewResult decide(DecisionResult decision, MarketContextSnapshot context) {
+        return decide(decision, context, null);
+    }
+
+    /** Stop override only for confirmed research BB signals, never for ordinary setups. */
+    RiskPreviewResult decide(DecisionResult decision, MarketContextSnapshot context,
+            BigDecimal extremeStop) {
         var req = new RiskPreviewRequest(decision, cash.max(new BigDecimal("0.00000001")),
                 dailyRealized, request.priceTick(), request.quantityStep(),
                 request.minimumQuantity(), request.minimumNotionalUsdt(), request.contextLimit(),
@@ -269,7 +284,7 @@ final class BacktestLedger {
                     position.entry().multiply(position.qty()), null,
                     position.initialStop(), position.stop(), null, false);
         }
-        RiskPreviewResult proposal = risk.preview(req, context, policy);
+        RiskPreviewResult proposal = risk.preview(req, context, policy, extremeStop);
         applyPreview(proposal, decision, context.asOfCloseTime());
         return proposal;
     }
@@ -280,7 +295,7 @@ final class BacktestLedger {
             signals++;
             pendingEntry = new PendingEntry(decision.entry() == DecisionResult.Entry.LONG
                     ? PositionState.Side.LONG : PositionState.Side.SHORT, proposal.quantity(),
-                    proposal.initialStop(), proposal.riskBudgetUsdt(), asOfCloseTime, null, null);
+                    proposal.initialStop(), proposal.riskBudgetUsdt(), asOfCloseTime, null, null, null);
         } else if (proposal.action() == RiskPreviewResult.Action.BLOCKED) {
             blocked++;
             if (decision.entry() != DecisionResult.Entry.WAIT) signals++;
@@ -305,18 +320,23 @@ final class BacktestLedger {
             throw new IllegalArgumentException("Sinal de entrada diferente da proposta pendente");
         pendingEntry = new PendingEntry(pendingEntry.side(), pendingEntry.quantity(),
                 pendingEntry.stop(), pendingEntry.budget(), pendingEntry.signalCloseTime(),
-                snapshot, pendingEntry.bollingerTarget());
+                snapshot, pendingEntry.bollingerTarget(), pendingEntry.minimumNetRewardRisk());
     }
 
     /** Only an approved research Bollinger signal can carry the frozen SMA target. */
     void attachPendingBollingerTarget(long signalCloseTime, BigDecimal target) {
+        attachPendingBollingerTarget(signalCloseTime, target, null);
+    }
+
+    void attachPendingBollingerTarget(long signalCloseTime, BigDecimal target,
+            BigDecimal minimumNetRewardRisk) {
         if (target == null || target.signum() <= 0 || pendingEntry == null
                 || pendingEntry.signalCloseTime() != signalCloseTime) {
             throw new IllegalArgumentException("No matching pending Bollinger entry target");
         }
         pendingEntry = new PendingEntry(pendingEntry.side(), pendingEntry.quantity(),
                 pendingEntry.stop(), pendingEntry.budget(), pendingEntry.signalCloseTime(),
-                pendingEntry.snapshot(), target);
+                pendingEntry.snapshot(), target, minimumNetRewardRisk);
     }
 
     private BacktestResult.EntryExecutionDiagnostics entryDiagnostics(
