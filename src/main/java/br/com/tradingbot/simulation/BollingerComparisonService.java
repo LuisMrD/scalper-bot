@@ -45,14 +45,14 @@ public class BollingerComparisonService {
             String scope) {}
 
     public Comparison compare(BacktestRequest request) {
-        if (request == null || !"SOLUSDT".equals(request.symbol())
+        if (request == null || !List.of("SOLUSDT", "DOGEUSDT", "BTCUSDT").contains(request.symbol())
                 || !request.intervals().equals(List.of("5m", "15m"))
                 || request.steps() != 3600 || request.asOf() == null
                 || request.includeLuna()
                 || !Boolean.FALSE.equals(request.pullbackEnabledOverride())
                 || !Boolean.TRUE.equals(request.breakoutRetestEnabledOverride())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Bollinger research: 3600 SOLUSDT 5m+15m, RETEST-only, no Luna");
+                    "Bollinger research: 3600 SOL/DOGE/BTC USDT 5m+15m, RETEST-only, no Luna");
         }
 
         var summaries = new ArrayList<Summary>();
