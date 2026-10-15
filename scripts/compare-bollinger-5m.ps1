@@ -16,7 +16,7 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('SOLUSDT')][string]$Symbol='SOLUSDT',
+    [ValidateSet('SOLUSDT','DOGEUSDT','BTCUSDT')][string]$Symbol='SOLUSDT',
     [ValidateSet('testnet')][string]$Source='testnet',
     [ValidateRange(1,100)][int]$StartWindow=34,
     [ValidateSet(3,6,9)][int]$Windows=6,
@@ -83,7 +83,7 @@ if($PrintOnly){
 
 
 
-    Write-Output 'BOLLINGER_MARKET_SYMBOLS=SOLUSDT'
+    Write-Output 'BOLLINGER_MARKET_SYMBOLS=SOLUSDT,DOGEUSDT,BTCUSDT'
     Write-Output ("BOLLINGER_SCENARIOS={0}" -f ($scenarios -join ','))
     Write-Output 'BOLLINGER_SOURCE=TESTNET'
     Write-Output 'BOLLINGER_NO_LUNA=true'
