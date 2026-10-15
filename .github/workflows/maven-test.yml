@@ -135,5 +135,8 @@ jobs:
       - name: Reversal confirmation Bollinger mock 5m portfolios (offline)
         shell: pwsh
         run: ./scripts/tests/test-bollinger-confirmation-export.ps1
+      - name: Verify isolated SOL DOGE BTC Bollinger plans (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-bollinger-three-symbols.ps1
       - name: Validate and test (no real orders)
         run: mvn -B -ntp verify
