@@ -1,12 +1,12 @@
 <#
 .SYNOPSIS
-  BTCUSDT, SOLUSDT, DOGEUSDT: six disjoint 300h wall-clock windows on 1d.
+  BTCUSDT, SOLUSDT, DOGEUSDT: six disjoint 30-candle UTC daily windows.
 .DESCRIPTION
   Research only. Four independent arms per symbol/window:
   CONTROL, LEGACY_BOLLINGER_STRUCTURAL, FILTERED_BOLLINGER_STRUCTURAL,
   FILTERED_BOLLINGER_EXTREME.
-  300h is 12.5 days, therefore only TWELVE whole UTC daily candles fit
-  in each 300h window. Do not invent half-candles or count warmup as trades.
+  Every window contains exactly 30 complete UTC daily candles (720 hours).
+  Warmup candles are never traded and no window shares trading candles.
   Requires local backend started with -IncludeDaily, Testnet and orders off.
 .EXAMPLE
   .\scripts\start-backtest.ps1 -IncludeDaily -Symbols BTCUSDT,SOLUSDT,DOGEUSDT -CapitalUsdt 1500 -MaxCostToInitialRiskPct 50
@@ -18,7 +18,7 @@ param(
     [ValidateSet('BTCUSDT','SOLUSDT','DOGEUSDT')]
     [string[]]$Symbols=@('BTCUSDT','SOLUSDT','DOGEUSDT'),
     [ValidateRange(1,100)][int]$StartWindow=1,
-    [ValidateRange(1,100)][int]$Windows=6,
+    [ValidateSet(6)][int]$Windows=6,
     [long]$AsOf=1791763199999,
     [ValidateRange(21,500)][int]$ContextLimit=50,
     [decimal]$CapitalPerPortfolioUsdt=1500,
@@ -31,7 +31,7 @@ param(
 )
 $ErrorActionPreference='Stop'
 [long]$dayMs=86400000L
-[long]$windowMs=300L*3600000L
+[long]$windowMs=30L*$dayMs
 $arms=@('CONTROL','LEGACY_BOLLINGER_STRUCTURAL',
     'FILTERED_BOLLINGER_STRUCTURAL','FILTERED_BOLLINGER_EXTREME')
 if(@($Symbols|Select-Object -Unique).Count -ne $Symbols.Count){
@@ -47,12 +47,13 @@ for($i=0;$i -lt $Windows;$i++){
     $n=$StartWindow+$i
     [long]$wallEnd=$AsOf-([long]($n-1)*$windowMs)
     [long]$wallStart=$wallEnd-$windowMs+1
-    # The latest completed 1d candle with close <= wallEnd.
-    [long]$dailyEnd=([long][math]::Floor(($wallEnd+1)/[double]$dayMs))*$dayMs-1
-    [long]$firstOpen=$dailyEnd-12L*$dayMs+1
-    if($wallStart -lt 0 -or $firstOpen -lt $wallStart -or
-       $dailyEnd -gt $wallEnd -or $firstOpen+12L*$dayMs-1 -ne $dailyEnd){
-        throw "Window ${n}: cannot fit 12 whole closed daily candles"
+    # AsOf is always a completed UTC daily close: exactly 30 disjoint bars.
+    [long]$dailyEnd=$wallEnd
+    [long]$firstOpen=$wallStart
+    if($wallStart -lt 0 -or $firstOpen%$dayMs -ne 0 -or
+       $dailyEnd%$dayMs -ne $dayMs-1 -or
+       $firstOpen+30L*$dayMs-1 -ne $dailyEnd){
+        throw "Window ${n}: expected exactly 30 complete UTC daily candles"
     }
     $plan+= [pscustomobject]@{
         Window=$n;WallStart=$wallStart;WallEnd=$wallEnd
@@ -62,11 +63,11 @@ for($i=0;$i -lt $Windows;$i++){
     }
 }
 if($PrintOnly){
-    Write-Output 'RESEARCH=DAILY_300H_4_INDEPENDENT_ARMS'
+    Write-Output 'RESEARCH=DAILY_30_CANDLES_4_INDEPENDENT_ARMS'
     Write-Output "SYMBOLS=$($Symbols -join ',')"
     Write-Output "WINDOWS=$Windows"
-    Write-Output 'HOURS_PER_WINDOW=300'
-    Write-Output 'COMPLETE_DAILY_CANDLES_PER_WINDOW=12'
+    Write-Output 'HOURS_PER_WINDOW=720'
+    Write-Output 'COMPLETE_DAILY_CANDLES_PER_WINDOW=30'
     Write-Output "TOTAL_INDEPENDENT_PORTFOLIOS=$($Symbols.Count*$Windows*$arms.Count)"
     Write-Output "CAPITAL_PER_PORTFOLIO_USDT=$CapitalPerPortfolioUsdt"
     Write-Output 'BOLLINGER_WARMUP_IS_EXCLUDED_FROM_TRADING_WINDOW=true'
@@ -126,7 +127,7 @@ foreach($symbol in $Symbols){
     }
     foreach($w in $plan){
         $body=@{
-            symbol=$symbol;intervals=@('1d');steps=12;contextLimit=$ContextLimit
+            symbol=$symbol;intervals=@('1d');steps=30;contextLimit=$ContextLimit
             asOf=$w.DailyEnd;includeLuna=$false;includeDecisionHistory=$false
             priceTick=$filters.priceTick;quantityStep=$filters.quantityStep
             minimumQuantity=$filters.minimumQuantity
@@ -142,7 +143,7 @@ foreach($symbol in $Symbols){
         if($report.symbol -ne $symbol -or $report.interval -ne '1d' -or
            [long]$report.firstCandleOpenTime -ne $w.FirstOpen -or
            [long]$report.lastCandleCloseTime -ne $w.DailyEnd -or
-           [int]$report.completeDailyCandles -ne 12 -or
+           [int]$report.completeDailyCandles -ne 30 -or
            [int]$report.period -ne 20 -or [decimal]$report.minimumNetRewardRisk -ne 1.5){
             throw "Daily response period or strategy mismatch for $symbol w$($w.Window)"
         }
@@ -192,7 +193,7 @@ foreach($symbol in $Symbols){
                 Symbol=$symbol;Window=$w.Window;Arm=$arm
                 WallStart=$w.WallStart;WallEnd=$w.WallEnd
                 FirstDailyOpen=$w.FirstOpen;LastDailyClose=$w.DailyEnd
-                Candles=12;Hours=300;CapitalUsdt=$s.startingEquityUsdt
+                Candles=30;Hours=720;CapitalUsdt=$s.startingEquityUsdt
                 Trades=$s.tradesClosed;Wins=$s.wins;Losses=$s.losses
                 BbTrades=$s.bbTrades;OutsideBandCloses=$s.outsideBandCloses
                 Confirmed=$s.confirmedSignals;Expired=$s.expiredSignals
@@ -210,7 +211,7 @@ if($rows.Count -ne $Symbols.Count*$Windows*4){
 $root=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $out=Join-Path $root 'results'
 New-Item -Path $out -ItemType Directory -Force | Out-Null
-$stamp="1d-300h-$AsOf-w$StartWindow-$($StartWindow+$Windows-1)"
+$stamp="1d-30candles-$AsOf-w$StartWindow-$($StartWindow+$Windows-1)"
 $windowsPath=Join-Path $out "bollinger-daily-windows-$stamp.csv"
 $aggregatePath=Join-Path $out "bollinger-daily-aggregate-$stamp.csv"
 $tradesPath=Join-Path $out "bollinger-daily-trades-$stamp.csv"
