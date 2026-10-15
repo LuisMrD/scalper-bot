@@ -52,7 +52,7 @@ for($i=0;$i -lt $Windows;$i++){
     [long]$firstOpen=$dailyEnd-12L*$dayMs+1
     if($wallStart -lt 0 -or $firstOpen -lt $wallStart -or
        $dailyEnd -gt $wallEnd -or $firstOpen+12L*$dayMs-1 -ne $dailyEnd){
-        throw "Window $n: cannot fit 12 whole closed daily candles"
+        throw "Window ${n}: cannot fit 12 whole closed daily candles"
     }
     $plan+= [pscustomobject]@{
         Window=$n;WallStart=$wallStart;WallEnd=$wallEnd
