@@ -33,40 +33,39 @@ class BollingerDailyConfirmationTest {
     }
 
     @Test
-    void reentersOnlyAfterDailyCloseInsideAndBreakOfPreviousHigh() {
-        var state = new BollingerReversalConfirmation(true);
+    void reversalHammerMayConfirmWithoutClosingInsideBandOrBreakingPreviousHigh() {
+        var state = new BollingerReversalConfirmation();
         var tape = initial();
         assertNotNull(new BollingerMeanReversion().detect(tape));
         assertTrue(state.onClosedBar(tape).armed());
 
-        // Still below the lower band and without a microstructural close-break.
-        tape.add(candle(20, "80", "84", "76", "83"));
-        assertNull(state.onClosedBar(tape).confirmed());
-        tape.add(candle(21, "84", "94", "80", "93"));
+        // Daily bullish hammer; close 82 is still BELOW the lower band
+        // and BELOW trigger candle high 85. Old pattern-only rule applies.
+        tape.add(candle(20, "79", "83", "70", "82"));
         var result = state.onClosedBar(tape);
         assertNotNull(result.confirmed());
-        assertEquals(BollingerMeanReversion.Side.LONG,
-                result.confirmed().trigger().side());
+        assertEquals(BollingerReversalConfirmation.Pattern.HAMMER_OR_SHOOTING_STAR,
+                result.confirmed().pattern());
         assertEquals(0, result.confirmed().extremeLow()
-                .compareTo(new BigDecimal("76")));
+                .compareTo(new BigDecimal("70")));
         assertEquals(0, result.confirmed().extremeHigh()
-                .compareTo(new BigDecimal("94")));
+                .compareTo(new BigDecimal("85")));
+        assertTrue(tape.getLast().close().compareTo(
+                new BollingerMeanReversion().bands(tape).lower()) < 0);
+        assertTrue(tape.getLast().close().compareTo(tape.get(19).high()) < 0);
         assertTrue(result.confirmed().trigger().candleCloseTime()
                 < result.confirmed().confirmedAtCloseTime());
     }
 
     @Test
-    void laterInsideCloseStillRequiresPreviousCandleBreak() {
-        var state = new BollingerReversalConfirmation(true);
+    void outsideBandCloseItselfCannotEnterAndBearishFollowThroughCannotConfirmLong() {
+        var state = new BollingerReversalConfirmation();
         var tape = initial();
-        state.onClosedBar(tape);
-        // This candle closes back inside Bollinger but below a previous high 96:
-        // the first attempted reaction has no structural breakout confirmation.
-        tape.add(candle(20, "82", "96", "79", "84"));
+        assertTrue(state.onClosedBar(tape).armed());
+        tape.add(candle(20, "82", "84", "72", "77"));
         assertNull(state.onClosedBar(tape).confirmed());
-        tape.add(candle(21, "84", "95", "81", "94"));
-        assertNull(state.onClosedBar(tape).confirmed(),
-                "Although above the lower band, 94 is below previous candle high 96");
+        tape.add(candle(21, "77", "82", "70", "73"));
+        assertNull(state.onClosedBar(tape).confirmed());
     }
 
     @Test
