@@ -249,10 +249,12 @@ public class BacktestService {
 
     /** Test-only access to one frozen-target 5m Bollinger research arm. */
     public record BollingerReplay(FilteredReplay filtered, int outsideCloses,
+            int confirmedSignals, int expiredSignals, int invalidatedSignals,
             int cooldownRejected, int riskApproved, java.util.Map<Long, BigDecimal> targets) {}
 
     private static final class BollingerCounter {
-        int outsideCloses, cooldownRejected, riskApproved;
+        int outsideCloses, confirmedSignals, expiredSignals, invalidatedSignals;
+        int cooldownRejected, riskApproved;
         final java.util.Map<Long, BigDecimal> targets = new java.util.LinkedHashMap<>();
     }
 
@@ -272,6 +274,7 @@ public class BacktestService {
                 ShortRangePolicy.CONTROL, L2RangePolicy.CONTROL,
                 LongContextPolicy.CONTROL, counters);
         return new BollingerReplay(filtered, counters.outsideCloses,
+                counters.confirmedSignals, counters.expiredSignals, counters.invalidatedSignals,
                 counters.cooldownRejected, counters.riskApproved,
                 java.util.Map.copyOf(counters.targets));
     }
@@ -471,7 +474,8 @@ public class BacktestService {
         int l2BlockedByCooldown = 0;
         long lastL2FailureUsed = -1L;
         var waitState = new ReentryWaitState(waitPolicy);
-        var bollingerDetector = bollinger == null ? null : new BollingerMeanReversion();
+        var bollingerConfirmation = bollinger == null
+                ? null : new BollingerReversalConfirmation();
         for (int i=0; i<tape.size(); i++) {
             MarketCandle bar = tape.get(i);
             javaLedger.begin(bar);
@@ -642,34 +646,49 @@ public class BacktestService {
                         }
                     }
                 }
-                BollingerMeanReversion.Signal bbSignal = null;
-                if (bollingerDetector != null
-                        && javaSide == PositionState.Side.FLAT
-                        && javaDecision.entry() == DecisionResult.Entry.WAIT
-                        && javaDecision.positionAction() == DecisionResult.PositionAction.NONE
-                        && !originalFiltered) {
-                    bbSignal = bollingerDetector.detect(first.recentCandles());
-                    if (bbSignal != null) {
-                        bollinger.outsideCloses++;
-                        if (waitState.blocksEntry()) {
-                            bollinger.cooldownRejected++;
-                            bbSignal = null;
-                        } else {
-                            javaDecision = new DecisionResult("JAVA", request.symbol(), "5m",
-                                    context.requestedAsOfEpochMs(), bar.closeTime(),
-                                    bbSignal.side() == BollingerMeanReversion.Side.LONG
-                                            ? DecisionResult.Entry.LONG : DecisionResult.Entry.SHORT,
-                                    DecisionResult.PositionAction.NONE,
-                                    DecisionResult.Setup.BOLLINGER_MEAN_REVERSION,
-                                    DecisionResult.Reason.BOLLINGER_OUTSIDE_CLOSE);
+                BollingerReversalConfirmation.Confirmation bbConfirmed = null;
+                if (bollingerConfirmation != null) {
+                    boolean bbEligible = javaSide == PositionState.Side.FLAT
+                            && javaDecision.entry() == DecisionResult.Entry.WAIT
+                            && javaDecision.positionAction() == DecisionResult.PositionAction.NONE
+                            && !originalFiltered;
+                    if (!bbEligible) {
+                        bollingerConfirmation.skipClosedBar(bar);
+                    } else {
+                        // Step 1: outside close ONLY arms the candidate.
+                        // Step 2: a LATER closed 5m candle must show a bullish
+                        // or bearish reversal pattern before an entry is proposed.
+                        var bb = bollingerConfirmation.onClosedBar(first.recentCandles());
+                        if (bb.armed()) bollinger.outsideCloses++;
+                        if (bb.expired()) bollinger.expiredSignals++;
+                        if (bb.invalidated()) bollinger.invalidatedSignals++;
+                        bbConfirmed = bb.confirmed();
+                        if (bbConfirmed != null) {
+                            bollinger.confirmedSignals++;
+                            if (waitState.blocksEntry()) {
+                                bollinger.cooldownRejected++;
+                                bbConfirmed = null;
+                            } else {
+                                javaDecision = new DecisionResult("JAVA", request.symbol(), "5m",
+                                        context.requestedAsOfEpochMs(), bar.closeTime(),
+                                        bbConfirmed.trigger().side()
+                                                == BollingerMeanReversion.Side.LONG
+                                                ? DecisionResult.Entry.LONG : DecisionResult.Entry.SHORT,
+                                        DecisionResult.PositionAction.NONE,
+                                        DecisionResult.Setup.BOLLINGER_MEAN_REVERSION,
+                                        DecisionResult.Reason.BOLLINGER_REVERSAL_CONFIRMED);
+                            }
                         }
                     }
                 }
                 javaRisk = javaLedger.decide(javaDecision, first);
-                if (bbSignal != null
+                if (bbConfirmed != null
                         && javaRisk.action() == RiskPreviewResult.Action.PROPOSED_ENTRY) {
-                    javaLedger.attachPendingBollingerTarget(bar.closeTime(), bbSignal.middle());
-                    bollinger.targets.put(bar.closeTime(), bbSignal.middle());
+                    // Middle SMA was fixed at the OUTSIDE close, not recomputed
+                    // at reversal confirmation or by looking ahead to the fill.
+                    var frozenMiddle = bbConfirmed.trigger().middle();
+                    javaLedger.attachPendingBollingerTarget(bar.closeTime(), frozenMiddle);
+                    bollinger.targets.put(bar.closeTime(), frozenMiddle);
                     bollinger.riskApproved++;
                 }
                 if (includeDecisionHistory
