@@ -19,6 +19,8 @@ foreach($line in @(
     'TOTAL_INDEPENDENT_PORTFOLIOS=72',
     'STOP_MODES=STRUCTURAL,ONE_TICK_BEYOND_EXTREME',
     'MINIMUM_NET_REWARD_RISK=1.5',
+    'SIGNAL_DIAGNOSTICS=BOTH_STOPS_ALL_FILTERS',
+    'CSV_OUTPUTS=WINDOWS,AGGREGATE,TRADES,DIAGNOSTICS',
     'NO_LUNA=true','NO_ORDERS=true'
 )){
     if($plan -notcontains $line){throw "Missing daily invariant: $line"}
