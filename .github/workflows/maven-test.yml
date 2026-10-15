@@ -129,5 +129,8 @@ jobs:
       - name: Historical 5m 15m 1h quality and decision funnel audit (offline)
         shell: pwsh
         run: ./scripts/tests/test-primary-timeframe-audit.ps1
+      - name: Mock closed-candle Bollinger 5m mean-reversion financial CSV comparison
+        shell: pwsh
+        run: ./scripts/tests/test-bollinger-export.ps1
       - name: Validate and test (no real orders)
         run: mvn -B -ntp verify
