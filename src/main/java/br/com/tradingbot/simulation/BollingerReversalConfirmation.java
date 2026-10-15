@@ -40,10 +40,13 @@ final class BollingerReversalConfirmation {
         lowBefore = null;
     }
 
-    Step onClosedBar(List<MarketCandle> completed5m) {
-        Objects.requireNonNull(completed5m, "completed5m");
-        if (completed5m.isEmpty()) return new Step(false,false,false,null);
-        MarketCandle current = completed5m.getLast();
+    /** Other entry or open position: advance causal clock without arming a setup. */
+    void skipClosedBar(MarketCandle current) {
+        checkAndAdvance(current);
+        cancel();
+    }
+
+    private void checkAndAdvance(MarketCandle current) {
         if (!current.closed() || !"5m".equals(current.interval().code())) {
             throw new IllegalArgumentException("Bollinger confirmation requires a closed 5m bar");
         }
@@ -55,6 +58,13 @@ final class BollingerReversalConfirmation {
             throw new IllegalArgumentException("Bollinger candidate contains a missing 5m bar");
         }
         lastProcessedClose = current.closeTime();
+    }
+
+    Step onClosedBar(List<MarketCandle> completed5m) {
+        Objects.requireNonNull(completed5m, "completed5m");
+        if (completed5m.isEmpty()) return new Step(false,false,false,null);
+        MarketCandle current = completed5m.getLast();
+        checkAndAdvance(current);
 
         if (pending == null) {
             var signal = bands.detect(completed5m);
