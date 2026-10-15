@@ -42,12 +42,16 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+$intervals = @('1m','5m','15m')
+if ($IncludeOneHour) { $intervals += '1h' }
+if ($IncludeDaily) { $intervals += '1d' }
+
 # Spring Boot does NOT load .env automatically. All values below are explicit
 # session settings for a read-only/simulated local backtest.
 $settings = [ordered]@{
     SPRING_PROFILES_ACTIVE = 'backtest'
     TRADING_SYMBOLS = ($Symbols -join ',')
-    MARKET_DATA_INTERVALS = ((@('1m','5m','15m') + $(if($IncludeOneHour){@('1h')}else{@()}) + $(if($IncludeDaily){@('1d')}else{@()})) -join ',')
+    MARKET_DATA_INTERVALS = ($intervals -join ',')
     TRADING_ORDERS_ENABLED = 'false'
     LUNA_ENABLED = 'false'
     MARKET_DATA_WS_ENABLED = 'false'
