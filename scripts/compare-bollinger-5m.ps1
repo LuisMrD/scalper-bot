@@ -333,6 +333,14 @@ $paths=@(
 foreach($p in $paths){if(Test-Path $p){throw "Existing research artifact: $p"}}
 $aggregate|Export-Csv -Path $paths[0] -NoTypeInformation -Encoding UTF8
 $windowsOut|Export-Csv -Path $paths[1] -NoTypeInformation -Encoding UTF8
-$tradesOut|Export-Csv -Path $paths[2] -NoTypeInformation -Encoding UTF8
+if($tradesOut.Count -gt 0){
+    $tradesOut|Export-Csv -Path $paths[2] -NoTypeInformation -Encoding UTF8
+}else{
+    # Zero trades is a valid outcome on an illiquid Testnet tape.
+    # Still create a header-only file so multi-symbol reconciliation
+    # never mistakes an empty ledger for a missing result.
+    'Window,Arm,Side,Setup,OutsideBandCloseTime,SignalCloseTime,ConfirmationPattern,EnteredAtOpenTime,ExitedAtOpenTime,ExitReason,FrozenMiddleTargetUsdt,InitialRiskUsdt,NetPnlUsdt,NetR,FeesUsdt' |
+        Set-Content -Path $paths[2] -Encoding UTF8
+}
 $aggregate|Format-Table Arm,Trades,BbTrades,SumMarkedPnlUsdt,DeltaMarkedVsControl -AutoSize
 foreach($p in $paths){Write-Host "Saved: $p"}
