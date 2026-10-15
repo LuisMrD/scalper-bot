@@ -263,14 +263,14 @@ public class BacktestService {
     }
 
     public BollingerReplay runBollingerStudy(BacktestRequest request) {
-        if (request == null || !"SOLUSDT".equals(request.symbol())
+        if (request == null || !List.of("SOLUSDT", "DOGEUSDT", "BTCUSDT").contains(request.symbol())
                 || !request.intervals().equals(List.of("5m", "15m"))
                 || request.steps() != 3600 || request.asOf() == null
                 || request.includeLuna()
                 || !Boolean.FALSE.equals(request.pullbackEnabledOverride())
                 || !Boolean.TRUE.equals(request.breakoutRetestEnabledOverride())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Bollinger study: SOLUSDT RETEST 5m/15m 3600 bars, no Luna");
+                    "Bollinger study: SOL/DOGE/BTC USDT RETEST 5m/15m 3600 bars, no Luna");
         }
         var counters = new BollingerCounter();
         var filtered = runFilteredInternal(request, EntryBreakoutFilter.BLOCK_BOTH,
