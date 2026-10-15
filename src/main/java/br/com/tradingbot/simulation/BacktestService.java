@@ -299,20 +299,20 @@ public class BacktestService {
     }
 
     /**
-     * Daily 300h research: 12 complete 1d candles per time window, with
-     * indicator history loaded before each independent window.
+     * Daily research: 30 complete 1d candles per nonoverlapping time window,
+     * with indicator history loaded before each independent window.
      * Three variants can run without changing the original 5m experiment.
      */
     public BollingerReplay runBollingerStudyDaily(BacktestRequest request,
             boolean filtered, BollingerFilteredPolicy.StopMode stopMode) {
         if (request == null || !List.of("SOLUSDT", "DOGEUSDT", "BTCUSDT").contains(request.symbol())
                 || !request.intervals().equals(List.of("1d"))
-                || request.steps() != 12 || request.asOf() == null
+                || request.steps() != 30 || request.asOf() == null
                 || request.includeLuna()
                 || !Boolean.FALSE.equals(request.pullbackEnabledOverride())
                 || !Boolean.TRUE.equals(request.breakoutRetestEnabledOverride()))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Daily Bollinger: exactly 12 closed 1d bars, RETEST only, no Luna");
+                    "Daily Bollinger: exactly 30 closed 1d bars, RETEST only, no Luna");
         var counters = new BollingerCounter();
         counters.filtered = filtered;
         counters.stopMode = stopMode;
@@ -527,7 +527,7 @@ public class BacktestService {
         long lastL2FailureUsed = -1L;
         var waitState = new ReentryWaitState(waitPolicy);
         var bollingerConfirmation = bollinger == null
-                ? null : new BollingerReversalConfirmation(bollinger.filtered);
+                ? null : new BollingerReversalConfirmation();
         var bollingerPolicy = bollinger == null || !bollinger.filtered
                 ? null : new BollingerFilteredPolicy();
         for (int i=0; i<tape.size(); i++) {
