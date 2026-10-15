@@ -247,12 +247,33 @@ public class BacktestService {
                 ShortRangePolicy.CONTROL, L2RangePolicy.CONTROL, LongContextPolicy.CONTROL);
     }
 
+    /**
+     * Causal candidate snapshot, evaluated under BOTH stop rules regardless of
+     * the active study arm. Diagnostics are independent of order execution.
+     */
+    public record BollingerFilterTrace(long triggerCloseTime, long confirmationCloseTime,
+            String side, String confirmationPattern, boolean cooldownBlocked,
+            BollingerFilteredPolicy.Diagnostic structural,
+            BollingerFilteredPolicy.Diagnostic extreme) {}
+
     /** Test-only access to one frozen-target 5m Bollinger research arm. */
     public record BollingerReplay(FilteredReplay filtered, int outsideCloses,
             int confirmedSignals, int expiredSignals, int invalidatedSignals,
             int cooldownRejected, int riskApproved, java.util.Map<Long, BigDecimal> targets,
             java.util.Map<Long, Long> triggerCloses,
-            java.util.Map<Long, String> confirmationPatterns, int filteredRejected) {
+            java.util.Map<Long, String> confirmationPatterns, int filteredRejected,
+            java.util.List<BollingerFilterTrace> diagnostics) {
+        /** Previous ten-argument callers continue to work unchanged. */
+        public BollingerReplay(FilteredReplay filtered, int outsideCloses,
+                int confirmedSignals, int expiredSignals, int invalidatedSignals,
+                int cooldownRejected, int riskApproved, java.util.Map<Long, BigDecimal> targets,
+                java.util.Map<Long, Long> triggerCloses,
+                java.util.Map<Long, String> confirmationPatterns, int filteredRejected) {
+            this(filtered, outsideCloses, confirmedSignals, expiredSignals,
+                    invalidatedSignals, cooldownRejected, riskApproved,
+                    targets, triggerCloses, confirmationPatterns, filteredRejected,
+                    java.util.List.of());
+        }
         /** The former constructor keeps legacy research/test callers unchanged. */
         public BollingerReplay(FilteredReplay filtered, int outsideCloses,
                 int confirmedSignals, int expiredSignals, int invalidatedSignals,
@@ -273,6 +294,7 @@ public class BacktestService {
         final java.util.Map<Long, BigDecimal> targets = new java.util.LinkedHashMap<>();
         final java.util.Map<Long, Long> triggerCloses = new java.util.LinkedHashMap<>();
         final java.util.Map<Long, String> patterns = new java.util.LinkedHashMap<>();
+        final java.util.List<BollingerFilterTrace> diagnostics = new java.util.ArrayList<>();
     }
 
     public BollingerReplay runBollingerStudy(BacktestRequest request) {
@@ -325,7 +347,8 @@ public class BacktestService {
                 counters.cooldownRejected, counters.riskApproved,
                 java.util.Map.copyOf(counters.targets),
                 java.util.Map.copyOf(counters.triggerCloses),
-                java.util.Map.copyOf(counters.patterns), counters.filteredRejected);
+                java.util.Map.copyOf(counters.patterns), counters.filteredRejected,
+                java.util.List.copyOf(counters.diagnostics));
     }
 
     /** Existing six-scenario macro endpoint remains unchanged. */
@@ -720,18 +743,39 @@ public class BacktestService {
                         bbConfirmed = bb.confirmed();
                         if (bbConfirmed != null) {
                             bollinger.confirmedSignals++;
+                            // Evaluate both stops on the SAME immutable closed-bar
+                            // context, including candidates blocked by the first
+                            // filter. This is research-only and cannot place an order.
+                            BollingerFilteredPolicy.Diagnostic structural = null;
+                            BollingerFilteredPolicy.Diagnostic extreme = null;
+                            if (bollingerPolicy != null) {
+                                structural = bollingerPolicy.diagnose(context, bbConfirmed,
+                                        request, policy,
+                                        BollingerFilteredPolicy.StopMode.STRUCTURAL);
+                                extreme = bollingerPolicy.diagnose(context, bbConfirmed,
+                                        request, policy,
+                                        BollingerFilteredPolicy.StopMode.EXTREME_CANDLE);
+                                bollinger.diagnostics.add(new BollingerFilterTrace(
+                                        bbConfirmed.trigger().candleCloseTime(),
+                                        bbConfirmed.confirmedAtCloseTime(),
+                                        bbConfirmed.trigger().side().name(),
+                                        bbConfirmed.pattern().name(),
+                                        waitState.blocksEntry(), structural, extreme));
+                            }
                             if (waitState.blocksEntry()) {
                                 bollinger.cooldownRejected++;
                                 bbConfirmed = null;
                             } else {
                                 if (bollingerPolicy != null) {
-                                    var verdict = bollingerPolicy.evaluate(context, bbConfirmed,
-                                            request, policy, bollinger.stopMode);
-                                    if (!verdict.approved()) {
+                                    var chosen = bollinger.stopMode
+                                            == BollingerFilteredPolicy.StopMode.STRUCTURAL
+                                            ? structural : extreme;
+                                    if (!chosen.approved()) {
                                         bollinger.filteredRejected++;
                                         bbConfirmed = null;
-                                    } else {
-                                        bbExtremeStop = verdict.stop();
+                                    } else if (bollinger.stopMode
+                                            == BollingerFilteredPolicy.StopMode.EXTREME_CANDLE) {
+                                        bbExtremeStop = chosen.stopPrice();
                                     }
                                 }
                             }
