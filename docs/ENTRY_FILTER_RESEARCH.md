@@ -1140,3 +1140,106 @@ trade, numero de entradas e stops.
 reversoes nem por uma unica janela Testnet; validar a
 qualidade do historico e exigir testes posteriores
 de dados realmente nunca vistos.
+
+## Bollinger 5m: aguardar resposta de Price Action (2026-10-15)
+
+O desenho de tres quadros enviado pelo usuario e a especificacao
+da hipotese: (1) candle FECHA fora da banda; (2) AGUARDAR
+o mercado confirmar reversao, por martelo, candle de forca ou
+rompimento da maxima; (3) somente DEPOIS entra na abertura
+do proximo 5m. As imagens exemplificam uma LONG que fecha
+ABAIXO da banda inferior. A regra SHORT e simetrica: acima
+da banda superior, esperar confirmacao bearish (shooting star,
+forca vendedora ou rompimento de minima).
+
+A etapa 1 usa SMA20, dois desvios-padrao populacionais de
+fechamentos de 5m. Somente `close < lower` ou
+`close > upper`, estritos: igualdade ou PAVIO que cruza a
+banda nao sao sinal. Exige historico contiguo fechado, todas
+as 20 barras com volume/trades positivos na Testnet. A
+primeira barra NAO abre uma posicao; apenas guarda:
+timestamp, lado, max/min e media central SMA20 como alvo fixo.
+
+O `BollingerReversalConfirmation` persiste somente no
+replay de pesquisa e observa no maximo nove candles fechados
+de 5m APOS esse primeiro candle. As condicoes alternativas
+de confirmacao, sobre um candle FUTURO mas JA fechado, sao:
+
+- LONG apos banda inferior: (A) martelo VERDE de corpo > 0,
+  sombra inferior >= 2x corpo, sombra superior <= corpo;
+  OU (B) candle VERDE de forca, corpo >= 60% da amplitude
+  e fechamento acima do anterior; OU (C) fechamento VERDE
+  estritamente acima da maior MAXIMA observada desde o
+  candle disparador, exclusive o atual.
+- SHORT apos banda superior: shooting star VERMELHO,
+  simetrico ao martelo; OU candle VERMELHO de forca, corpo
+  >= 60% do range e fechamento abaixo do anterior; OU
+  fechamento VERMELHO estritamente abaixo da menor MINIMA
+  observada desde o disparador, exclusive o atual.
+- Precisam existir trades e volumes positivos no candle
+  confirmador. Se media congelada ja foi alcançada DURANTE
+  a espera (mesmo so com sombra), o setup e invalidado
+  em vez de entrar depois do movimento. Setup tambem
+  invalida se nao houve negociacoes nesse candle, se surge
+  outra entrada original ou posicao no controle, ou expira
+  apos nove barras sem confirmacao. Nao rearma com o mesmo
+  fechamento fora de banda enquanto espera.
+
+Esses criterios operacionais de martelo, forca e breakout
+sao ***adaptacoes explicitas*** para pesquisa e NAO
+afirmacoes literais atribuidas a Al Brooks. A vida maxima
+de nove candles e uma hipotese de engenharia da familia
+3/6/9; precisa de validacao. O volume para Bollinger
+e checado como atividade (volume/trades POSITIVOS), mas
+ainda NAO exige dominancia direcional de compradores ou
+vendedores. Os controles de Volume/Price Action do setup
+original BREAKOUT_RETEST permanecem sem alteracoes.
+
+Se um candle posterior satisfaz confirmacao, apenas
+NAQUELE fechamento o sinal vai para RiskEngine:
+pivo confirmado e buffer ATR para stop estrutural,
+0.5% risco, 3% stop diario, custo/risco 50%, taxa e
+slippage. Preco de entrada e o PROXIMO open de 5m,
+com gap adverso. Se um gap faz a distancia ate SMA20
+ser menor ou igual aos custos ida/volta, cancela a
+entrada. O alvo SMA20 congelado no candle inicial e
+simulado como take profit tocado pelo range do candle;
+se stop e alvo forem tocados no mesmo candle, STOP
+tem precedencia. Trailing e saida normal por reversao
+de tendencia sao ignorados EXCLUSIVAMENTE pela posicao
+experimental Bollinger para testar alvo-ou-stop.
+
+O endpoint `POST /api/v1/backtest/compare-bollinger-5m`
+compara carteiras INDEPENDENTES `CONTROL` e
+`CONTROL_PLUS_BOLLINGER_SMA20_2SIGMA`.
+O controle utiliza BREAKOUT_RETEST, BLOCK_BOTH + 60min.
+O segundo acrescenta Bollinger somente nos momentos em
+que a estrategia original aguarda (WAIT), e nao
+substitui nem remove suas entradas. A cada conclusao
+Bollinger, o relatorio identifica o timestamp inicial
+`outsideBandCloseTime`, a barra de confirmacao
+`signalCloseTime`, o `confirmationPattern`, alvo
+SMA20, lucro liquido, risco em R, taxas e saida.
+`outsideBandCloses` contabiliza setups ARMADOS,
+`bbConfirmedSignals` as confirmacoes encontradas,
+`bbExpiredSignals` as expiracoes e
+`bbInvalidatedSignals` as perdas de validade.
+`bbRiskApproved` distingue confirmacoes aprovadas
+pela gestao de risco e `BbTrades` entradas
+efetivamente encerradas, potencialmente diferentes.
+
+As primeiras janelas sao w34..39 (ja vistas), 6x300h,
+1500 USDT por janela e todos os custos do controle.
+Trata-se de replay **EXPLORATORIO**, NAO OOS. Sem
+ordens reais, sem Luna, sem alterar motor habitual.
+Validacao genuina requer novo historico INEDITO e
+qualidade de candles satisfatoria antes da escolha final.
+
+Com Spring Boot no modo SIMULATION_ONLY/Testnet:
+`./scripts/compare-bollinger-5m.ps1 -PrintOnly`
+`./scripts/compare-bollinger-5m.ps1 -StartWindow 34 -Windows 6 -AsOf 1791845999999 -ExpectedCapitalUsdt 1500`
+Use `-SyncHistory` apenas se candles faltantes de 5m
+e 15m na Testnet forem verificadamente disponiveis.
+Tres CSVs `bollinger-5m-{aggregate,windows,trades}-...`
+em `results`. Nao converter os dados inspecionados
+em suposto teste de ganho comprovado.
