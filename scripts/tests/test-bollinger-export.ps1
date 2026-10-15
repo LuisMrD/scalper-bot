@@ -24,6 +24,9 @@ foreach($p in @(
     'BOLLINGER_WINDOWS=6','BOLLINGER_ALREADY_INSPECTED=true',
     'BOLLINGER_PERIOD=20','BOLLINGER_DEVIATIONS=2',
     'BOLLINGER_SIGNAL=CLOSE_STRICTLY_OUTSIDE',
+    'BOLLINGER_NOT_AN_ENTRY=OUTSIDE_CLOSE_ALONE',
+    'BOLLINGER_MAX_WAIT_BARS=9',
+    'BOLLINGER_CONFIRMATION=HAMMER,STRENGTH,STRICT_BREAK',
     'BOLLINGER_TAKE_PROFIT=FROZEN_MIDDLE_SMA20',
     'BOLLINGER_STOP_PRIORITY=STOP_FIRST',
     'BOLLINGER_SCENARIOS=CONTROL,CONTROL_PLUS_BOLLINGER_SMA20_2SIGMA',
@@ -91,6 +94,9 @@ function Invoke-RestMethod {
                     winningTrades=if($a.Bb -gt 0){1}else{0}
                     losingTrades=1;longTrades=$a.Long;shortTrades=$a.Short
                     bbTrades=$a.Bb;outsideBandCloses=$a.Outside
+                    bbConfirmedSignals=if($a.Bb -gt 0){2}else{0}
+                    bbExpiredSignals=if($a.Bb -gt 0){1}else{0}
+                    bbInvalidatedSignals=0
                     bbCooldownRejected=0;bbRiskApproved=$a.Approved
                     entryFilterRejected=1;cooldownRejected=2
                     startingEquityUsdt='1500';netClosedUsdt=$a.Closed
@@ -100,6 +106,7 @@ function Invoke-RestMethod {
                 }
                 $trades += [pscustomobject]@{
                     arm=$a.Arm;side='LONG';setup='BREAKOUT_RETEST'
+                    outsideBandCloseTime=0;confirmationPattern=$null
                     signalCloseTime=($from+299999L)
                     enteredAtOpenTime=($from+300000L)
                     exitedAtOpenTime=($from+600000L);exitReason='STOP'
@@ -109,6 +116,8 @@ function Invoke-RestMethod {
                 if($a.Bb -gt 0){
                     $trades += [pscustomobject]@{
                         arm=$a.Arm;side='SHORT';setup='BOLLINGER_MEAN_REVERSION'
+                        outsideBandCloseTime=($from+599999L)
+                        confirmationPattern='STRONG_REVERSAL_CANDLE'
                         signalCloseTime=($from+899999L)
                         enteredAtOpenTime=($from+900000L)
                         exitedAtOpenTime=($from+1200000L);exitReason='BB_MIDDLE_TARGET'
@@ -146,6 +155,11 @@ try {
     if(@($trades|Where-Object {$_.Setup -eq 'BOLLINGER_MEAN_REVERSION' -and
        $_.ExitReason -eq 'BB_MIDDLE_TARGET' -and $_.FrozenMiddleTargetUsdt -eq '95'}).Count -ne 6){
         throw 'FROZEN SMA target not included in trade details'
+    }
+    if(@($trades | Where-Object {$_.Setup -eq 'BOLLINGER_MEAN_REVERSION' -and
+        ([long]$_.OutsideBandCloseTime -ge [long]$_.SignalCloseTime -or
+          $_.ConfirmationPattern -ne 'STRONG_REVERSAL_CANDLE')}).Count -gt 0){
+        throw 'Bollinger entry must be confirmed on a later completed 5m bar'
     }
     Write-Host 'PASS: six inspected windows, frozen-target BB entries, two financial ledgers and CSVs'
 } finally {
