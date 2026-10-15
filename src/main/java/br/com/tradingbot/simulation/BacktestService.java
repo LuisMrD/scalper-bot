@@ -247,6 +247,35 @@ public class BacktestService {
                 ShortRangePolicy.CONTROL, L2RangePolicy.CONTROL, LongContextPolicy.CONTROL);
     }
 
+    /** Test-only access to one frozen-target 5m Bollinger research arm. */
+    public record BollingerReplay(FilteredReplay filtered, int outsideCloses,
+            int cooldownRejected, int riskApproved, java.util.Map<Long, BigDecimal> targets) {}
+
+    private static final class BollingerCounter {
+        int outsideCloses, cooldownRejected, riskApproved;
+        final java.util.Map<Long, BigDecimal> targets = new java.util.LinkedHashMap<>();
+    }
+
+    public BollingerReplay runBollingerStudy(BacktestRequest request) {
+        if (request == null || !"SOLUSDT".equals(request.symbol())
+                || !request.intervals().equals(List.of("5m", "15m"))
+                || request.steps() != 3600 || request.asOf() == null
+                || request.includeLuna()
+                || !Boolean.FALSE.equals(request.pullbackEnabledOverride())
+                || !Boolean.TRUE.equals(request.breakoutRetestEnabledOverride())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Bollinger study: SOLUSDT RETEST 5m/15m 3600 bars, no Luna");
+        }
+        var counters = new BollingerCounter();
+        var filtered = runFilteredInternal(request, EntryBreakoutFilter.BLOCK_BOTH,
+                ReentryWaitPolicy.WAIT_12_BARS, MagicMacroLongPolicy.NONE, false,
+                ShortRangePolicy.CONTROL, L2RangePolicy.CONTROL,
+                LongContextPolicy.CONTROL, counters);
+        return new BollingerReplay(filtered, counters.outsideCloses,
+                counters.cooldownRejected, counters.riskApproved,
+                java.util.Map.copyOf(counters.targets));
+    }
+
     /** Existing six-scenario macro endpoint remains unchanged. */
     public FilteredReplay runFiltered(BacktestRequest request, EntryBreakoutFilter filter,
             ReentryWaitPolicy waitPolicy, MagicMacroLongPolicy macroPolicy) {
@@ -279,6 +308,22 @@ public class BacktestService {
             EntryBreakoutFilter filter, ReentryWaitPolicy waitPolicy,
             MagicMacroLongPolicy macroPolicy, boolean blockAllLongs, ShortRangePolicy shortRange,
             L2RangePolicy l2Study, LongContextPolicy longPolicy) {
+        return runFilteredInternal(request, filter, waitPolicy, macroPolicy,
+                blockAllLongs, shortRange, l2Study, longPolicy, null);
+    }
+
+    private FilteredReplay runFilteredInternal(BacktestRequest request,
+            EntryBreakoutFilter filter, ReentryWaitPolicy waitPolicy,
+            MagicMacroLongPolicy macroPolicy, boolean blockAllLongs, ShortRangePolicy shortRange,
+            L2RangePolicy l2Study, LongContextPolicy longPolicy, BollingerCounter bollinger) {
+        if (bollinger != null && (filter != EntryBreakoutFilter.BLOCK_BOTH
+                || waitPolicy != ReentryWaitPolicy.WAIT_12_BARS || blockAllLongs
+                || shortRange != ShortRangePolicy.CONTROL || l2Study != L2RangePolicy.CONTROL
+                || longPolicy != LongContextPolicy.CONTROL || macroPolicy.active()
+                || request.includeLuna())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Bollinger cannot combine with other experimental policies");
+        }
         Objects.requireNonNull(longPolicy, "longPolicy");
         if (longPolicy != LongContextPolicy.CONTROL && (blockAllLongs
                 || shortRange != ShortRangePolicy.CONTROL
@@ -426,6 +471,7 @@ public class BacktestService {
         int l2BlockedByCooldown = 0;
         long lastL2FailureUsed = -1L;
         var waitState = new ReentryWaitState(waitPolicy);
+        var bollingerDetector = bollinger == null ? null : new BollingerMeanReversion();
         for (int i=0; i<tape.size(); i++) {
             MarketCandle bar = tape.get(i);
             javaLedger.begin(bar);
@@ -454,6 +500,14 @@ public class BacktestService {
                             "Contexto nao corresponde ao candle historico avaliado");
                 var javaSide = javaLedger.side();
                 javaDecision = javaEngine.evaluate(context, new PositionState(javaSide));
+                if (bollinger != null && javaLedger.isBollingerPosition()) {
+                    // Existing BB position waits for its frozen middle SMA or
+                    // initial hard stop. It never uses the retest reversal exit.
+                    javaDecision = new DecisionResult("JAVA", request.symbol(), "5m",
+                            bar.closeTime(), bar.closeTime(), DecisionResult.Entry.WAIT,
+                            DecisionResult.PositionAction.HOLD, DecisionResult.Setup.NONE,
+                            DecisionResult.Reason.POSITION_HOLD);
+                }
                 br.com.tradingbot.analysis.brooks.PriceActionSnapshot.Trend trend15m = null;
                 if (waitPolicy != ReentryWaitPolicy.NONE) {
                     trend15m = context.timeframes().stream()
@@ -588,7 +642,36 @@ public class BacktestService {
                         }
                     }
                 }
+                BollingerMeanReversion.Signal bbSignal = null;
+                if (bollingerDetector != null
+                        && javaSide == PositionState.Side.FLAT
+                        && javaDecision.entry() == DecisionResult.Entry.WAIT
+                        && javaDecision.positionAction() == DecisionResult.PositionAction.NONE
+                        && !originalFiltered) {
+                    bbSignal = bollingerDetector.detect(first.recentCandles());
+                    if (bbSignal != null) {
+                        bollinger.outsideCloses++;
+                        if (waitState.blocksEntry()) {
+                            bollinger.cooldownRejected++;
+                            bbSignal = null;
+                        } else {
+                            javaDecision = new DecisionResult("JAVA", request.symbol(), "5m",
+                                    context.requestedAsOfEpochMs(), bar.closeTime(),
+                                    bbSignal.side() == BollingerMeanReversion.Side.LONG
+                                            ? DecisionResult.Entry.LONG : DecisionResult.Entry.SHORT,
+                                    DecisionResult.PositionAction.NONE,
+                                    DecisionResult.Setup.BOLLINGER_MEAN_REVERSION,
+                                    DecisionResult.Reason.BOLLINGER_OUTSIDE_CLOSE);
+                        }
+                    }
+                }
                 javaRisk = javaLedger.decide(javaDecision, first);
+                if (bbSignal != null
+                        && javaRisk.action() == RiskPreviewResult.Action.PROPOSED_ENTRY) {
+                    javaLedger.attachPendingBollingerTarget(bar.closeTime(), bbSignal.middle());
+                    bollinger.targets.put(bar.closeTime(), bbSignal.middle());
+                    bollinger.riskApproved++;
+                }
                 if (includeDecisionHistory
                         || javaRisk.action() == RiskPreviewResult.Action.PROPOSED_ENTRY) {
                     var javaTrace = trace(context, javaDecision, javaRisk, javaSide.name());
