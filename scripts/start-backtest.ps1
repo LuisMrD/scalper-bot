@@ -35,6 +35,7 @@ param(
     [string]$BreakEvenTriggerR = '1.0',
 
     [switch]$IncludeOneHour,
+    [switch]$IncludeDaily,
 
     [switch]$PrintOnly
 )
@@ -46,7 +47,7 @@ $ErrorActionPreference = 'Stop'
 $settings = [ordered]@{
     SPRING_PROFILES_ACTIVE = 'backtest'
     TRADING_SYMBOLS = ($Symbols -join ',')
-    MARKET_DATA_INTERVALS = $(if($IncludeOneHour){'1m,5m,15m,1h'}else{'1m,5m,15m'})
+    MARKET_DATA_INTERVALS = ((@('1m','5m','15m') + $(if($IncludeOneHour){@('1h')}else{@()}) + $(if($IncludeDaily){@('1d')}else{@()})) -join ',')
     TRADING_ORDERS_ENABLED = 'false'
     LUNA_ENABLED = 'false'
     MARKET_DATA_WS_ENABLED = 'false'
