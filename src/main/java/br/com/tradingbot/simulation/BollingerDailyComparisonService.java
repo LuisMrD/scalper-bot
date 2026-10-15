@@ -9,8 +9,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
- * Four independent DAILY portfolios. Twelve fully closed 1d bars per 300h
- * wall-clock window (the other 12h are intentionally not tradable daily bars).
+ * Four independent DAILY portfolios. Thirty fully closed 1d bars per
+ * 30-calendar-day window. Each arm trades the same nonoverlapping period.
  * Historical context preceding the window is indicator warmup ONLY.
  */
 @Service
@@ -46,13 +46,13 @@ public final class BollingerDailyComparisonService {
     public Comparison compare(BacktestRequest request) {
         if (request == null || !List.of("SOLUSDT", "DOGEUSDT", "BTCUSDT").contains(request.symbol())
                 || !request.intervals().equals(List.of("1d"))
-                || request.steps() != 12 || request.asOf() == null
+                || request.steps() != 30 || request.asOf() == null
                 || request.asOf() % DAY_MS != DAY_MS - 1
                 || request.includeLuna()
                 || !Boolean.FALSE.equals(request.pullbackEnabledOverride())
                 || !Boolean.TRUE.equals(request.breakoutRetestEnabledOverride()))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Daily research requires 12 completed 1d candles at UTC 1d close, no Luna");
+                    "Daily research requires 30 completed 1d candles at UTC 1d close, no Luna");
         var summaries = new ArrayList<Summary>();
         var trades = new ArrayList<Trade>();
         Long first = null, last = null;
@@ -74,14 +74,14 @@ public final class BollingerDailyComparisonService {
                     ? backtests.runFiltered(request, EntryBreakoutFilter.BLOCK_BOTH,
                             ReentryWaitPolicy.NONE).backtest()
                     : study.filtered().backtest();
-            if (result.replayedCandles() != 12
+            if (result.replayedCandles() != 30
                     || !result.intervals().equals(List.of("1d"))
                     || result.throughCandleCloseTime() != request.asOf()
-                    || result.fromCandleOpenTime() != request.asOf() - 12L * DAY_MS + 1
+                    || result.fromCandleOpenTime() != request.asOf() - 30L * DAY_MS + 1
                     || (first != null && (first != result.fromCandleOpenTime()
                             || last != result.throughCandleCloseTime())))
                 throw new ResponseStatusException(HttpStatus.CONFLICT,
-                        "Daily arms must replay the identical twelve completed daily candles");
+                        "Daily arms must replay the identical thirty completed daily candles");
             first = result.fromCandleOpenTime();
             last = result.throughCandleCloseTime();
             var portfolio = result.javaPortfolio();
@@ -130,11 +130,12 @@ public final class BollingerDailyComparisonService {
                     portfolio.feesUsdt(), portfolio.maxDrawdownPct(),
                     portfolio.openPositionSide()));
         }
-        return new Comparison(request.symbol(), "1d", first, last, 12,
+        return new Comparison(request.symbol(), "1d", first, last, 30,
                 BollingerMeanReversion.PERIOD, BollingerMeanReversion.DEVIATIONS,
                 BollingerFilteredPolicy.MINIMUM_NET_RR,
-                "SIMULATION_ONLY; CLOSED_1D_UTC; 300H_WALLCLOCK_12_COMPLETE_BARS; "
-                        + "OUTSIDE_CLOSE_ARM; STRICT_CLOSE_BACK_INSIDE; PRIOR_CANDLE_BREAK; "
+                "SIMULATION_ONLY; CLOSED_1D_UTC; 30D_WINDOW_30_COMPLETE_BARS; "
+                        + "OUTSIDE_CLOSE_ARM; ORIGINAL_REVERSAL_CANDLE_CONFIRMATION; "
+                        + "NO_INSIDE_BAND_CLOSE_GATE; NO_EXTRA_MICROSTRUCTURE_BREAK_GATE; "
                         + "VPA_AND_TREND_FILTER; NET_RR_AT_SIGNAL_AND_FILL; "
                         + "STOP_ONE_TICK_BEYOND_OBSERVED_EXTREME; FROZEN_MIDDLE_TARGET; "
                         + "NEXT_OPEN_FILL_STOP_FIRST; NO_LUNA_NO_ORDERS; "
