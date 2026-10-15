@@ -26,7 +26,33 @@ final class BollingerFilteredPolicy {
         static Verdict reject(String why) { return new Verdict(false, null, why); }
     }
 
+    /**
+     * Full, read-only assessment at signal CLOSE. Unlike the execution verdict,
+     * this evaluates BOTH independent stop/risk branches even when an earlier
+     * filter blocks the signal. Only completed candles are read.
+     */
+    record Diagnostic(StopMode stopMode, boolean approved, String firstRejection,
+            java.util.List<String> failedChecks, String primaryTrend,
+            String primaryBreakout, boolean strongHigherTimeframeTrend,
+            String volumeLevel, String takerBalance, String effortResult,
+            long volumeCloseTime, BigDecimal signalClosePrice,
+            BigDecimal frozenMiddleTarget, BigDecimal stopPrice,
+            BigDecimal targetDistancePrice, BigDecimal stopDistancePrice,
+            BigDecimal netRewardPrice, BigDecimal totalRiskPrice,
+            BigDecimal netRewardRisk, BigDecimal costToRiskPct,
+            BigDecimal extremeLow, BigDecimal extremeHigh) {}
+
     Verdict evaluate(MultiTimeframeMarketContext market,
+            BollingerReversalConfirmation.Confirmation confirmed,
+            BacktestRequest request, RiskPolicy policy, StopMode mode) {
+        Diagnostic result = diagnose(market, confirmed, request, policy, mode);
+        return new Verdict(result.approved(),
+                result.approved() && mode == StopMode.EXTREME_CANDLE
+                        ? result.stopPrice() : null,
+                result.firstRejection());
+    }
+
+    Diagnostic diagnose(MultiTimeframeMarketContext market,
             BollingerReversalConfirmation.Confirmation confirmed,
             BacktestRequest request, RiskPolicy policy, StopMode mode) {
         MarketContextSnapshot primary = market.timeframes().getFirst();
@@ -38,19 +64,24 @@ final class BollingerFilteredPolicy {
                 : PriceActionSnapshot.BreakoutState.UP_FOLLOW_THROUGH;
         var oppositeTrend = longSide ? PriceActionSnapshot.Trend.DOWN
                 : PriceActionSnapshot.Trend.UP;
+        var failed = new java.util.ArrayList<String>();
+
         if (pa.trend() == oppositeTrend && pa.breakout().state() == oppositeFollowThrough)
-            return Verdict.reject("STRONG_PRIMARY_TREND");
+            failed.add("STRONG_PRIMARY_TREND");
+        boolean strongHigherTrend = false;
         for (int i = 1; i < market.timeframes().size(); i++) {
             var higher = market.timeframes().get(i).priceAction();
             if (higher.trend() == oppositeTrend
                     && higher.breakout().state() == oppositeFollowThrough)
-                return Verdict.reject("STRONG_HIGHER_TIMEFRAME_TREND");
+                strongHigherTrend = true;
         }
+        if (strongHigherTrend) failed.add("STRONG_HIGHER_TIMEFRAME_TREND");
+
         var observation = primary.volume().recentObservations().getLast();
         if (observation.closeTime() != bar.closeTime()
                 || observation.volumeLevel() == VolumeSnapshot.VolumeLevel.LOW
                 || observation.volumeLevel() == VolumeSnapshot.VolumeLevel.UNAVAILABLE)
-            return Verdict.reject("LOW_OR_MISSING_VOLUME");
+            failed.add("LOW_OR_MISSING_VOLUME");
         var taker = longSide ? VolumeSnapshot.TakerBalance.BUY_DOMINANT
                 : VolumeSnapshot.TakerBalance.SELL_DOMINANT;
         var rejection = longSide ? VolumeSnapshot.EffortResult.HIGH_VOLUME_LOWER_REJECTION
@@ -60,12 +91,21 @@ final class BollingerFilteredPolicy {
         if (observation.effortResult() == continuation
                 || (observation.takerBalance() != taker
                     && observation.effortResult() != rejection))
-            return Verdict.reject("VOLUME_NO_REVERSAL_EVIDENCE");
+            failed.add("VOLUME_NO_REVERSAL_EVIDENCE");
 
-        BigDecimal raw;
+        BigDecimal entry = bar.close();
+        BigDecimal target = confirmed.trigger().middle();
+        BigDecimal targetDistance = longSide
+                ? target.subtract(entry) : entry.subtract(target);
+        BigDecimal stop = null;
+        BigDecimal stopDistance = null;
+        BigDecimal risk = null;
+        BigDecimal netReward = null;
+        BigDecimal netRR = null;
+        BigDecimal costToRiskPct = null;
+
+        BigDecimal raw = null;
         if (mode == StopMode.EXTREME_CANDLE) {
-            // Include all extremes seen between the outside close and confirmation,
-            // then place stop ONE Binance tick beyond the extreme.
             raw = longSide ? confirmed.extremeLow().subtract(request.priceTick())
                     : confirmed.extremeHigh().add(request.priceTick());
         } else {
@@ -74,38 +114,53 @@ final class BollingerFilteredPolicy {
             var lastPivot = pa.confirmedPivots().stream()
                     .filter(p -> p.type() == type
                             && p.confirmedAtCloseTime() <= bar.closeTime()
-                            && (longSide ? p.price().compareTo(bar.close()) < 0
-                                         : p.price().compareTo(bar.close()) > 0))
+                            && (longSide ? p.price().compareTo(entry) < 0
+                                         : p.price().compareTo(entry) > 0))
                     .max(Comparator.comparingLong(
                             PriceActionSnapshot.ConfirmedPivot::confirmedAtCloseTime));
-            if (lastPivot.isEmpty()) return Verdict.reject("NO_STRUCTURAL_PIVOT");
-            BigDecimal atrBuffer = primary.marketLevels().atr()
-                    .multiply(policy.structuralAtrBuffer(), MC);
-            raw = longSide ? lastPivot.get().price().subtract(atrBuffer)
-                    : lastPivot.get().price().add(atrBuffer);
+            if (lastPivot.isEmpty()) failed.add("NO_STRUCTURAL_PIVOT");
+            else {
+                BigDecimal atrBuffer = primary.marketLevels().atr()
+                        .multiply(policy.structuralAtrBuffer(), MC);
+                raw = longSide ? lastPivot.get().price().subtract(atrBuffer)
+                        : lastPivot.get().price().add(atrBuffer);
+            }
         }
-        if (raw.signum() <= 0) return Verdict.reject("INVALID_STOP");
-        BigDecimal stop = raw.divide(request.priceTick(), 0,
-                longSide ? RoundingMode.FLOOR : RoundingMode.CEILING)
-                .multiply(request.priceTick());
-        BigDecimal entry = bar.close();
-        if (longSide ? stop.compareTo(entry) >= 0 : stop.compareTo(entry) <= 0)
-            return Verdict.reject("INVALID_STOP_SIDE");
-        BigDecimal target = confirmed.trigger().middle();
-        // Net of fees + slippage on BOTH sides, before any entry is queued.
-        BigDecimal costRate = policy.feePerSidePct().add(policy.slippagePerSidePct())
-                .divide(HUNDRED, MC);
-        BigDecimal netReward = (longSide ? target.subtract(entry) : entry.subtract(target))
-                .subtract(entry.add(target).multiply(costRate, MC));
-        BigDecimal risk = entry.subtract(stop).abs()
-                .add(entry.add(stop).multiply(costRate, MC));
-        if (netReward.signum() <= 0
-                || netReward.compareTo(risk.multiply(MINIMUM_NET_RR, MC)) < 0)
-            return Verdict.reject("NET_REWARD_RISK_BELOW_1_5");
-        if (policy.costToInitialRiskTooHigh(entry, stop))
-            return Verdict.reject("COST_TO_RISK");
-        // Structural case delegates real stop calculation to RiskEngine; the
-        // value computed here is exclusively used for the identical R:R gate.
-        return new Verdict(true, mode == StopMode.EXTREME_CANDLE ? stop : null, null);
+        if (raw != null) {
+            if (raw.signum() <= 0) {
+                failed.add("INVALID_STOP");
+            } else {
+                stop = raw.divide(request.priceTick(), 0,
+                        longSide ? RoundingMode.FLOOR : RoundingMode.CEILING)
+                        .multiply(request.priceTick());
+                if (longSide ? stop.compareTo(entry) >= 0
+                        : stop.compareTo(entry) <= 0) {
+                    failed.add("INVALID_STOP_SIDE");
+                } else {
+                    stopDistance = entry.subtract(stop).abs();
+                    BigDecimal costRate = policy.feePerSidePct()
+                            .add(policy.slippagePerSidePct()).divide(HUNDRED, MC);
+                    netReward = targetDistance.subtract(
+                            entry.add(target).multiply(costRate, MC));
+                    risk = stopDistance.add(entry.add(stop).multiply(costRate, MC));
+                    netRR = netReward.divide(risk, MC);
+                    if (netReward.signum() <= 0
+                            || netReward.compareTo(risk.multiply(MINIMUM_NET_RR, MC)) < 0)
+                        failed.add("NET_REWARD_RISK_BELOW_1_5");
+                    costToRiskPct = entry.add(stop).multiply(costRate, MC)
+                            .divide(stopDistance, MC).multiply(HUNDRED, MC);
+                    if (policy.costToInitialRiskTooHigh(entry, stop))
+                        failed.add("COST_TO_RISK");
+                }
+            }
+        }
+        return new Diagnostic(mode, failed.isEmpty(),
+                failed.isEmpty() ? null : failed.getFirst(), java.util.List.copyOf(failed),
+                pa.trend().name(), pa.breakout().state().name(), strongHigherTrend,
+                observation.volumeLevel().name(), observation.takerBalance().name(),
+                observation.effortResult().name(), observation.closeTime(),
+                entry, target, stop, targetDistance, stopDistance,
+                netReward, risk, netRR, costToRiskPct,
+                confirmed.extremeLow(), confirmed.extremeHigh());
     }
 }
