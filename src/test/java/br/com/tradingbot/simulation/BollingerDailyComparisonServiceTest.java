@@ -44,6 +44,7 @@ class BollingerDailyComparisonServiceTest {
 
         var report = new BollingerDailyComparisonService(backtests).compare(req);
         assertEquals(4, report.summaries().size());
+        assertTrue(report.signalDiagnostics().isEmpty());
         assertEquals("CONTROL", report.summaries().getFirst().arm());
         assertEquals("FILTERED_BOLLINGER_EXTREME", report.summaries().getLast().arm());
         assertEquals(30, report.completeDailyCandles());
@@ -57,6 +58,41 @@ class BollingerDailyComparisonServiceTest {
         verify(backtests).runBollingerStudyDaily(req, true,
                 BollingerFilteredPolicy.StopMode.EXTREME_CANDLE);
         verifyNoMoreInteractions(backtests);
+    }
+
+    @Test
+    void serializesPairedStopDiagnosticsAsStructuredJson() throws Exception {
+        var structural = new BollingerFilteredPolicy.Diagnostic(
+                BollingerFilteredPolicy.StopMode.STRUCTURAL, false,
+                "NET_REWARD_RISK_BELOW_1_5",
+                List.of("NET_REWARD_RISK_BELOW_1_5"),
+                "RANGE", "NONE", false,
+                "NORMAL", "BUY_DOMINANT", "NONE", AS_OF,
+                new BigDecimal("95"), new BigDecimal("100"),
+                new BigDecimal("89"), new BigDecimal("5"),
+                new BigDecimal("6"), new BigDecimal("4.86"),
+                new BigDecimal("6.13"), new BigDecimal("0.79"),
+                new BigDecimal("2.2"), new BigDecimal("94"), new BigDecimal("97"));
+        var extreme = new BollingerFilteredPolicy.Diagnostic(
+                BollingerFilteredPolicy.StopMode.EXTREME_CANDLE, true,
+                null, List.of(), "RANGE", "NONE", false,
+                "NORMAL", "BUY_DOMINANT", "NONE", AS_OF,
+                new BigDecimal("95"), new BigDecimal("100"),
+                new BigDecimal("93.99"), new BigDecimal("5"),
+                new BigDecimal("1.01"), new BigDecimal("4.86"),
+                new BigDecimal("1.14"), new BigDecimal("4.26"),
+                new BigDecimal("13"), new BigDecimal("94"), new BigDecimal("97"));
+        var trace = new BollingerDailyComparisonService.SignalDiagnostic(
+                "FILTERED_BOLLINGER_EXTREME", AS_OF - 86_400_000L,
+                AS_OF, "LONG", "STRONG_REVERSAL_CANDLE", false,
+                structural, extreme);
+        var json = new com.fasterxml.jackson.databind.ObjectMapper()
+                .writeValueAsString(trace);
+        assertTrue(json.contains("\"structural\""));
+        assertTrue(json.contains("\"extreme\""));
+        assertTrue(json.contains("\"firstRejection\":\"NET_REWARD_RISK_BELOW_1_5\""));
+        assertTrue(json.contains("\"netRewardRisk\":4.26"));
+        assertTrue(json.contains("\"failedChecks\""));
     }
 
     @Test
