@@ -4,7 +4,9 @@
 .DESCRIPTION
   First run on inspected 34..39 is an EXPLORATORY REPLAY, not out-of-sample.
   Compare frozen CONTROL with CONTROL + Bollinger-only when baseline WAITS.
-  Strict 5m close outside SMA20 +/- 2 population deviations; next-open fills.
+  Strict 5m close outside SMA20 +/- 2 population deviations ARMS ONLY.
+  Entry requires a later closed 5m hammer/shooting star, reversal force
+  or break of previous high/low. Next candle open fill, within 9 bars.
   Frozen middle-SMA take profit, structural stop first, original risk.
   TESTNET, independent portfolios, zero orders and zero Luna.
 .EXAMPLE
@@ -72,6 +74,9 @@ if($PrintOnly){
     Write-Output 'BOLLINGER_DEVIATIONS=2'
     Write-Output 'BOLLINGER_SIGNAL=CLOSE_STRICTLY_OUTSIDE'
     Write-Output 'BOLLINGER_TAKE_PROFIT=FROZEN_MIDDLE_SMA20'
+    Write-Output 'BOLLINGER_CONFIRMATION=HAMMER,STRENGTH,STRICT_BREAK'
+    Write-Output 'BOLLINGER_MAX_WAIT_BARS=9'
+    Write-Output 'BOLLINGER_NOT_AN_ENTRY=OUTSIDE_CLOSE_ALONE'
     Write-Output 'BOLLINGER_STOP_PRIORITY=STOP_FIRST'
 
     Write-Output 'BOLLINGER_WAIT_MINUTES=60'
@@ -223,7 +228,11 @@ foreach($record in $plan){
             if($t.setup -eq 'BOLLINGER_MEAN_REVERSION'){
                 $nBb++
                 if($null -eq $t.frozenMiddleTargetUsdt -or
-                    (Money $t.frozenMiddleTargetUsdt 'BB frozen target') -le 0){
+                    (Money $t.frozenMiddleTargetUsdt 'BB frozen target') -le 0 -or
+                    [string]::IsNullOrWhiteSpace([string]$t.confirmationPattern) -or
+                    [long]$t.outsideBandCloseTime -ge [long]$t.signalCloseTime -or
+                    [long]$t.signalCloseTime-[long]$t.outsideBandCloseTime -gt 9L*300000L){
+                    
                     throw "BB trade missing its signal-time SMA target"
                 }
             }
@@ -247,6 +256,9 @@ foreach($record in $plan){
             TradesClosed=$s.tradesClosed;Wins=$s.winningTrades;Losses=$s.losingTrades
             LongTrades=$s.longTrades;ShortTrades=$s.shortTrades
             BbTrades=$s.bbTrades;OutsideCloses=$s.outsideBandCloses
+            BbConfirmedSignals=$s.bbConfirmedSignals
+            BbExpiredSignals=$s.bbExpiredSignals
+            BbInvalidatedSignals=$s.bbInvalidatedSignals
             BbCooldownRejected=$s.bbCooldownRejected
             BbRiskApproved=$s.bbRiskApproved
             FilterRejected=$s.entryFilterRejected
@@ -268,7 +280,9 @@ foreach($record in $plan){
         }
         $tradesOut += [pscustomobject]@{
             Window=$number;Arm=$t.arm;Side=$t.side
-            Setup=$t.setup;SignalCloseTime=$t.signalCloseTime
+            Setup=$t.setup;OutsideBandCloseTime=$t.outsideBandCloseTime
+            SignalCloseTime=$t.signalCloseTime
+            ConfirmationPattern=$t.confirmationPattern
             EnteredAtOpenTime=$t.enteredAtOpenTime
             ExitedAtOpenTime=$t.exitedAtOpenTime;ExitReason=$t.exitReason
             FrozenMiddleTargetUsdt=$t.frozenMiddleTargetUsdt
@@ -289,6 +303,7 @@ foreach($group in @($windowsOut|Group-Object Arm)){
     if($group.Count -ne $Windows){throw 'Missing scenario windows'}
     [decimal]$marked=0;[decimal]$realized=0;[decimal]$fees=0;[decimal]$delta=0
     [int]$trades=0;[int]$wins=0;[int]$bb=0;[int]$outside=0
+    [int]$confirmed=0;[int]$expired=0;[int]$invalidated=0
     foreach($row in $group.Group){
         $marked+=Money $row.MarkedPnlUsdt 'marked'
         $realized+=Money $row.NetClosedUsdt 'realized'
@@ -296,10 +311,15 @@ foreach($group in @($windowsOut|Group-Object Arm)){
         $delta+=Money $row.DeltaMarkedVsControl 'delta'
         $trades+=[int]$row.TradesClosed;$wins+=[int]$row.Wins
         $bb+=[int]$row.BbTrades;$outside+=[int]$row.OutsideCloses
+        $confirmed+=[int]$row.BbConfirmedSignals
+        $expired+=[int]$row.BbExpiredSignals
+        $invalidated+=[int]$row.BbInvalidatedSignals
     }
     $aggregate += [pscustomobject]@{
         Arm=$group.Name;Windows=$group.Count
         Trades=$trades;Wins=$wins;BbTrades=$bb;OutsideCloses=$outside
+        BbConfirmedSignals=$confirmed;BbExpiredSignals=$expired
+        BbInvalidatedSignals=$invalidated
         SumNetClosedUsdt=$realized;SumMarkedPnlUsdt=$marked
         SumFeesUsdt=$fees;DeltaMarkedVsControl=$delta
     }
