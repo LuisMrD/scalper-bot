@@ -32,6 +32,10 @@ final class BollingerMeanReversion {
                     || c.closeTime() != last.closeTime()-(long)(n-1-i)*last.interval().millis()) {
                 throw new IllegalArgumentException("Bollinger: missing or unclosed historical 5m bar");
             }
+            // TESTNET can publish long stretches of stale OHLC with no trades.
+            // No valid 20-bar volatility band can be inferred from inactive bars.
+            if (c.numberOfTrades() <= 0 || c.baseVolume().signum() <= 0
+                    || c.quoteVolume().signum() <= 0) return null;
             sum = sum.add(c.close());
         }
         BigDecimal mean = sum.divide(BigDecimal.valueOf(PERIOD), MC);
