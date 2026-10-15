@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [develop, main]
   push:
-    branches: [develop, main, 'experiment/1m-vs-5m-trade-diagnostics']
+    branches: [develop, main, 'experiment/1m-vs-5m-trade-diagnostics', 'experiment/bollinger-filtered-daily-300h']
 
 permissions:
   contents: read
@@ -57,6 +57,9 @@ jobs:
           if ($withoutFilter -notcontains 'RISK_MAX_COST_TO_INITIAL_RISK_PCT=<unset>') {
             throw 'Zero filter parameter must UNSET env instead of failing validation.'
           }
+      - name: Verify daily Bollinger 6 x 300h plan (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-bollinger-daily-plan.ps1
       - name: Smoke REST JSON arrays with mock HTTP (no network)
         shell: pwsh
         run: ./scripts/tests/test-rest-json-array-shapes.ps1
