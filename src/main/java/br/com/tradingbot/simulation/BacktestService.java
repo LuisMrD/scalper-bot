@@ -252,11 +252,24 @@ public class BacktestService {
             int confirmedSignals, int expiredSignals, int invalidatedSignals,
             int cooldownRejected, int riskApproved, java.util.Map<Long, BigDecimal> targets,
             java.util.Map<Long, Long> triggerCloses,
-            java.util.Map<Long, String> confirmationPatterns) {}
+            java.util.Map<Long, String> confirmationPatterns, int filteredRejected) {
+        /** The former constructor keeps legacy research/test callers unchanged. */
+        public BollingerReplay(FilteredReplay filtered, int outsideCloses,
+                int confirmedSignals, int expiredSignals, int invalidatedSignals,
+                int cooldownRejected, int riskApproved, java.util.Map<Long, BigDecimal> targets,
+                java.util.Map<Long, Long> triggerCloses,
+                java.util.Map<Long, String> confirmationPatterns) {
+            this(filtered, outsideCloses, confirmedSignals, expiredSignals,
+                    invalidatedSignals, cooldownRejected, riskApproved,
+                    targets, triggerCloses, confirmationPatterns, 0);
+        }
+    }
 
     private static final class BollingerCounter {
         int outsideCloses, confirmedSignals, expiredSignals, invalidatedSignals;
-        int cooldownRejected, riskApproved;
+        int cooldownRejected, riskApproved, filteredRejected;
+        boolean filtered;
+        BollingerFilteredPolicy.StopMode stopMode = BollingerFilteredPolicy.StopMode.STRUCTURAL;
         final java.util.Map<Long, BigDecimal> targets = new java.util.LinkedHashMap<>();
         final java.util.Map<Long, Long> triggerCloses = new java.util.LinkedHashMap<>();
         final java.util.Map<Long, String> patterns = new java.util.LinkedHashMap<>();
@@ -282,7 +295,37 @@ public class BacktestService {
                 counters.cooldownRejected, counters.riskApproved,
                 java.util.Map.copyOf(counters.targets),
                 java.util.Map.copyOf(counters.triggerCloses),
-                java.util.Map.copyOf(counters.patterns));
+                java.util.Map.copyOf(counters.patterns), counters.filteredRejected);
+    }
+
+    /**
+     * Daily 300h research: 12 complete 1d candles per time window, with
+     * indicator history loaded before each independent window.
+     * Three variants can run without changing the original 5m experiment.
+     */
+    public BollingerReplay runBollingerStudyDaily(BacktestRequest request,
+            boolean filtered, BollingerFilteredPolicy.StopMode stopMode) {
+        if (request == null || !List.of("SOLUSDT", "DOGEUSDT", "BTCUSDT").contains(request.symbol())
+                || !request.intervals().equals(List.of("1d"))
+                || request.steps() != 12 || request.asOf() == null
+                || request.includeLuna()
+                || !Boolean.FALSE.equals(request.pullbackEnabledOverride())
+                || !Boolean.TRUE.equals(request.breakoutRetestEnabledOverride()))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Daily Bollinger: exactly 12 closed 1d bars, RETEST only, no Luna");
+        var counters = new BollingerCounter();
+        counters.filtered = filtered;
+        counters.stopMode = stopMode;
+        var replay = runFilteredInternal(request, EntryBreakoutFilter.BLOCK_BOTH,
+                ReentryWaitPolicy.NONE, MagicMacroLongPolicy.NONE, false,
+                ShortRangePolicy.CONTROL, L2RangePolicy.CONTROL,
+                LongContextPolicy.CONTROL, counters);
+        return new BollingerReplay(replay, counters.outsideCloses,
+                counters.confirmedSignals, counters.expiredSignals, counters.invalidatedSignals,
+                counters.cooldownRejected, counters.riskApproved,
+                java.util.Map.copyOf(counters.targets),
+                java.util.Map.copyOf(counters.triggerCloses),
+                java.util.Map.copyOf(counters.patterns), counters.filteredRejected);
     }
 
     /** Existing six-scenario macro endpoint remains unchanged. */
@@ -326,7 +369,10 @@ public class BacktestService {
             MagicMacroLongPolicy macroPolicy, boolean blockAllLongs, ShortRangePolicy shortRange,
             L2RangePolicy l2Study, LongContextPolicy longPolicy, BollingerCounter bollinger) {
         if (bollinger != null && (filter != EntryBreakoutFilter.BLOCK_BOTH
-                || waitPolicy != ReentryWaitPolicy.WAIT_12_BARS || blockAllLongs
+                || (waitPolicy != ReentryWaitPolicy.WAIT_12_BARS
+                    && !(waitPolicy == ReentryWaitPolicy.NONE
+                        && request.intervals().equals(List.of("1d"))))
+                || blockAllLongs
                 || shortRange != ShortRangePolicy.CONTROL || l2Study != L2RangePolicy.CONTROL
                 || longPolicy != LongContextPolicy.CONTROL || macroPolicy.active()
                 || request.includeLuna())) {
@@ -481,7 +527,9 @@ public class BacktestService {
         long lastL2FailureUsed = -1L;
         var waitState = new ReentryWaitState(waitPolicy);
         var bollingerConfirmation = bollinger == null
-                ? null : new BollingerReversalConfirmation();
+                ? null : new BollingerReversalConfirmation(bollinger.filtered);
+        var bollingerPolicy = bollinger == null || !bollinger.filtered
+                ? null : new BollingerFilteredPolicy();
         for (int i=0; i<tape.size(); i++) {
             MarketCandle bar = tape.get(i);
             javaLedger.begin(bar);
@@ -513,7 +561,7 @@ public class BacktestService {
                 if (bollinger != null && javaLedger.isBollingerPosition()) {
                     // Existing BB position waits for its frozen middle SMA or
                     // initial hard stop. It never uses the retest reversal exit.
-                    javaDecision = new DecisionResult("JAVA", request.symbol(), "5m",
+                    javaDecision = new DecisionResult("JAVA", request.symbol(), bar.interval().code(),
                             bar.closeTime(), bar.closeTime(), DecisionResult.Entry.WAIT,
                             DecisionResult.PositionAction.HOLD, DecisionResult.Setup.NONE,
                             DecisionResult.Reason.POSITION_HOLD);
@@ -653,6 +701,7 @@ public class BacktestService {
                     }
                 }
                 BollingerReversalConfirmation.Confirmation bbConfirmed = null;
+                BigDecimal bbExtremeStop = null;
                 if (bollingerConfirmation != null) {
                     boolean bbEligible = javaSide == PositionState.Side.FLAT
                             && javaDecision.entry() == DecisionResult.Entry.WAIT
@@ -675,7 +724,19 @@ public class BacktestService {
                                 bollinger.cooldownRejected++;
                                 bbConfirmed = null;
                             } else {
-                                javaDecision = new DecisionResult("JAVA", request.symbol(), "5m",
+                                if (bollingerPolicy != null) {
+                                    var verdict = bollingerPolicy.evaluate(context, bbConfirmed,
+                                            request, policy, bollinger.stopMode);
+                                    if (!verdict.approved()) {
+                                        bollinger.filteredRejected++;
+                                        bbConfirmed = null;
+                                    } else {
+                                        bbExtremeStop = verdict.stop();
+                                    }
+                                }
+                            }
+                            if (bbConfirmed != null) {
+                                javaDecision = new DecisionResult("JAVA", request.symbol(), bar.interval().code(),
                                         context.requestedAsOfEpochMs(), bar.closeTime(),
                                         bbConfirmed.trigger().side()
                                                 == BollingerMeanReversion.Side.LONG
@@ -687,13 +748,14 @@ public class BacktestService {
                         }
                     }
                 }
-                javaRisk = javaLedger.decide(javaDecision, first);
+                javaRisk = javaLedger.decide(javaDecision, first, bbExtremeStop);
                 if (bbConfirmed != null
                         && javaRisk.action() == RiskPreviewResult.Action.PROPOSED_ENTRY) {
                     // Middle SMA was fixed at the OUTSIDE close, not recomputed
                     // at reversal confirmation or by looking ahead to the fill.
                     var frozenMiddle = bbConfirmed.trigger().middle();
-                    javaLedger.attachPendingBollingerTarget(bar.closeTime(), frozenMiddle);
+                    javaLedger.attachPendingBollingerTarget(bar.closeTime(), frozenMiddle,
+                            bollinger.filtered ? BollingerFilteredPolicy.MINIMUM_NET_RR : null);
                     bollinger.targets.put(bar.closeTime(), frozenMiddle);
                     bollinger.triggerCloses.put(bar.closeTime(),
                             bbConfirmed.trigger().candleCloseTime());
