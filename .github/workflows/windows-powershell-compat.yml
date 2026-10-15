@@ -53,7 +53,7 @@ jobs:
       - name: Test retrospective candle and signal audits in Windows PowerShell 5.1
         shell: powershell
         run: .\scripts\tests\test-primary-timeframe-audit.ps1
-      - name: Validate Bollinger daily 300h plan under Windows PowerShell 5.1
+      - name: Validate Bollinger daily 30 candle plan under Windows PowerShell 5.1
         shell: powershell
         run: .\scripts\tests\test-bollinger-daily-plan.ps1
       - name: Verify BB20 strict close and frozen SMA mean-reversion reports under Windows 5.1
