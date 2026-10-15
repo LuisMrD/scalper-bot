@@ -38,10 +38,20 @@ public final class BollingerDailyComparisonService {
             BigDecimal initialRiskUsdt, BigDecimal netPnlUsdt,
             BigDecimal netRMultiple, BigDecimal feesUsdt) {}
 
+    /**
+     * One confirmation in one filtered arm, assessed under both stop rules.
+     * A portfolio arm may have a different opportunity stream after a fill.
+     */
+    public record SignalDiagnostic(String arm, long triggerCloseTime,
+            long confirmationCloseTime, String side, String confirmationPattern,
+            boolean cooldownBlocked, BollingerFilteredPolicy.Diagnostic structural,
+            BollingerFilteredPolicy.Diagnostic extreme) {}
+
     public record Comparison(String symbol, String interval, long firstCandleOpenTime,
             long lastCandleCloseTime, int completeDailyCandles, int period,
             BigDecimal deviations, BigDecimal minimumNetRewardRisk,
-            String methodology, List<Summary> summaries, List<Trade> trades) {}
+            String methodology, List<Summary> summaries, List<Trade> trades,
+            List<SignalDiagnostic> signalDiagnostics) {}
 
     public Comparison compare(BacktestRequest request) {
         if (request == null || !List.of("SOLUSDT", "DOGEUSDT", "BTCUSDT").contains(request.symbol())
@@ -55,6 +65,7 @@ public final class BollingerDailyComparisonService {
                     "Daily research requires 30 completed 1d candles at UTC 1d close, no Luna");
         var summaries = new ArrayList<Summary>();
         var trades = new ArrayList<Trade>();
+        var diagnostics = new ArrayList<SignalDiagnostic>();
         Long first = null, last = null;
         for (String arm : List.of("CONTROL", "LEGACY_BOLLINGER_STRUCTURAL",
                 "FILTERED_BOLLINGER_STRUCTURAL", "FILTERED_BOLLINGER_EXTREME")) {
@@ -84,6 +95,19 @@ public final class BollingerDailyComparisonService {
                         "Daily arms must replay the identical thirty completed daily candles");
             first = result.fromCandleOpenTime();
             last = result.throughCandleCloseTime();
+            if (study != null && arm.startsWith("FILTERED_BOLLINGER_")) {
+                for (var trace : study.diagnostics()) {
+                    if (trace.confirmationCloseTime() < result.fromCandleOpenTime()
+                            || trace.confirmationCloseTime() > result.throughCandleCloseTime()
+                            || trace.triggerCloseTime() >= trace.confirmationCloseTime())
+                        throw new ResponseStatusException(HttpStatus.CONFLICT,
+                                "Bollinger filter trace outside causal replay window");
+                    diagnostics.add(new SignalDiagnostic(arm, trace.triggerCloseTime(),
+                            trace.confirmationCloseTime(), trace.side(),
+                            trace.confirmationPattern(), trace.cooldownBlocked(),
+                            trace.structural(), trace.extreme()));
+                }
+            }
             var portfolio = result.javaPortfolio();
             var pnl = BigDecimal.ZERO;
             int bbTrades = 0;
@@ -140,6 +164,7 @@ public final class BollingerDailyComparisonService {
                         + "STOP_ONE_TICK_BEYOND_OBSERVED_EXTREME; FROZEN_MIDDLE_TARGET; "
                         + "NEXT_OPEN_FILL_STOP_FIRST; NO_LUNA_NO_ORDERS; "
                         + "PREWINDOW_CANDLES_FOR_WARMUP_ONLY",
-                List.copyOf(summaries), List.copyOf(trades));
+                List.copyOf(summaries), List.copyOf(trades),
+                List.copyOf(diagnostics));
     }
 }
