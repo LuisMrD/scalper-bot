@@ -12,7 +12,7 @@ import org.springframework.web.server.ResponseStatusException;
 class BollingerComparisonServiceTest {
     private static BacktestRequest request(boolean luna) {
         return new BacktestRequest("SOLUSDT", List.of("5m","15m"),
-                3600, 200, 1791845999999L, luna,
+                luna ? 3 : 3600, 200, 1791845999999L, luna,
                 new BigDecimal("0.01"),new BigDecimal("0.001"),
                 new BigDecimal("0.001"),new BigDecimal("5"),
                 BigDecimal.ONE,new BigDecimal("50"),null,false,true,false);
