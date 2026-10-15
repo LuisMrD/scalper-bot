@@ -86,7 +86,7 @@ class BollingerDailyComparisonServiceTest {
                 "FILTERED_BOLLINGER_EXTREME", AS_OF - 86_400_000L,
                 AS_OF, "LONG", "STRONG_REVERSAL_CANDLE", false,
                 structural, extreme);
-        var json = new com.fasterxml.jackson.databind.ObjectMapper()
+        var json = new tools.jackson.databind.ObjectMapper()
                 .writeValueAsString(trace);
         assertTrue(json.contains("\"structural\""));
         assertTrue(json.contains("\"extreme\""));
