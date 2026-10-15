@@ -56,6 +56,9 @@ jobs:
       - name: Verify BB20 strict close and frozen SMA mean-reversion reports under Windows 5.1
         shell: powershell
         run: .\scripts\tests\test-bollinger-export.ps1
+      - name: Bollinger confirmed reversal six-window mock CSV export
+        shell: powershell
+        run: .\scripts\tests\test-bollinger-confirmation-export.ps1
       - name: Mock primary 15m backtest under Windows PowerShell 5.1
         shell: powershell
         run: |
