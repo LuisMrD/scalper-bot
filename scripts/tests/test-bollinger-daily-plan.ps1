@@ -12,10 +12,10 @@ if($daily -notcontains 'MARKET_DATA_INTERVALS=1m,5m,15m,1d'){
 }
 $plan=@(& $runner -PrintOnly)
 foreach($line in @(
-    'RESEARCH=DAILY_300H_4_INDEPENDENT_ARMS',
-    'HOURS_PER_WINDOW=300',
+    'RESEARCH=DAILY_30_CANDLES_4_INDEPENDENT_ARMS',
+    'HOURS_PER_WINDOW=720',
     'WINDOWS=6',
-    'COMPLETE_DAILY_CANDLES_PER_WINDOW=12',
+    'COMPLETE_DAILY_CANDLES_PER_WINDOW=30',
     'TOTAL_INDEPENDENT_PORTFOLIOS=72',
     'STOP_MODES=STRUCTURAL,ONE_TICK_BEYOND_EXTREME',
     'MINIMUM_NET_REWARD_RISK=1.5',
@@ -24,9 +24,9 @@ foreach($line in @(
     if($plan -notcontains $line){throw "Missing daily invariant: $line"}
 }
 $windows=@($plan|Where-Object {$_ -match '^WINDOW=\d+;'})
-if($windows.Count -ne 6){throw 'Expected six disjoint 300h windows'}
+if($windows.Count -ne 6){throw 'Expected six disjoint 30-day windows'}
 [long]$dayMs=86400000L
-[long]$windowMs=300L*3600000L
+[long]$windowMs=30L*$dayMs
 $previous=$null
 foreach($line in $windows){
     $parts=@{}
@@ -39,7 +39,7 @@ foreach($line in $windows){
     [long]$op=[long]$parts['FIRST_OPEN']
     [long]$dc=[long]$parts['DAILY_CLOSE']
     if($we-$ws+1 -ne $windowMs -or $op -lt $ws -or
-       $dc -gt $we -or $dc-$op+1 -ne 12L*$dayMs -or
+       $dc -gt $we -or $dc-$op+1 -ne 30L*$dayMs -or
        $op%$dayMs -ne 0 -or $dc%$dayMs -ne $dayMs-1){
         throw "Non-complete daily window: $line"
     }
@@ -48,4 +48,4 @@ foreach($line in $windows){
     }
     $previous=$ws
 }
-Write-Host 'PASS: 3 symbols x 6 300h windows x 4 independent portfolios; 12 complete daily candles each'
+Write-Host 'PASS: 3 symbols x 6 30-day windows x 4 independent portfolios; 30 complete daily candles each'
