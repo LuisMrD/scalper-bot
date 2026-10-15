@@ -62,6 +62,9 @@ jobs:
       - name: Verify 3 symbol 6x300h Bollinger research on PowerShell 5.1
         shell: powershell
         run: .\scripts\tests\test-bollinger-three-symbols.ps1
+      - name: Mock full SOL DOGE BTC financial CSV export under Windows PS 5.1
+        shell: powershell
+        run: .\scripts\tests\test-bollinger-three-symbols-export.ps1
       - name: Mock primary 15m backtest under Windows PowerShell 5.1
         shell: powershell
         run: |
