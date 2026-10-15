@@ -30,7 +30,7 @@ $paths=@(
     (Join-Path $folder "bollinger-5m-trades-$stem.csv")
 )
 foreach($p in $paths){if(Test-Path $p){throw "Will not overwrite original research results: $p"}}
-$script:mockRequests=0
+$global:bbConfirmedMockCalls=0
 function Invoke-RestMethod {
     [CmdletBinding()]
     param([string]$Uri,[string]$Method,[string]$Body,
@@ -69,7 +69,7 @@ function Invoke-RestMethod {
             })}
         }
         '*/api/v1/backtest/compare-bollinger-5m' {
-            $script:mockRequests++
+            $global:bbConfirmedMockCalls++
             $req=$Body|ConvertFrom-Json
             if($req.includeLuna -or [int]$req.steps -ne 3600 -or
                $req.symbol -ne 'SOLUSDT' -or $req.intervals[0] -ne '5m' -or
@@ -139,7 +139,7 @@ function Invoke-RestMethod {
 }
 try {
     & $script -StartWindow 34 -Windows 6 -AsOf 1791845999999
-    if($script:mockRequests -ne 6){throw 'Expected exactly six independent comparisons'}
+    if($global:bbConfirmedMockCalls -ne 6){throw 'Expected exactly six independent comparisons'}
     foreach($p in $paths){if(-not (Test-Path $p)){throw "Missing output: $p"}}
     $a=@(Import-Csv $paths[0]);$w=@(Import-Csv $paths[1]);$t=@(Import-Csv $paths[2])
     if($a.Count -ne 2 -or $w.Count -ne 12 -or $t.Count -ne 12){
