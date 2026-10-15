@@ -48,6 +48,8 @@ class BollingerDailyComparisonServiceTest {
         assertEquals("FILTERED_BOLLINGER_EXTREME", report.summaries().getLast().arm());
         assertEquals(12, report.completeDailyCandles());
         assertEquals(0, report.minimumNetRewardRisk().compareTo(new BigDecimal("1.5")));
+        verify(backtests).runFiltered(req, EntryBreakoutFilter.BLOCK_BOTH,
+                ReentryWaitPolicy.NONE);
         verify(backtests).runBollingerStudyDaily(req, false,
                 BollingerFilteredPolicy.StopMode.STRUCTURAL);
         verify(backtests).runBollingerStudyDaily(req, true,
