@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [develop, main]
   push:
-    branches: [develop, main]
+    branches: [develop, main, 'experiment/1m-vs-5m-trade-diagnostics']
 
 permissions:
   contents: read
@@ -63,5 +63,83 @@ jobs:
       - name: Smoke non-overlapping setups and source checks (mock HTTP only)
         shell: pwsh
         run: ./scripts/tests/test-multiwindow-setups.ps1
+      - name: Smoke 1m vs 5m trade expectancy diagnostics (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-trade-diagnostics.ps1
+      - name: Smoke 5m RETEST trade CSV export and capital safety (mock HTTP)
+        shell: pwsh
+        run: ./scripts/tests/test-trade-export.ps1
+      - name: Smoke OOS profit protection 6 x 300-hour window plan (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-profit-protection-oos.ps1
+      - name: Smoke audit of 9 entry-signal windows (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-entry-audit.ps1
+      - name: Smoke dynamic RETEST entry filter 9-window plan (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-entry-filter-comparison.ps1
+      - name: Smoke replacement entry cohorts and PnL reconciliation (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-replacement-entries.ps1
+      - name: Smoke 15m range reentry wait and fixed 15-60 min controls (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-reentry-waits.ps1
+      - name: Smoke frozen OOS six new 300-hour reentry windows (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-reentry-oos.ps1
+      - name: Smoke cross-asset SOL-BTC-ETH macro study (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-cross-asset-macro.ps1
+      - name: Smoke frozen 3-6-9h BTC ETH macro research windows (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-magic-macro-oos.ps1
+      - name: Smoke frozen SHORT_ONLY vs selected 6h-3h and 9h-3h macro OOS (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-long-vs-short-oos.ps1
+      - name: Smoke retrospective SHORT regime and stop diagnostics (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-short-regime-diagnostics.ps1
+      - name: Smoke frozen 30-closed-15m range SHORT OOS (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-short-range-oos.ps1
+      - name: Full RANGE SHORT OOS CSV export against mock REST schema
+        shell: pwsh
+        run: ./scripts/tests/test-short-range-export.ps1
+      - name: Frozen L2 OOS schedule contract (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-range-l2-oos.ps1
+      - name: Full mocked L2 OOS financial CSV export
+        shell: pwsh
+        run: ./scripts/tests/test-range-l2-export.ps1
+      - name: Audit historical net expectancy in 24 CONTROL windows (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-expectancy-audit.ps1
+      - name: Verify frozen LONG context w40-45 plan (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-long-context-oos.ps1
+      - name: Verify full mocked LONG context OOS CSV export
+        shell: pwsh
+        run: ./scripts/tests/test-long-context-export.ps1
+      - name: Freeze 5m and 15m matched 300-hour OOS plan (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-primary-timeframe-oos.ps1
+      - name: Full six-window mocked 5m vs 15m financial CSV export
+        shell: pwsh
+        run: ./scripts/tests/test-primary-timeframe-export.ps1
+      - name: Historical 5m 15m 1h quality and decision funnel audit (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-primary-timeframe-audit.ps1
+      - name: Mock closed-candle Bollinger 5m mean-reversion financial CSV comparison
+        shell: pwsh
+        run: ./scripts/tests/test-bollinger-export.ps1
+      - name: Reversal confirmation Bollinger mock 5m portfolios (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-bollinger-confirmation-export.ps1
+      - name: Verify isolated SOL DOGE BTC Bollinger plans (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-bollinger-three-symbols.ps1
+      - name: Complete mocked three-symbol Bollinger 6x300h financial export
+        shell: pwsh
+        run: ./scripts/tests/test-bollinger-three-symbols-export.ps1
       - name: Validate and test (no real orders)
         run: mvn -B -ntp verify

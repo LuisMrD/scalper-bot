@@ -56,6 +56,25 @@ class BacktestServiceTest {
         verifyNoInteractions(market,contexts);
         verifyNoInteractions(luna);
     }
+    @Test void researchConfigurationReflectsEffectiveValuesWithoutSecrets() {
+        var svc = service(mock(MarketDataService.class), mock(MarketContextService.class),
+                mock(LunaDecisionService.class), true);
+        var effective = svc.researchConfiguration();
+        assertEquals(List.of("BTCUSDT"), effective.symbols());
+        assertEquals("BACKTEST", effective.executionMode());
+        assertFalse(effective.ordersEnabled());
+        assertEquals(0, effective.capitalUsdt().compareTo(b("300")));
+        assertEquals(0, effective.riskPerTradePct().compareTo(b("0.5")));
+        assertEquals(0, effective.dailyStopPct().compareTo(b("3")));
+        assertEquals(2, effective.leverage());
+        assertEquals(0, effective.feePerSidePct().compareTo(b("0.05")));
+        assertEquals(0, effective.slippagePerSidePct().compareTo(b("0.02")));
+        assertTrue(effective.requireHigherTimeframeAlignment());
+        assertTrue(effective.requireDominantTakerVolume());
+        assertEquals(10, effective.breakoutLookback());
+        assertEquals(4, effective.retestMaxBars());
+    }
+
     @Test void replaySetupOverridesAreIndependentAndDoNotChangeConfiguredDefaults() {
         var svc = service(mock(MarketDataService.class), mock(MarketContextService.class),
                 mock(LunaDecisionService.class), true);
@@ -85,6 +104,22 @@ class BacktestServiceTest {
                 "BTCUSDT", List.of("1m"), 3, 30, NOW-1, false,
                 b("0.01"), b("0.001"), b("0.001"), b("5"),
                 null, b("50"), null, false, false));
+    }
+
+    @Test void experimentalReentryWaitCannotRunOnUnrelatedTimeframeOrWithoutBlockBoth() {
+        var market=mock(MarketDataService.class);
+        var contexts=mock(MarketContextService.class);
+        var svc=service(market,contexts,mock(LunaDecisionService.class),true);
+        var request1m=request(false);
+        var incompatible=assertThrows(ResponseStatusException.class,
+                () -> svc.runFiltered(request1m, EntryBreakoutFilter.BLOCK_BOTH,
+                        ReentryWaitPolicy.WAIT_WHILE_15M_RANGE));
+        assertEquals(400,incompatible.getStatusCode().value());
+        var wrongFilter=assertThrows(ResponseStatusException.class,
+                () -> svc.runFiltered(request1m, EntryBreakoutFilter.NONE,
+                        ReentryWaitPolicy.WAIT_3_BARS));
+        assertEquals(400,wrongFilter.getStatusCode().value());
+        verifyNoInteractions(market,contexts);
     }
 
     @Test void insufficientCandlesRejectsAndNeverCallsLuna() {

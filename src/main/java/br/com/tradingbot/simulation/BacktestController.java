@@ -18,6 +18,11 @@ public class BacktestController {
         return Map.of("mode", "SIMULATION_ONLY", "ordersEnabled", false,
                 "automaticLunaCalls", false, "maxSteps", 18000, "maxLunaSteps", 10);
     }
+    @GetMapping("/research-config")
+    public BacktestService.ResearchConfiguration researchConfig() {
+        return service.researchConfiguration();
+    }
+
     @PostMapping("/run")
     public BacktestResult run(@RequestBody BacktestRequest request) {
         return service.run(request);
