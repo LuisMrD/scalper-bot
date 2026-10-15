@@ -21,18 +21,18 @@ class BollingerDailyComparisonServiceTest {
     }
 
     @Test
-    void comparesIndependentDailyArmsWithExactlyTwelveCompleteCandles() {
+    void comparesIndependentDailyArmsWithExactlyThirtyCompleteCandles() {
         var backtests = mock(BacktestService.class);
-        var req = request(12, false);
+        var req = request(30, false);
         var result = mock(BacktestResult.class);
         var portfolio = mock(BacktestResult.PortfolioResult.class);
         var replay = new BacktestService.FilteredReplay(result, 0, 0);
         var study = new BacktestService.BollingerReplay(replay,
                 0, 0, 0, 0, 0, 0, Map.of(), Map.of(), Map.of());
         when(result.javaPortfolio()).thenReturn(portfolio);
-        when(result.replayedCandles()).thenReturn(12);
+        when(result.replayedCandles()).thenReturn(30);
         when(result.intervals()).thenReturn(List.of("1d"));
-        when(result.fromCandleOpenTime()).thenReturn(AS_OF - 12 * 86_400_000L + 1);
+        when(result.fromCandleOpenTime()).thenReturn(AS_OF - 30 * 86_400_000L + 1);
         when(result.throughCandleCloseTime()).thenReturn(AS_OF);
         when(portfolio.trades()).thenReturn(List.of());
         when(portfolio.startingEquityUsdt()).thenReturn(new BigDecimal("1500"));
@@ -46,7 +46,7 @@ class BollingerDailyComparisonServiceTest {
         assertEquals(4, report.summaries().size());
         assertEquals("CONTROL", report.summaries().getFirst().arm());
         assertEquals("FILTERED_BOLLINGER_EXTREME", report.summaries().getLast().arm());
-        assertEquals(12, report.completeDailyCandles());
+        assertEquals(30, report.completeDailyCandles());
         assertEquals(0, report.minimumNetRewardRisk().compareTo(new BigDecimal("1.5")));
         verify(backtests).runFiltered(req, EntryBreakoutFilter.BLOCK_BOTH,
                 ReentryWaitPolicy.NONE);
