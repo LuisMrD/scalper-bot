@@ -10,7 +10,9 @@ import java.util.Objects;
  *
  * 1) A strict close outside the outer band ARMS a candidate; never enters.
  * 2) One of three opposite-direction Price Action responses confirms it:
- *    hammer / shooting star, strong candle, break of prior confirmed highs/lows.
+ *    hammer/shooting star, a strong reversal candle, or a close past the
+ *    observed candidate extreme. A separate inside-band close and prior-candle
+ *    microstructure breakout are NOT required (filters 1 and 2 rolled back).
  * Entries may only be proposed at the confirming candle CLOSE, filled at T+1.
  *
  * Historical Testnet candles with no actual trades invalidate an active setup.
@@ -20,11 +22,6 @@ final class BollingerReversalConfirmation {
     private static final BigDecimal TWO = new BigDecimal("2");
     private static final BigDecimal SIX_TENTHS = new BigDecimal("0.6");
     private final BollingerMeanReversion bands = new BollingerMeanReversion();
-    private final boolean strict;
-
-    BollingerReversalConfirmation() { this(false); }
-    BollingerReversalConfirmation(boolean strict) { this.strict = strict; }
-
     enum Pattern { HAMMER_OR_SHOOTING_STAR, STRONG_REVERSAL_CANDLE, CLOSE_BREAKS_PRIOR_EXTREME }
     record Confirmation(BollingerMeanReversion.Signal trigger, long confirmedAtCloseTime,
                         Pattern pattern, BigDecimal extremeLow, BigDecimal extremeHigh) {}
@@ -111,18 +108,6 @@ final class BollingerReversalConfirmation {
         BigDecimal priorLow = lowBefore;
         highBefore = highBefore.max(current.high());
         lowBefore = lowBefore.min(current.low());
-        if (strict) {
-            // A wick inside the band is not a re-entry; CLOSE must be back inside.
-            var bb = bands.bands(completed5m);
-            if (bb == null) return new Step(false,false,false,null);
-            boolean inside = longSide ? current.close().compareTo(bb.lower()) > 0
-                    : current.close().compareTo(bb.upper()) < 0;
-            if (!inside) return new Step(false,false,false,null);
-            // Require a CLOSE beyond the preceding candle microstructure.
-            boolean broke = longSide ? current.close().compareTo(previous.high()) > 0
-                    : current.close().compareTo(previous.low()) < 0;
-            if (!broke) return new Step(false,false,false,null);
-        }
         var pattern = classify(current, previous, pending.side(), priorHigh, priorLow);
         if (pattern == null) return new Step(false,false,false,null);
         var confirmed = new Confirmation(pending, current.closeTime(), pattern,
