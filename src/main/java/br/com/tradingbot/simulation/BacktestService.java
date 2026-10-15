@@ -250,12 +250,16 @@ public class BacktestService {
     /** Test-only access to one frozen-target 5m Bollinger research arm. */
     public record BollingerReplay(FilteredReplay filtered, int outsideCloses,
             int confirmedSignals, int expiredSignals, int invalidatedSignals,
-            int cooldownRejected, int riskApproved, java.util.Map<Long, BigDecimal> targets) {}
+            int cooldownRejected, int riskApproved, java.util.Map<Long, BigDecimal> targets,
+            java.util.Map<Long, Long> triggerCloses,
+            java.util.Map<Long, String> confirmationPatterns) {}
 
     private static final class BollingerCounter {
         int outsideCloses, confirmedSignals, expiredSignals, invalidatedSignals;
         int cooldownRejected, riskApproved;
         final java.util.Map<Long, BigDecimal> targets = new java.util.LinkedHashMap<>();
+        final java.util.Map<Long, Long> triggerCloses = new java.util.LinkedHashMap<>();
+        final java.util.Map<Long, String> patterns = new java.util.LinkedHashMap<>();
     }
 
     public BollingerReplay runBollingerStudy(BacktestRequest request) {
@@ -276,7 +280,9 @@ public class BacktestService {
         return new BollingerReplay(filtered, counters.outsideCloses,
                 counters.confirmedSignals, counters.expiredSignals, counters.invalidatedSignals,
                 counters.cooldownRejected, counters.riskApproved,
-                java.util.Map.copyOf(counters.targets));
+                java.util.Map.copyOf(counters.targets),
+                java.util.Map.copyOf(counters.triggerCloses),
+                java.util.Map.copyOf(counters.patterns));
     }
 
     /** Existing six-scenario macro endpoint remains unchanged. */
@@ -689,6 +695,9 @@ public class BacktestService {
                     var frozenMiddle = bbConfirmed.trigger().middle();
                     javaLedger.attachPendingBollingerTarget(bar.closeTime(), frozenMiddle);
                     bollinger.targets.put(bar.closeTime(), frozenMiddle);
+                    bollinger.triggerCloses.put(bar.closeTime(),
+                            bbConfirmed.trigger().candleCloseTime());
+                    bollinger.patterns.put(bar.closeTime(), bbConfirmed.pattern().name());
                     bollinger.riskApproved++;
                 }
                 if (includeDecisionHistory
