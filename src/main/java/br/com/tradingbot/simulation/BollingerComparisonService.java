@@ -24,7 +24,8 @@ public class BollingerComparisonService {
 
     public record Summary(Arm arm, int tradesClosed, int winningTrades, int losingTrades,
             int longTrades, int shortTrades, int bbTrades,
-            int outsideBandCloses, int bbCooldownRejected, int bbRiskApproved,
+            int outsideBandCloses, int bbConfirmedSignals, int bbExpiredSignals,
+            int bbInvalidatedSignals, int bbCooldownRejected, int bbRiskApproved,
             int entryFilterRejected, int cooldownRejected,
             BigDecimal startingEquityUsdt, BigDecimal netClosedUsdt,
             BigDecimal longClosedUsdt, BigDecimal shortClosedUsdt,
@@ -32,7 +33,8 @@ public class BollingerComparisonService {
             BigDecimal maxDrawdownPct, String openPositionSide) {}
 
     public record Trade(Arm arm, String side, String setup,
-            long signalCloseTime, long enteredAtOpenTime, long exitedAtOpenTime,
+            long outsideBandCloseTime, long signalCloseTime, String confirmationPattern,
+            long enteredAtOpenTime, long exitedAtOpenTime,
             String exitReason, BigDecimal frozenMiddleTargetUsdt,
             BigDecimal initialRiskUsdt, BigDecimal netPnlUsdt,
             BigDecimal netR, BigDecimal feesUsdt) {}
@@ -92,9 +94,13 @@ public class BollingerComparisonService {
                             "Bollinger result contains lookahead");
                 var isBb = snap.setup()
                         == br.com.tradingbot.decision.DecisionResult.Setup.BOLLINGER_MEAN_REVERSION;
-                if (isBb && (bb == null || !bb.targets().containsKey(snap.candleCloseTime())))
+                if (isBb && (bb == null || !bb.targets().containsKey(snap.candleCloseTime())
+                        || !bb.triggerCloses().containsKey(snap.candleCloseTime())
+                        || !bb.confirmationPatterns().containsKey(snap.candleCloseTime())
+                        || bb.triggerCloses().get(snap.candleCloseTime())
+                                >= snap.candleCloseTime()))
                     throw new ResponseStatusException(HttpStatus.CONFLICT,
-                            "BB trade missing frozen signal-time SMA");
+                            "Bollinger trade missing prior outside close or reversal confirmation");
                 if (isBb) bbs++;
                 if (t.netPnlUsdt().signum() > 0) wins++;
                 else if (t.netPnlUsdt().signum() < 0) losses++;
@@ -107,7 +113,10 @@ public class BollingerComparisonService {
                 } else throw new ResponseStatusException(HttpStatus.CONFLICT, "Unknown trade side");
                 net = net.add(t.netPnlUsdt());
                 trades.add(new Trade(arm, t.side(), snap.setup().name(),
-                        snap.candleCloseTime(), t.enteredAtOpenTime(),
+                        isBb ? bb.triggerCloses().get(snap.candleCloseTime()) : 0L,
+                        snap.candleCloseTime(),
+                        isBb ? bb.confirmationPatterns().get(snap.candleCloseTime()) : null,
+                        t.enteredAtOpenTime(),
                         t.exitCandleOpenTime(), t.exitReason(),
                         isBb ? bb.targets().get(snap.candleCloseTime()) : null,
                         t.initialRiskUsdt(), t.netPnlUsdt(), t.netRMultiple(),
@@ -121,6 +130,9 @@ public class BollingerComparisonService {
             summaries.add(new Summary(arm, p.tradesClosed(), wins, losses,
                     longs, shorts, bbs,
                     bb == null ? 0 : bb.outsideCloses(),
+                    bb == null ? 0 : bb.confirmedSignals(),
+                    bb == null ? 0 : bb.expiredSignals(),
+                    bb == null ? 0 : bb.invalidatedSignals(),
                     bb == null ? 0 : bb.cooldownRejected(),
                     bb == null ? 0 : bb.riskApproved(),
                     replay.filteredSignals(), replay.reentryBlockedSignals(),
@@ -130,7 +142,9 @@ public class BollingerComparisonService {
         }
         return new Comparison(request.symbol(), from, until, 3600,
                 BollingerMeanReversion.PERIOD, BollingerMeanReversion.DEVIATIONS,
-                "SMA20_FROZEN_AT_SIGNAL; CLOSE_STRICTLY_OUTSIDE; NEXT_OPEN_FILL; "
+                "SMA20_FROZEN_AT_OUTSIDE_CLOSE; WAIT_FOR_5M_REVERSAL_CONFIRMATION; "
+                    + "HAMMER_OR_SHOOTING_STAR_OR_STRONG_CANDLE_OR_BREAKOUT; "
+                    + "MAX_9_COMPLETED_5M_BARS; NEXT_OPEN_FILL; "
                     + "STOP_FIRST; MID_BAND_INTRABAR_LIMIT_OR_HARD_STOP",
                 List.copyOf(summaries), List.copyOf(trades),
                 "SIMULATION_ONLY; CONTROL_BLOCK_BOTH_WAIT_60_MIN; "
