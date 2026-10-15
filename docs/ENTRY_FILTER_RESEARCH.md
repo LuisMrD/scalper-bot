@@ -1243,3 +1243,82 @@ e 15m na Testnet forem verificadamente disponiveis.
 Tres CSVs `bollinger-5m-{aggregate,windows,trades}-...`
 em `results`. Nao converter os dados inspecionados
 em suposto teste de ganho comprovado.
+
+## Bollinger confirmado: tres simbolos com carteiras independentes (2026-10-15)
+
+Ativos: **SOLUSDT, DOGEUSDT e BTCUSDT**, exclusivos
+Binance Futures USD-M TESTNET. O setup continua 5m
+com 15m de contexto: fechamento ESTRITAMENTE fora da
+BB SMA20 ± 2 desvios, AGUARDAR reversao de Price Action
+em ate nove 5m fechados, proxima abertura como
+entrada se o RiskEngine permitir, SMA central congelada
+como alvo, STOP inicial estrutural e prioridade ao STOP
+se o mesmo candle tocar stop+alvo.
+
+`BollingerComparisonService` e
+`BacktestService.runBollingerStudy` agora aceitam SOMENTE
+os tres simbolos especificados em modo de pesquisa.
+Todas as outras politicas congeladas continuam com seus
+proprios universos de ativos e testes anteriores.
+`start-backtest.ps1` passou a permitir DOGEUSDT
+explicitamente; os outros parametros habituais nao mudaram.
+A API faz check de simbolos configurados, e cada request
+recebe tickSize, stepSize, minQty e minNotional obtidos
+SEPARADAMENTE do exchangeInfo da Testnet. Nunca emprestar
+tick/quantityStep de SOL a DOGE ou BTC.
+
+Uma janela tem **300 horas**: exatamente **3600 5m**
+fechados por simbolo. Seis janelas sem sobreposicao e
+mesmas fronteiras de tempo UTC para os tres simbolos.
+Para cada par **simbolo×janela**, duas carteiras com
+ledger, capital, risco, stop diario, taxas, slippage
+e oportunidades de operacao independentes:
+- `CONTROL`: BREAKOUT_RETEST, BLOCK_BOTH, 60 min
+- `CONTROL_PLUS_BOLLINGER_SMA20_2SIGMA`: mesmo
+  controle, com BB confirmado somente nos WAITs.
+
+**1.500 USDT por carteira, por janela e por estrategia**,
+reiniciados; nunca um pool compartilhado.
+Portanto, 3×6×2 = **36 backtests**,
+mas na comparacao de 3 simbolos de uma mesma janela,
+cada CENARIO mobiliza hipoteticamente 3×1500=4500 USDT.
+Nao somar 36 capitais iniciais como se fossem o mesmo
+dinheiro reutilizado em serie nem apresentar PnL total
+como retorno de uma carteira composta.
+
+Preparar Docker/MySQL e depois iniciar backend (um terminal):
+
+`./scripts/start-backtest.ps1 -Symbols SOLUSDT,DOGEUSDT,BTCUSDT -CapitalUsdt 1500 -MaxCostToInitialRiskPct 50 -RequireHigherTf false`
+
+Em outro terminal:
+
+`./scripts/run-bollinger-three-symbols.ps1 -PrintOnly`
+
+`./scripts/run-bollinger-three-symbols.ps1 -StartWindow 34 -Windows 6 -AsOf 1791845999999 -CapitalPerPortfolioUsdt 1500 -SyncHistory`
+
+Na primeira execucao, `-SyncHistory` sincroniza apenas
+os candles 5m/15m da FUTURES TESTNET. O script
+`compare-bollinger-5m.ps1` faz validacao do contrato,
+perfil SIMULATION_ONLY, sem auto-WS, sem bootstrap,
+sem ordens e sem Luna; falha explicitamente se um par
+nao existir na Testnet ou carecer de historico.
+Omitir `-SyncHistory` se TODAS as janelas de TODOS
+os ativos ja estiverem no MySQL com contexto suficiente.
+
+Saidas individuais: tres CSVs por simbolo,
+`bollinger-5m-{aggregate,windows,trades}-SIMBOLO-RETEST-1791845999999-5m-w34-39.csv`
+(total de 9 arquivos). Apos as tres execucoes,
+o wrapper acrescenta tres CSVs consolidados
+`bollinger-three-symbols-{aggregate,windows,trades}-RETEST-1791845999999-5m-w34-39.csv`
+(total de 12). O consolidado inclui coluna
+`Symbol` e `CapitalNotShared=true`, e preserva
+janelas/arms separados sem misturar risco ou saldo.
+Nao sobrescrever resultados existentes. Se um ativo
+falhar, nao produzir consolidado incompleto.
+
+IMPORTANTE: w34..39 ja foram analisadas antes.
+Este teste multissimbolo e **retrospectivo,
+exploratorio**, nao demonstra OOS nem lucratividade.
+Historicos da Testnet podem ter faixas de volume
+e numero de trades zerados; gaps nao sao fabricados
+e nao devem ser substituidos por candles de producao.
