@@ -108,6 +108,7 @@ if([math]::Abs((dec $config.capitalUsdt)-$CapitalPerPortfolioUsdt) -gt 0.001 -or
 $exchange=Invoke-RestMethod 'https://demo-fapi.binance.com/fapi/v1/exchangeInfo' -TimeoutSec 60
 $rows=New-Object System.Collections.Generic.List[object]
 $tradeRows=New-Object System.Collections.Generic.List[object]
+$diagnosticRows=New-Object System.Collections.Generic.List[object]
 foreach($symbol in $Symbols){
     $filters=Symbol-ContractFilters -ExchangeInfo $exchange -Symbol $symbol
     if($SyncHistory){
@@ -148,6 +149,68 @@ foreach($symbol in $Symbols){
             throw "Daily response period or strategy mismatch for $symbol w$($w.Window)"
         }
         $summaries=@($report.summaries)
+        if($null -eq $report.signalDiagnostics){
+            throw "Daily API lacks signalDiagnostics; rebuild and restart the current branch"
+        }
+        $signals=@($report.signalDiagnostics)
+        if(@($signals|Where-Object {
+            $_.arm -notin @('FILTERED_BOLLINGER_STRUCTURAL','FILTERED_BOLLINGER_EXTREME')
+        }).Count -ne 0){
+            throw "Unexpected diagnostic arm"
+        }
+        foreach($signal in $signals){
+            if([long]$signal.confirmationCloseTime -lt $w.FirstOpen -or
+                [long]$signal.confirmationCloseTime -gt $w.DailyEnd -or
+                [long]$signal.triggerCloseTime -ge [long]$signal.confirmationCloseTime){
+                throw 'Diagnostic outside closed daily replay'
+            }
+            $structural=$signal.structural
+            $extreme=$signal.extreme
+            if($null -eq $structural -or $null -eq $extreme -or
+                $structural.stopMode -ne 'STRUCTURAL' -or
+                $extreme.stopMode -ne 'EXTREME_CANDLE' -or
+                $structural.signalClosePrice -ne $extreme.signalClosePrice -or
+                $structural.frozenMiddleTarget -ne $extreme.frozenMiddleTarget){
+                throw 'Mismatched dual-stop diagnostic snapshot'
+            }
+            $diagnosticRows.Add([pscustomobject]@{
+                Symbol=$symbol;Window=$w.Window;Arm=$signal.arm
+                TriggerCloseTime=$signal.triggerCloseTime
+                ConfirmationCloseTime=$signal.confirmationCloseTime
+                Side=$signal.side;Pattern=$signal.confirmationPattern
+                CooldownBlocked=$signal.cooldownBlocked
+                SignalClosePrice=$structural.signalClosePrice
+                FrozenMiddleTarget=$structural.frozenMiddleTarget
+                TargetDistancePrice=$structural.targetDistancePrice
+                PrimaryTrend=$structural.primaryTrend
+                PrimaryBreakout=$structural.primaryBreakout
+                StrongHigherTimeframeTrend=$structural.strongHigherTimeframeTrend
+                VolumeCloseTime=$structural.volumeCloseTime
+                VolumeLevel=$structural.volumeLevel
+                TakerBalance=$structural.takerBalance
+                EffortResult=$structural.effortResult
+                ExtremeLow=$structural.extremeLow
+                ExtremeHigh=$structural.extremeHigh
+                StructuralApproved=$structural.approved
+                StructuralFirstRejection=$structural.firstRejection
+                StructuralAllFailures=($structural.failedChecks -join '|')
+                StructuralStop=$structural.stopPrice
+                StructuralStopDistance=$structural.stopDistancePrice
+                StructuralNetReward=$structural.netRewardPrice
+                StructuralRisk=$structural.totalRiskPrice
+                StructuralNetRR=$structural.netRewardRisk
+                StructuralCostToRiskPct=$structural.costToRiskPct
+                ExtremeApproved=$extreme.approved
+                ExtremeFirstRejection=$extreme.firstRejection
+                ExtremeAllFailures=($extreme.failedChecks -join '|')
+                ExtremeStop=$extreme.stopPrice
+                ExtremeStopDistance=$extreme.stopDistancePrice
+                ExtremeNetReward=$extreme.netRewardPrice
+                ExtremeRisk=$extreme.totalRiskPrice
+                ExtremeNetRR=$extreme.netRewardRisk
+                ExtremeCostToRiskPct=$extreme.costToRiskPct
+            })
+        }
         if($summaries.Count -ne 4 -or
            @($summaries|ForEach-Object {$_.arm}|Sort-Object -Unique).Count -ne 4){
             throw "Missing independent comparison arms"
@@ -156,6 +219,10 @@ foreach($symbol in $Symbols){
             $matching=@($summaries|Where-Object {$_.arm -eq $arm})
             if($matching.Count -ne 1){throw "Missing arm: $arm"}
             $s=$matching[0]
+            if($arm -like 'FILTERED_BOLLINGER_*' -and
+                @($signals|Where-Object {$_.arm -eq $arm}).Count -ne [int]$s.confirmedSignals){
+                throw "Missing per-signal filter diagnostics for $arm"
+            }
             if([math]::Abs((dec $s.startingEquityUsdt)-$CapitalPerPortfolioUsdt) -gt 0.001){
                 throw "Capital shared or changed unexpectedly"
             }
@@ -211,11 +278,12 @@ if($rows.Count -ne $Symbols.Count*$Windows*4){
 $root=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $out=Join-Path $root 'results'
 New-Item -Path $out -ItemType Directory -Force | Out-Null
-$stamp="1d-30candles-$AsOf-w$StartWindow-$($StartWindow+$Windows-1)"
+$stamp="1d-30candles-diagnostics-$AsOf-w$StartWindow-$($StartWindow+$Windows-1)"
 $windowsPath=Join-Path $out "bollinger-daily-windows-$stamp.csv"
 $aggregatePath=Join-Path $out "bollinger-daily-aggregate-$stamp.csv"
 $tradesPath=Join-Path $out "bollinger-daily-trades-$stamp.csv"
-foreach($p in @($windowsPath,$aggregatePath,$tradesPath)){
+$diagnosticsPath=Join-Path $out "bollinger-daily-diagnostics-$stamp.csv"
+foreach($p in @($windowsPath,$aggregatePath,$tradesPath,$diagnosticsPath)){
     if(Test-Path -LiteralPath $p){throw "Will not overwrite existing file $p"}
 }
 $aggregate=@($rows|Group-Object Symbol,Arm|ForEach-Object {
@@ -247,7 +315,14 @@ if($tradeRows.Count -gt 0){
     'Symbol,Window,Arm,Side,Setup,SignalCloseTime,OutsideBandCloseTime,ConfirmationPattern,EnteredAtOpenTime,ExitedAtOpenTime,EntryPrice,InitialStop,ExitPrice,FrozenTarget,ExitReason,InitialRiskUsdt,NetPnlUsdt,NetRMultiple,FeesUsdt' |
         Set-Content -Path $tradesPath -Encoding UTF8
 }
+if($diagnosticRows.Count -gt 0){
+    @($diagnosticRows.ToArray()) | Export-Csv -Path $diagnosticsPath -NoTypeInformation -Encoding UTF8
+} else {
+    'Symbol,Window,Arm,TriggerCloseTime,ConfirmationCloseTime,Side,Pattern,CooldownBlocked,SignalClosePrice,FrozenMiddleTarget,TargetDistancePrice,PrimaryTrend,PrimaryBreakout,StrongHigherTimeframeTrend,VolumeCloseTime,VolumeLevel,TakerBalance,EffortResult,ExtremeLow,ExtremeHigh,StructuralApproved,StructuralFirstRejection,StructuralAllFailures,StructuralStop,StructuralStopDistance,StructuralNetReward,StructuralRisk,StructuralNetRR,StructuralCostToRiskPct,ExtremeApproved,ExtremeFirstRejection,ExtremeAllFailures,ExtremeStop,ExtremeStopDistance,ExtremeNetReward,ExtremeRisk,ExtremeNetRR,ExtremeCostToRiskPct' |
+        Set-Content -Path $diagnosticsPath -Encoding UTF8
+}
 $aggregate | Format-Table -AutoSize
 Write-Host "Saved: $aggregatePath"
 Write-Host "Saved: $windowsPath"
 Write-Host "Saved: $tradesPath"
+Write-Host "Saved: $diagnosticsPath"
