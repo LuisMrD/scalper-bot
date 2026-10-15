@@ -46,12 +46,14 @@ class BollingerComparisonServiceTest {
         when(service.runBollingerStudy(request)).thenReturn(
                 new BacktestService.BollingerReplay(
                     new BacktestService.FilteredReplay(result2,2,4),
-                    17,3,2,Map.of()));
+                    17,5,4,2,3,2,Map.of(),Map.of(),Map.of()));
         var response=new BollingerComparisonService(service).compare(request);
         assertEquals(2,response.summaries().size());
         assertEquals(BollingerComparisonService.Arm.CONTROL,response.summaries().getFirst().arm());
         assertEquals(0,response.summaries().getFirst().outsideBandCloses());
         assertEquals(17,response.summaries().get(1).outsideBandCloses());
+        assertEquals(5,response.summaries().get(1).bbConfirmedSignals());
+        assertEquals(4,response.summaries().get(1).bbExpiredSignals());
         assertEquals(3,response.summaries().get(1).bbCooldownRejected());
         assertEquals(20,response.bollingerPeriod());
         assertEquals(0,response.deviations().compareTo(new BigDecimal("2")));
