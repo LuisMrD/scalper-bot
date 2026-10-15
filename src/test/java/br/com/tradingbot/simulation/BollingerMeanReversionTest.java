@@ -75,6 +75,17 @@ class BollingerMeanReversionTest {
     }
 
     @Test
+    void previousInactiveCandleInvalidatesBandEvenIfSignalCandleIsActive() {
+        var source = new ArrayList<>(prices(19, 1, "80", true));
+        var old = source.get(5);
+        source.set(5, new MarketCandle(old.symbol(), old.interval(),
+                old.openTime(), old.closeTime(), old.open(), old.high(),
+                old.low(), old.close(), BigDecimal.ZERO, BigDecimal.ZERO,
+                0, BigDecimal.ZERO, BigDecimal.ZERO, true));
+        assertNull(new BollingerMeanReversion().detect(source));
+    }
+
+    @Test
     void missingHistoricalBarIsNeverTreatedAsNoSignal() {
         var candles=prices(19,1,"80",true);
         var broken=new ArrayList<>(candles);
