@@ -12,8 +12,9 @@ import java.math.RoundingMode;
 import java.util.Comparator;
 
 /**
- * Historical-only gate. No future candle is read. The inside-band close and
- * prior-bar microstructure break are checked by BollingerReversalConfirmation.
+ * Historical-only gate. No future candle is read. The original Bollinger
+ * reversal patterns remain unchanged; only Volume/Price Action, trend and
+ * cost-adjusted reward/risk checks are added to filtered research arms.
  */
 final class BollingerFilteredPolicy {
     static final BigDecimal MINIMUM_NET_RR = new BigDecimal("1.5");
