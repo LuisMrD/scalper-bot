@@ -43,7 +43,7 @@ final class BacktestLedger {
 
     private record PendingEntry(PositionState.Side side, BigDecimal quantity,
             BigDecimal stop, BigDecimal budget, long signalCloseTime,
-            BacktestResult.EntrySignalSnapshot snapshot) {}
+            BacktestResult.EntrySignalSnapshot snapshot, BigDecimal bollingerTarget) {}
     /**
      * One trade in progress. High/low are observed only while the trade is open.
      * If the stop is crossed intrabar, the unknown OHLC ordering is conservative:
@@ -51,7 +51,7 @@ final class BacktestLedger {
      */
     private static final class Position {
         private final PositionState.Side side;
-        private final BigDecimal qty, entry, initialStop, entryFee, entrySlippage;
+        private final BigDecimal qty, entry, initialStop, entryFee, entrySlippage, bollingerTarget;
         private final long signalCloseTime, entryOpenTime;
         private final BacktestResult.EntryExecutionDiagnostics entryDiagnostics;
         private BigDecimal stop, highestSeen, lowestSeen;
@@ -64,12 +64,13 @@ final class BacktestLedger {
         Position(PositionState.Side side, BigDecimal qty, BigDecimal entry,
                 BigDecimal initialStop, BigDecimal entryFee, BigDecimal entrySlippage,
                 long signalCloseTime, long entryOpenTime,
-                BacktestResult.EntryExecutionDiagnostics entryDiagnostics) {
+                BacktestResult.EntryExecutionDiagnostics entryDiagnostics, BigDecimal bollingerTarget) {
             this.side = side; this.qty = qty; this.entry = entry;
             this.initialStop = initialStop; this.stop = initialStop;
             this.entryFee = entryFee; this.entrySlippage = entrySlippage;
             this.signalCloseTime = signalCloseTime; this.entryOpenTime = entryOpenTime;
             this.entryDiagnostics = entryDiagnostics;
+            this.bollingerTarget = bollingerTarget;
             this.highestSeen = entry; this.lowestSeen = entry;
         }
         PositionState.Side side() { return side; }
@@ -180,9 +181,16 @@ final class BacktestLedger {
             pendingEntry = null;
             boolean longSide = proposal.side() == PositionState.Side.LONG;
             BigDecimal fill = slippage(candle.open(), proposal.side(), longSide);
+            BigDecimal target = proposal.bollingerTarget();
+            // A gap may already pass the frozen middle SMA. In that case the
+            // trade has no remaining positive cost-adjusted mean-reversion edge.
+            BigDecimal rate = fraction(policy.feePerSidePct().add(policy.slippagePerSidePct()));
+            boolean invalidTarget = target != null
+                    && ((longSide ? target.subtract(fill) : fill.subtract(target))
+                        .compareTo(fill.add(target).multiply(rate, MC)) <= 0);
             if (fill.signum() <= 0 || (longSide ? fill.compareTo(proposal.stop()) <= 0
                     : fill.compareTo(proposal.stop()) >= 0)
-                    || policy.costToInitialRiskTooHigh(fill, proposal.stop())) { blocked++; }
+                    || invalidTarget || policy.costToInitialRiskTooHigh(fill, proposal.stop())) { blocked++; }
             else {
                 // Gap at next open may increase risk; resize down, NEVER enlarge the approved quantity.
                 BigDecimal distance = fill.subtract(proposal.stop()).abs();
@@ -201,7 +209,8 @@ final class BacktestLedger {
                         position = new Position(proposal.side(), qty, fill, proposal.stop(),
                                 openingFee, fill.subtract(candle.open()).abs().multiply(qty, MC),
                                 proposal.signalCloseTime(), candle.openTime(),
-                                entryDiagnostics(proposal, fill, candle.openTime(), qty));
+                                entryDiagnostics(proposal, fill, candle.openTime(), qty),
+                                proposal.bollingerTarget());
                         fee(openingFee);
                     }
                 }
@@ -222,7 +231,19 @@ final class BacktestLedger {
                 position.observed(candle.open().max(executable), candle.open().min(executable));
                 close(executable, candle.openTime(), "STOP");
             } else {
-                position.observed(candle.high(), candle.low());
+                // A frozen SMA target is an intrabar LIMIT take profit.
+                // STOP always wins on a candle where both are touched.
+                var target = position.bollingerTarget;
+                boolean targetHit = target != null
+                        && (position.side() == PositionState.Side.LONG
+                            ? candle.high().compareTo(target) >= 0
+                            : candle.low().compareTo(target) <= 0);
+                if (targetHit) {
+                    position.observed(candle.open().max(target), candle.open().min(target));
+                    close(target, candle.openTime(), "BB_MIDDLE_TARGET");
+                } else {
+                    position.observed(candle.high(), candle.low());
+                }
             }
         }
         pendingEntry = null;
@@ -246,7 +267,7 @@ final class BacktestLedger {
             signals++;
             pendingEntry = new PendingEntry(decision.entry() == DecisionResult.Entry.LONG
                     ? PositionState.Side.LONG : PositionState.Side.SHORT, proposal.quantity(),
-                    proposal.initialStop(), proposal.riskBudgetUsdt(), asOfCloseTime, null);
+                    proposal.initialStop(), proposal.riskBudgetUsdt(), asOfCloseTime, null, null);
         } else if (proposal.action() == RiskPreviewResult.Action.BLOCKED) {
             blocked++;
             if (decision.entry() != DecisionResult.Entry.WAIT) signals++;
@@ -270,7 +291,19 @@ final class BacktestLedger {
                 || !snapshot.signal().entry().name().equals(pendingEntry.side().name()))
             throw new IllegalArgumentException("Sinal de entrada diferente da proposta pendente");
         pendingEntry = new PendingEntry(pendingEntry.side(), pendingEntry.quantity(),
-                pendingEntry.stop(), pendingEntry.budget(), pendingEntry.signalCloseTime(), snapshot);
+                pendingEntry.stop(), pendingEntry.budget(), pendingEntry.signalCloseTime(),
+                snapshot, pendingEntry.bollingerTarget());
+    }
+
+    /** Only an approved research Bollinger signal can carry the frozen SMA target. */
+    void attachPendingBollingerTarget(long signalCloseTime, BigDecimal target) {
+        if (target == null || target.signum() <= 0 || pendingEntry == null
+                || pendingEntry.signalCloseTime() != signalCloseTime) {
+            throw new IllegalArgumentException("No matching pending Bollinger entry target");
+        }
+        pendingEntry = new PendingEntry(pendingEntry.side(), pendingEntry.quantity(),
+                pendingEntry.stop(), pendingEntry.budget(), pendingEntry.signalCloseTime(),
+                pendingEntry.snapshot(), target);
     }
 
     private BacktestResult.EntryExecutionDiagnostics entryDiagnostics(
