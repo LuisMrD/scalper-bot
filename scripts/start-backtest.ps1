@@ -14,7 +14,7 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('BTCUSDT', 'ETHUSDT', 'SOLUSDT')]
+    [ValidateSet('BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'DOGEUSDT')]
     [string[]]$Symbols = @('BTCUSDT', 'ETHUSDT', 'SOLUSDT'),
 
     [ValidateRange(0, 100)]
