@@ -66,7 +66,7 @@ class BollingerDailyComparisonServiceTest {
         assertEquals(400, assertThrows(ResponseStatusException.class,
                 () -> service.compare(request(11, false))).getStatusCode().value());
         assertEquals(400, assertThrows(ResponseStatusException.class,
-                () -> service.compare(request(12, true))).getStatusCode().value());
+                () -> service.compare(request(10, true))).getStatusCode().value());
         verifyNoInteractions(backtests);
     }
 }
