@@ -16,6 +16,7 @@ final class BollingerMeanReversion {
     private static final MathContext MC = new MathContext(20, RoundingMode.HALF_EVEN);
     enum Side { LONG, SHORT }
     record Signal(Side side, long candleCloseTime, BigDecimal close,
+                  BigDecimal triggerHigh, BigDecimal triggerLow,
                   BigDecimal lower, BigDecimal middle, BigDecimal upper) {}
 
     Signal detect(List<MarketCandle> closed5m) {
@@ -50,9 +51,9 @@ final class BollingerMeanReversion {
         BigDecimal lower = mean.subtract(std.multiply(DEVIATIONS,MC));
         BigDecimal upper = mean.add(std.multiply(DEVIATIONS,MC));
         if (last.close().compareTo(lower) < 0)
-            return new Signal(Side.LONG,last.closeTime(),last.close(),lower,mean,upper);
+            return new Signal(Side.LONG,last.closeTime(),last.close(),last.high(),last.low(),lower,mean,upper);
         if (last.close().compareTo(upper) > 0)
-            return new Signal(Side.SHORT,last.closeTime(),last.close(),lower,mean,upper);
+            return new Signal(Side.SHORT,last.closeTime(),last.close(),last.high(),last.low(),lower,mean,upper);
         return null;
     }
 }
