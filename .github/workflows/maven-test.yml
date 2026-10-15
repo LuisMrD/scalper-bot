@@ -138,5 +138,8 @@ jobs:
       - name: Verify isolated SOL DOGE BTC Bollinger plans (offline)
         shell: pwsh
         run: ./scripts/tests/test-bollinger-three-symbols.ps1
+      - name: Complete mocked three-symbol Bollinger 6x300h financial export
+        shell: pwsh
+        run: ./scripts/tests/test-bollinger-three-symbols-export.ps1
       - name: Validate and test (no real orders)
         run: mvn -B -ntp verify
