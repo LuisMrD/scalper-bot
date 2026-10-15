@@ -146,6 +146,7 @@ final class BacktestLedger {
     }
 
     PositionState.Side side() { return position == null ? PositionState.Side.FLAT : position.side(); }
+    boolean isBollingerPosition() { return position != null && position.bollingerTarget != null; }
     private BigDecimal fraction(BigDecimal pct) { return pct.divide(HUNDRED, MC); }
     private BigDecimal slippage(BigDecimal price, PositionState.Side positionSide, boolean buy) {
         BigDecimal rate = fraction(policy.slippagePerSidePct());
@@ -256,6 +257,18 @@ final class BacktestLedger {
                 request.minimumQuantity(), request.minimumNotionalUsdt(), request.contextLimit(),
                 position == null ? null : new SimulatedPosition(position.side(), position.entry(),
                         position.initialStop(), position.stop(), position.qty(), position.signalCloseTime()));
+        // Bollinger's pre-committed middle target and original hard STOP
+        // are managed in begin(); suppress trend-reversal exit and trailing
+        // changes so the experimental arm actually studies target-or-stop.
+        if (isBollingerPosition()) {
+            return new RiskPreviewResult(decision.engine(), decision.symbol(),
+                    decision.entryInterval(), context.asOfCloseTime(),
+                    RiskPreviewResult.Action.MAINTAIN_STOP,
+                    RiskPreviewResult.Reason.POSITION_HOLD,
+                    position.entry(), position.qty(),
+                    position.entry().multiply(position.qty()), null,
+                    position.initialStop(), position.stop(), null, false);
+        }
         RiskPreviewResult proposal = risk.preview(req, context, policy);
         applyPreview(proposal, decision, context.asOfCloseTime());
         return proposal;
