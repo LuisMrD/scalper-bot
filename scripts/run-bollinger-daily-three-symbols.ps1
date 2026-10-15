@@ -7,6 +7,8 @@
   FILTERED_BOLLINGER_EXTREME.
   Every window contains exactly 30 complete UTC daily candles (720 hours).
   Warmup candles are never traded and no window shares trading candles.
+  Exports four CSVs, including paired structural/extreme filter diagnostics for
+  every confirmed candidate, even when rejected by volume or trend.
   Requires local backend started with -IncludeDaily, Testnet and orders off.
 .EXAMPLE
   .\scripts\start-backtest.ps1 -IncludeDaily -Symbols BTCUSDT,SOLUSDT,DOGEUSDT -CapitalUsdt 1500 -MaxCostToInitialRiskPct 50
@@ -73,6 +75,8 @@ if($PrintOnly){
     Write-Output 'BOLLINGER_WARMUP_IS_EXCLUDED_FROM_TRADING_WINDOW=true'
     Write-Output 'STOP_MODES=STRUCTURAL,ONE_TICK_BEYOND_EXTREME'
     Write-Output 'MINIMUM_NET_REWARD_RISK=1.5'
+    Write-Output 'SIGNAL_DIAGNOSTICS=BOTH_STOPS_ALL_FILTERS'
+    Write-Output 'CSV_OUTPUTS=WINDOWS,AGGREGATE,TRADES,DIAGNOSTICS'
     Write-Output 'NO_ORDERS=true'
     Write-Output 'NO_LUNA=true'
     foreach($w in $plan){
