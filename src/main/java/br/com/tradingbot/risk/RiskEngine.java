@@ -49,7 +49,10 @@ public final class RiskEngine {
                 && !decision.reason().equals(DecisionResult.Reason.BREAKOUT_RETEST_CONFIRMED)
                 && !(decision.reason() == DecisionResult.Reason.RANGE_FALSE_BREAK_L2_CONFIRMED
                     && decision.setup() == DecisionResult.Setup.RANGE_FALSE_BREAK_L2
-                    && decision.entry() == DecisionResult.Entry.SHORT))
+                    && decision.entry() == DecisionResult.Entry.SHORT)
+                && !(decision.reason() == DecisionResult.Reason.BOLLINGER_OUTSIDE_CLOSE
+                    && decision.setup() == DecisionResult.Setup.BOLLINGER_MEAN_REVERSION
+                    && decision.entry() != DecisionResult.Entry.WAIT))
             return outcome(decision, context, Action.BLOCKED, Reason.INVALID_DECISION_OR_POSITION,
                     null, null, null, null, null, null, false);
         return entry(request, context, policy);
