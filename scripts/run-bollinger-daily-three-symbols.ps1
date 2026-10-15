@@ -219,13 +219,19 @@ foreach($p in @($windowsPath,$aggregatePath,$tradesPath)){
 }
 $aggregate=@($rows|Group-Object Symbol,Arm|ForEach-Object {
     $group=@($_.Group)
+    [decimal]$closed=0;[decimal]$marked=0;[decimal]$fees=0
+    foreach($row in $group){
+        $closed+=dec $row.ClosedUsdt
+        $marked+=dec $row.MarkedUsdt
+        $fees+=dec $row.FeesUsdt
+    }
     [pscustomobject]@{
         Symbol=$group[0].Symbol;Arm=$group[0].Arm;Windows=$group.Count
         TotalTrades=($group|Measure-Object -Property Trades -Sum).Sum
         BbTrades=($group|Measure-Object -Property BbTrades -Sum).Sum
-        SumClosedUsdt=($group|Measure-Object -Property ClosedUsdt -Sum).Sum
-        SumMarkedUsdt=($group|Measure-Object -Property MarkedUsdt -Sum).Sum
-        SumFeesUsdt=($group|Measure-Object -Property FeesUsdt -Sum).Sum
+        SumClosedUsdt=$closed
+        SumMarkedUsdt=$marked
+        SumFeesUsdt=$fees
     }
 })
 if($aggregate.Count -ne $Symbols.Count*4 -or
