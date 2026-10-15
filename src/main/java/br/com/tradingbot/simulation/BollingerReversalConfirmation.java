@@ -105,7 +105,12 @@ final class BollingerReversalConfirmation {
                 != current.closeTime()) {
             throw new IllegalArgumentException("Missing previous candle for Price Action");
         }
-        // The extreme includes the trigger AND every completed candle through confirmation.
+        // Persist each observed extreme even when the candle fails to confirm.
+        // Classifier compares against PREVIOUS extremes, before adding current.
+        BigDecimal priorHigh = highBefore;
+        BigDecimal priorLow = lowBefore;
+        highBefore = highBefore.max(current.high());
+        lowBefore = lowBefore.min(current.low());
         if (strict) {
             // A wick inside the band is not a re-entry; CLOSE must be back inside.
             var bb = bands.bands(completed5m);
@@ -118,9 +123,7 @@ final class BollingerReversalConfirmation {
                     : current.close().compareTo(previous.low()) < 0;
             if (!broke) return new Step(false,false,false,null);
         }
-        var pattern = classify(current, previous, pending.side(), highBefore, lowBefore);
-        highBefore = highBefore.max(current.high());
-        lowBefore = lowBefore.min(current.low());
+        var pattern = classify(current, previous, pending.side(), priorHigh, priorLow);
         if (pattern == null) return new Step(false,false,false,null);
         var confirmed = new Confirmation(pending, current.closeTime(), pattern,
                 lowBefore, highBefore);
