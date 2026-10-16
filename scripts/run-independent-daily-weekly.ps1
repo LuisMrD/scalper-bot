@@ -2,7 +2,7 @@
 .SYNOPSIS
   Six disjoint 30-closed-daily-bar paper studies, with completed weekly trend.
 .DESCRIPTION
-  Runs BTC/SOL/DOGE in separate independent research accounts (8 LONG/SHORT arms each),
+  Runs BTC/SOL/DOGE in 4 independent LONG/SHORT pullback-only accounts,
   exports windows, aggregate, trades, diagnostics, rejection counts and frozen
   configuration into results/. All strategy/capital/risk parameters come from
   an EXPLICIT editable research JSON. No order placement or paid AI.
@@ -101,13 +101,15 @@ if ($PrintOnly) {
     Write-Output 'RESEARCH=INDEPENDENT_DAILY_WITH_CLOSED_WEEKLY_TREND'
     Write-Output 'PRIMARY=1d'
     Write-Output 'HIGHER_TREND=1w'
+    Write-Output 'ACTIVE_SETUP=PULLBACK_ONLY'
+    Write-Output 'WEEKLY_FILTER=CLOSED_WEEKLY_EMA21_SLOPE'
     Write-Output 'ORDERS_ENABLED=false'
     Write-Output 'FINANCIAL_INPUTS=EXPLICIT_RESEARCH_CONFIG_NOT_VIDEO_DEFAULTS'
     Write-Output "SYMBOLS=$($symbols -join ',')"
     Write-Output "WINDOWS=$windows"
     Write-Output "STEPS=$steps"
     Write-Output "CONTEXT_WEEKS=$context"
-    Write-Output "PORTFOLIOS=$($symbols.Count * $windows * 8)"
+    Write-Output "PORTFOLIOS=$($symbols.Count * $windows * 4)"
     Write-Output "AS_OF=$($asOfMs -as [string])"
     if ($null -ne $asOfMs) {
         for ($w=1; $w -le $windows; $w++) {
@@ -195,9 +197,7 @@ foreach($symbol in $symbols) {
     }
 }
 $arms = @('TREND_PULLBACK','TREND_PULLBACK_MIXED',
-    'RANGE_BREAKOUT','RANGE_BREAKOUT_RETEST',
-    'TREND_PULLBACK_SHORT','TREND_PULLBACK_MIXED_SHORT',
-    'RANGE_BREAKOUT_SHORT','RANGE_BREAKOUT_RETEST_SHORT')
+    'TREND_PULLBACK_SHORT','TREND_PULLBACK_MIXED_SHORT')
 $windowRows = New-Object System.Collections.Generic.List[object]
 $tradeRows = New-Object System.Collections.Generic.List[object]
 $diagnosticRows = New-Object System.Collections.Generic.List[object]
@@ -237,7 +237,7 @@ foreach ($symbol in $symbols) {
         if ($response.symbol -ne $symbol -or $response.interval -ne '1d' -or
             [long]$response.lastClose -ne $end -or
             [int]$response.completedBars -ne $steps -or
-            @($response.portfolios.PSObject.Properties).Count -ne 8 -or
+            @($response.portfolios.PSObject.Properties).Count -ne 4 -or
             -not $response.executionModel.Contains('NO_REAL_ORDERS')) {
             throw "Unexpected research response for $symbol window $w (fail closed)"
         }
