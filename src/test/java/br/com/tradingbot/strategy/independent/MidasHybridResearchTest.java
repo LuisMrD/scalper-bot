@@ -47,6 +47,20 @@ class MidasHybridResearchTest {
         assertEquals(MidasEntryPolicy.MIDAS_PULLBACK_REJECTION,
                 MidasHybridPolicy.HYBRID_LONG_BASELINE_SHORT_MIDAS_RETEST.entryPolicy(true));
     }
+    @Test void setupDirectionNeverDependsOnHybridPolicyNameContainingShort() {
+        assertFalse(IndependentPaperPortfolio.isShortSetupArm(
+                "TREND_PULLBACK_MIXED__BASELINE"));
+        assertFalse(IndependentPaperPortfolio.isShortSetupArm(
+                "TREND_PULLBACK_MIXED__HYBRID_LONG_BASELINE_SHORT_MIDAS_RETEST"),
+                "LONG hybrid must not be interpreted as SHORT due to policy suffix");
+        assertTrue(IndependentPaperPortfolio.isShortSetupArm(
+                "TREND_PULLBACK_MIXED_SHORT__BASELINE"));
+        assertTrue(IndependentPaperPortfolio.isShortSetupArm(
+                "TREND_PULLBACK_MIXED_SHORT__HYBRID_LONG_BASELINE_SHORT_MIDAS_RETEST"));
+        assertFalse(IndependentPaperPortfolio.isShortSetupArm("TREND_PULLBACK_MIXED"));
+        assertTrue(IndependentPaperPortfolio.isShortSetupArm("TREND_PULLBACK_MIXED_SHORT"));
+    }
+
     @Test void previouslyTuned450DayResearchIsNeverAcceptedAsProspectiveOos(){
         var market=mock(MarketDataService.class);
         var context=mock(MarketContextService.class);
