@@ -218,7 +218,7 @@ class IndependentSetupAcceptanceTest {
     }
     private static IndependentResearchRequest research(BigDecimal fee,int leverage,
             BigDecimal maintenance) {
-        return new IndependentResearchRequest("BTCUSDT",100,100,"15m",
+        return new IndependentResearchRequest("BTCUSDT",100,100,"5m","15m",
                 BASE+100*CandleInterval.M5.millis()-1,params(),
                 bd("1000"),bd("1"),bd("3"),leverage,fee,
                 bd("0"),bd("0"),bd("0"),maintenance,
