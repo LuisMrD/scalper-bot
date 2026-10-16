@@ -52,6 +52,25 @@ public final class IndependentResearchController {
         return service.backtestStops(request);
     }
 
+    @GetMapping("/reversal-study/status")
+    public Map<String,Object> reversalStudyStatus() {
+        return Map.of(
+                "mode","PAPER_ONLY",
+                "ordersEnabled",false,
+                "symbol","BTCUSDT",
+                "entryInterval","15m",
+                "trendInterval","1d",
+                "policyCount",ReversalExitPolicy.values().length,
+                "baseArms",2,
+                "policies",java.util.Arrays.stream(ReversalExitPolicy.values())
+                        .map(Enum::name).toList());
+    }
+    @PostMapping("/backtest-reversal")
+    public IndependentResearchService.Report backtestReversal(
+            @RequestBody IndependentResearchRequest request) {
+        return service.backtestReversal(request);
+    }
+
     @PostMapping("/backtest")
     public IndependentResearchService.Report backtest(
             @RequestBody IndependentResearchRequest request) {
