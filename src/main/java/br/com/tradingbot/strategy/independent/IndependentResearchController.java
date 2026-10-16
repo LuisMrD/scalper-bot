@@ -71,6 +71,26 @@ public final class IndependentResearchController {
         return service.backtestReversal(request);
     }
 
+    @GetMapping("/mixed-baseline-900h/status")
+    public Map<String,Object> mixedBaseline900hStatus() {
+        return Map.of(
+                "mode","PAPER_ONLY",
+                "ordersEnabled",false,
+                "symbol","BTCUSDT",
+                "entryInterval","15m",
+                "trendInterval","1d",
+                "capitalUsdt",600,
+                "barsPerWindow",3600,
+                "windows",12,
+                "baseArms",2,
+                "exitPolicy","BASELINE");
+    }
+    @PostMapping("/backtest-mixed-baseline-900h")
+    public IndependentResearchService.Report backtestMixedBaseline900h(
+            @RequestBody IndependentResearchRequest request) {
+        return service.backtestMixedBaseline900h(request);
+    }
+
     @PostMapping("/backtest")
     public IndependentResearchService.Report backtest(
             @RequestBody IndependentResearchRequest request) {
