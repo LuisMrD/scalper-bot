@@ -73,7 +73,8 @@ public class IndependentWalkForwardService {
             ids.add(report.runId());
         }
         var scores=new ArrayList<ArmScore>();
-        for(var arm:List.of("TREND_PULLBACK","RANGE_BREAKOUT","RANGE_BREAKOUT_RETEST")) {
+        for(var arm:List.of("TREND_PULLBACK","TREND_PULLBACK_MIXED",
+                "RANGE_BREAKOUT","RANGE_BREAKOUT_RETEST")) {
             int tradeCount=0,wins=0;
             BigDecimal realized=BigDecimal.ZERO,marked=BigDecimal.ZERO,
                     grossWins=BigDecimal.ZERO,grossLoss=BigDecimal.ZERO,
