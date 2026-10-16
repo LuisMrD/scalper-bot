@@ -95,8 +95,15 @@ final class IndependentPaperPortfolio {
                     ?unitCosts.divide(distance,MC).multiply(HUNDRED):HUNDRED;
             BigDecimal riskBudget=cash.multiply(percent(r.riskPerTradePct()),MC);
             BigDecimal dailyLimit=r.capitalUsdt().multiply(percent(r.dailyStopPct()));
+            // Conservative HYPOTHETICAL long liquidation approximation only.
+            // Exact Binance liquidation also depends on notional tiers, wallet
+            // balance, cross/isolated margin, maintenance fees and mark price.
+            BigDecimal liquidationFloor=fill.multiply(
+                    BigDecimal.ONE.subtract(BigDecimal.ONE.divide(
+                            BigDecimal.valueOf(r.leverage()),MC))
+                    .add(percent(r.assumedMaintenanceMarginPct())),MC);
             if(realizedToday.compareTo(dailyLimit.negate())<=0
-                    ||distance.signum()<=0
+                    ||distance.signum()<=0 || stop.compareTo(liquidationFloor)<=0
                     ||costRatio.compareTo(r.maxCostToInitialRiskPct())>0) {
                 blockedEntries++;
             }else{
