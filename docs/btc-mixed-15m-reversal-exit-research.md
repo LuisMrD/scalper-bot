@@ -15,12 +15,14 @@ estrutural, o trailing atual e o limite de 30 candles (7,5 horas) como proteçã
   misto não são modificados. Recuso tradicional e breakout não participam.
 - Seis janelas não sobrepostas de **600 horas = 2.400 candles 15m**,
   encerrando em `2026-10-15T23:59:59.999Z`.
-- Duas políticas independentes em cada braço: `BASELINE` (stop estrutural
-  com trailing original e máximo 30 candles) e
-  `PRICE_ACTION_VOLUME_REVERSAL` (todas essas proteções **mais** uma
-  saída por reversão confirmada no fechamento).
-- **24 carteiras paper** no total = 1 moeda × 6 janelas × 2 setups mistos ×
-  2 políticas de saída. Cada carteira inicia com US$1.500 hipotéticos;
+- Três políticas independentes em cada braço: `BASELINE` (stop estrutural
+  com trailing original e máximo 30 candles),
+  `PRICE_ACTION_VOLUME_REVERSAL` (reversão preço + volume) e
+  `PRICE_ACTION_VOLUME_STRUCTURE_REVERSAL` (reversão preço + volume
+  **mais quebra do último pivô confirmado**). As proteções de baseline
+  continuam operantes nas três políticas.
+- **36 carteiras paper** no total = 1 moeda × 6 janelas × 2 setups mistos ×
+  3 políticas de saída. Cada carteira inicia com US$1.500 hipotéticos;
   não há soma legítima de contas distintas como se fossem uma única conta.
 - Parâmetros de preço, EMA9/21 de entrada, volume, estrutura, stops iniciais,
   trailing, tamanho da posição, custos, funding assumido e gestão de risco são
@@ -52,9 +54,22 @@ apresentados como citação literal do vídeo, de Brooks ou de Coulling.
 Sinais dependentes de apenas pavio, apenas volume ou apenas candle contrário
 **não** provocam encerramento.
 
-Quando as quatro condições forem satisfeitas, o encerramento é **agendado
-para o open do candle seguinte** usando os mesmos spread/slippage adversos e
-taxas de execução. Não existe execução no candle que acaba de confirmar;
+Na nova política **PRICE_ACTION_VOLUME_STRUCTURE_REVERSAL**, todas as quatro
+condições são necessárias **e** deve existir um pivô confirmado pelos seus
+`pivotLeft=2` e `pivotRight=2` candles **já fechados antes do candle que
+confirma a reversão**. Para encerrar LONG, exige que o fechamento atual
+rompa **abaixo** da mínima do **último swing low confirmado**; para SHORT,
+exige rompimento de fechamento **acima** do último swing high confirmado.
+O candle imediatamente anterior ainda precisa fechar do lado original
+do nível (quebra nova, não um rompimento antigo). O pivô não pode ser
+confirmado usando o próprio candle de reversão; pavio que atravesse o
+nível sem fechamento não confirma. Na ausência de pivô válido, a política
+estrutural não dispara saída antecipada. Esta definição é uma **hipótese
+de engenharia para pesquisa**, não uma regra atribuída literalmente a Brooks.
+
+Quando todas as condições da política selecionada forem satisfeitas, o
+encerramento é **agendado para o open do candle seguinte** com os mesmos
+spread/slippage adversos e taxas de execução. Não existe execução no candle que acaba de confirmar;
 sem lookahead. O stop estrutural original continua ativo intrabar com prioridade
 sobre novas confirmações de saída. O máximo de 7,5 horas continua valendo.
 
@@ -71,10 +86,11 @@ O script `scripts/run-btc-15m-mixed-reversal.ps1` exporta seis artefatos com
 prefixo `BTC-mixed-reversal-15m-1d-600h` para `results/`:
 `windows`, `aggregate`, `trades`, `diagnostics`, `rejections` e
 `config`. Campos financeiros incluem `BaseSetup` e `ExitPolicy`, razão da
-saída `STOP` / `MAX_HOLDING` / `REVERSAL_PRICE_VOLUME`, MFE/MAE/NetR,
+saída `STOP` / `MAX_HOLDING` / `REVERSAL_PRICE_VOLUME` /
+`REVERSAL_PRICE_VOLUME_STRUCTURE`, MFE/MAE/NetR,
 resultado realizado, taxas, funding, mark-to-market e drawdown.
 
-Os diagnósticos de **entradas** são compartilhados entre as duas políticas,
+Os diagnósticos de **entradas** são compartilhados entre as três políticas,
 sem duplicar os mesmos eventos. O conjunto efetivo de operações abertas pode
 divergir ao longo do tempo quando políticas encerram posições em momentos
 diferentes. Por isso, comparar P&L sem conferir número e identidade dos trades
@@ -99,7 +115,7 @@ reinicie o backend:
 Em outro terminal:
 
 ```powershell
-# Apenas conferir as 6 janelas e 24 carteiras, sem chamadas à API:
+# Apenas conferir as 6 janelas e 36 carteiras, sem chamadas à API:
 .\scripts\run-btc-15m-mixed-reversal.ps1 -AsOfDateUtc 2026-10-15 -PrintOnly
 
 # Usar os candles BTC 15m/1d já armazenados no MySQL:
