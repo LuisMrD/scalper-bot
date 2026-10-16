@@ -11,6 +11,7 @@ public record IndependentResearchRequest(
         BigDecimal dailyStopPct,int leverage,
         BigDecimal feePerSidePct,BigDecimal slippagePerSidePct,
         BigDecimal spreadPct,BigDecimal assumedFundingPer8hPct,
+        BigDecimal assumedMaintenanceMarginPct,
         BigDecimal priceTick,BigDecimal quantityStep,
         BigDecimal minimumQuantity,BigDecimal minimumNotionalUsdt,
         BigDecimal maxCostToInitialRiskPct, int maxHoldingCandles) {
@@ -35,6 +36,7 @@ public record IndependentResearchRequest(
         nonnegative(slippagePerSidePct,"slippagePerSidePct");
         nonnegative(spreadPct,"spreadPct");
         Objects.requireNonNull(assumedFundingPer8hPct,"assumedFundingPer8hPct is mandatory (explicit hypothesis)");
+        nonnegative(assumedMaintenanceMarginPct,"assumedMaintenanceMarginPct");
         positive(priceTick,"priceTick");
         positive(quantityStep,"quantityStep");
         positive(minimumQuantity,"minimumQuantity");
