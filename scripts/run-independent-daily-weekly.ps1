@@ -239,6 +239,20 @@ foreach ($symbol in $symbols) {
             -not $response.executionModel.Contains('NO_REAL_ORDERS')) {
             throw "Unexpected research response for $symbol window $w (fail closed)"
         }
+        $expectedObservations=$arms.Count*($steps-1)
+        $observations=@($response.events)
+        if($observations.Count -ne $expectedObservations) {
+            throw "Incomplete weekly per-bar diagnostics for $symbol window $w: got $($observations.Count), expected $expectedObservations"
+        }
+        foreach($observation in $observations) {
+            if($observation.arm -notin $arms -or
+                [long]$observation.higherCandleCloseTime -gt [long]$observation.closeTime -or
+                [string]::IsNullOrWhiteSpace([string]$observation.higherTrend) -or
+                $null -eq $observation.higherTrendApproved -or
+                $null -eq $observation.candidateBeforeHigherTrend) {
+                throw "Missing or noncausal weekly reference in $symbol window $w"
+            }
+        }
         foreach ($arm in $arms) {
             $slot=$response.portfolios.PSObject.Properties[$arm]
             if ($null -eq $slot) { throw "Missing independent arm $arm for $symbol" }
