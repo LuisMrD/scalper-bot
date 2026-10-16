@@ -78,5 +78,8 @@ jobs:
       - name: Validate BTC stop variants and 6 x 600h paper plan (offline)
         shell: pwsh
         run: ./scripts/tests/test-btc-15m-stop-study.ps1
+      - name: Validate BTC mixed reversal exit paper comparison (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-btc-15m-mixed-reversal.ps1
       - name: Validate and test (no real orders)
         run: mvn -B -ntp verify
