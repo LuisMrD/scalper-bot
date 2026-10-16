@@ -276,10 +276,14 @@ final class IndependentPaperPortfolio {
         updateDrawdown(candle.close());
         // All candidates are calculated AFTER the completed bar: effective
         // only on the NEXT 15m bar, never on the candle used to calculate ATR.
-        if(stopPolicy.breakEven()||stopPolicy.atrTrailing()) {
+        if(stopPolicy.atrTrailing()) {
             applyExperimentalTrailing(candle,history);
-            return;
+            return; // ATR trail REPLACES structural trailing only in this arm.
         }
+        if(stopPolicy.breakEven())
+            applyExperimentalTrailing(candle,history);
+        // Legacy structural trailing remains active in BASELINE, ATR initial
+        // buffers and BREAK_EVEN; break-even is an ADDITIONAL monotone floor.
         // Trail only after user-configured favorable movement in initial R.
         // A confirmed structural low may tighten but can NEVER widen the stop.
         BigDecimal favorable=directionalPnl(position.entry,candle.close());
