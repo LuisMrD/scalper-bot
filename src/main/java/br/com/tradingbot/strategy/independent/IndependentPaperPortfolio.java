@@ -24,7 +24,18 @@ final class IndependentPaperPortfolio {
             BigDecimal entry,BigDecimal exit,BigDecimal initialStop,
             BigDecimal quantity,BigDecimal netPnlUsdt,
             BigDecimal totalFeesUsdt,BigDecimal fundingUsdt,String reason,
-            BigDecimal mfeR,BigDecimal maeR,BigDecimal netR) {}
+            BigDecimal mfeR,BigDecimal maeR,BigDecimal netR) {
+        // Backward-compatible constructor for legacy research fixtures;
+        // production stop-study fills the three extra excursion fields.
+        Trade(long signalCloseTime,long entryOpenTime,long exitOpenTime,
+                BigDecimal entry,BigDecimal exit,BigDecimal initialStop,
+                BigDecimal quantity,BigDecimal netPnlUsdt,
+                BigDecimal totalFeesUsdt,BigDecimal fundingUsdt,String reason) {
+            this(signalCloseTime,entryOpenTime,exitOpenTime,entry,exit,initialStop,
+                    quantity,netPnlUsdt,totalFeesUsdt,fundingUsdt,reason,
+                    BigDecimal.ZERO,BigDecimal.ZERO,BigDecimal.ZERO);
+        }
+    }
     record Summary(String arm,BigDecimal initialCapital,BigDecimal finalMarkedEquity,
             BigDecimal realizedNetUsdt,BigDecimal totalFeesUsdt,
             BigDecimal totalFundingUsdt,int closedTrades,int wins,
