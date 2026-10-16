@@ -1,5 +1,5 @@
 {
-  "_notice": "BTCUSDT ONLY: experimental mixed LONG/SHORT confirmed price-action plus aggressive-volume exit vs unchanged structural-stop control, 6 disjoint 600h windows 15m/1d, PAPER ONLY; all signal, stop, cost and risk inputs unchanged.",
+  "_notice": "BTCUSDT mixed LONG/SHORT; 3 exit policies: original protective stop/trailing, simple strong PA+aggressor volume reversal, and the same confirmation PLUS fresh close across latest previously confirmed swing support/resistance. 6 disjoint 600h windows, 15m/closed 1d direction, PAPER ONLY. Technical entries, fees, risk and max holding unchanged.",
   "symbols": [
     "BTCUSDT"
   ],
@@ -46,6 +46,7 @@
   "trendInterval": "1d",
   "exitPolicies": [
     "BASELINE",
-    "PRICE_ACTION_VOLUME_REVERSAL"
+    "PRICE_ACTION_VOLUME_REVERSAL",
+    "PRICE_ACTION_VOLUME_STRUCTURE_REVERSAL"
   ]
 }
