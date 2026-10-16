@@ -19,7 +19,8 @@ public final class IndependentResearchController {
     public Map<String,Object> status() {
         return Map.of("mode","PAPER_ONLY","ordersEnabled",false,
                 "combinedStrategyEnabled",false,
-                "timeframe","5m","setupCount",2,
+                "entryTimeframes",java.util.List.of("5m","1d"),
+                "higherTrendForDaily","1w","setupCount",2,
                 "paperVariants",3,"userThresholdsRequired",true);
     }
     @PostMapping("/backtest")
