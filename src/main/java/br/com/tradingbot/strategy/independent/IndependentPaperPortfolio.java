@@ -42,15 +42,16 @@ final class IndependentPaperPortfolio {
     private boolean exitNextOpen;
     private String exitReason;
     private int acceptedSignals,blockedEntries;
-    private record Pending(long signalClose,BigDecimal stop) {}
+    private record Pending(long signalClose,BigDecimal stop,BigDecimal frozenBoxBase) {}
     private static final class Position {
         final long signalClose, entryAt;
-        final BigDecimal entry,initialStop,qty,entryFee;
+        final BigDecimal entry,initialStop,qty,entryFee,frozenBoxBase;
         BigDecimal stop,fees,funding=BigDecimal.ZERO;
         int heldBars;
         Position(Pending p,long entered,BigDecimal price,BigDecimal qty,BigDecimal fee) {
             signalClose=p.signalClose;entryAt=entered;entry=price;
             initialStop=p.stop;stop=p.stop;this.qty=qty;
+            frozenBoxBase=p.frozenBoxBase();
             entryFee=fee;fees=fee;
         }
     }
@@ -146,7 +147,7 @@ final class IndependentPaperPortfolio {
             if(s.actionable()&&pending==null) {
                 BigDecimal stop=floorStep(s.structuralStop(),r.priceTick());
                 if(stop.signum()>0&&stop.compareTo(candle.close())<0) {
-                    pending=new Pending(s.candleCloseTime(),stop);
+                    pending=new Pending(s.candleCloseTime(),stop,s.frozenBoxBase());
                     acceptedSignals++;
                 }else blockedEntries++;
             }
@@ -160,13 +161,16 @@ final class IndependentPaperPortfolio {
             funding=funding.add(charged);
             position.funding=position.funding.add(charged);
         }
-        if(s.status()==IndependentSetupSignal.Status.INVALIDATED
-                && "CLOSE_BELOW_FROZEN_BOX_BASE".equals(s.reason())) {
+        if((position.frozenBoxBase!=null
+                    &&candle.close().compareTo(position.frozenBoxBase)<0)
+                ||(s.status()==IndependentSetupSignal.Status.INVALIDATED
+                    &&"CLOSE_BELOW_FROZEN_BOX_BASE".equals(s.reason()))) {
             exitNextOpen=true;exitReason="BOX_BASE_INVALIDATION";
         }
         if(position.heldBars>=r.maxHoldingCandles()) {
             exitNextOpen=true;exitReason="MAX_HOLDING";
         }
+        updateDrawdown(candle.close());
         // Only pivots whose right confirmation is CLOSED may tighten stop.
         var pivots=pivots(history,history.size(),r.parameters().pivotLeft(),
                 r.parameters().pivotRight());
@@ -178,6 +182,15 @@ final class IndependentPaperPortfolio {
                         &&candidate.compareTo(candle.close())<0)position.stop=candidate;
             }
         }
+    }
+    private void updateDrawdown(BigDecimal lastPrice) {
+        BigDecimal marked=cash;
+        if(position!=null)marked=marked.add(lastPrice.subtract(position.entry)
+                .multiply(position.qty,MC));
+        peak=peak.max(marked);
+        if(peak.signum()>0)
+            worstDrawdown=worstDrawdown.max(peak.subtract(marked)
+                    .divide(peak,MC).multiply(HUNDRED));
     }
     Summary summary(MarketCandle last) {
         BigDecimal marked=cash;
