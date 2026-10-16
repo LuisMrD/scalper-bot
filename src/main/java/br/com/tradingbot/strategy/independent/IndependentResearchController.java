@@ -147,6 +147,31 @@ public final class IndependentResearchController {
         return service.backtestMidasHybridOos900h(request);
     }
 
+    @GetMapping("/dynamic-holding/status")
+    public Map<String,Object> dynamicHoldingStatus() {
+        return Map.ofEntries(
+                Map.entry("mode","PAPER_ONLY"),
+                Map.entry("ordersEnabled",false),
+                Map.entry("symbol","BTCUSDT"),
+                Map.entry("entryInterval","15m"),
+                Map.entry("trendInterval","1d"),
+                Map.entry("capitalUsdt",600),
+                Map.entry("barsPerWindow",3600),
+                Map.entry("windows",12),
+                Map.entry("baseArms",2),
+                Map.entry("midasWarmupBars",1000),
+                Map.entry("hybridEntryPolicy","HYBRID_LONG_BASELINE_SHORT_MIDAS_RETEST"),
+                Map.entry("originalStop","BASELINE"),
+                Map.entry("holdingPolicies",java.util.Arrays.stream(HoldingExitPolicy.values())
+                        .map(Enum::name).toList()));
+    }
+
+    @PostMapping("/backtest-dynamic-holding")
+    public IndependentResearchService.Report backtestDynamicHolding(
+            @RequestBody IndependentResearchRequest request) {
+        return service.backtestDynamicHolding900h(request);
+    }
+
     @PostMapping("/backtest")
     public IndependentResearchService.Report backtest(
             @RequestBody IndependentResearchRequest request) {
