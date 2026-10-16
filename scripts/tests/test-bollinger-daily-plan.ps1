@@ -12,14 +12,15 @@ if($daily -notcontains 'MARKET_DATA_INTERVALS=1m,5m,15m,1d'){
 }
 $plan=@(& $runner -PrintOnly)
 foreach($line in @(
-    'RESEARCH=DAILY_30_CANDLES_4_INDEPENDENT_ARMS',
+    'RESEARCH=DAILY_30_CANDLES_6_INDEPENDENT_ARMS',
     'HOURS_PER_WINDOW=720',
     'WINDOWS=6',
     'COMPLETE_DAILY_CANDLES_PER_WINDOW=30',
-    'TOTAL_INDEPENDENT_PORTFOLIOS=72',
+    'TOTAL_INDEPENDENT_PORTFOLIOS=108',
     'STOP_MODES=STRUCTURAL,ONE_TICK_BEYOND_EXTREME',
     'MINIMUM_NET_REWARD_RISK=1.5',
     'SIGNAL_DIAGNOSTICS=BOTH_STOPS_ALL_FILTERS',
+    'VPA_MODES=DIRECTIONAL_LEGACY,SEQUENCE_EFFORT_RESULT',
     'CSV_OUTPUTS=WINDOWS,AGGREGATE,TRADES,DIAGNOSTICS',
     'NO_LUNA=true','NO_ORDERS=true'
 )){
@@ -50,4 +51,4 @@ foreach($line in $windows){
     }
     $previous=$ws
 }
-Write-Host 'PASS: 3 symbols x 6 30-day windows x 4 independent portfolios; 30 complete daily candles each'
+Write-Host 'PASS: 3 symbols x 6 30-day windows x 6 independent portfolios; 30 complete daily candles each'
