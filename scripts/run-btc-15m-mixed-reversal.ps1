@@ -1,8 +1,8 @@
 <#
 .SYNOPSIS
-  BTC-only: six disjoint 600-hour 15m/1d windows; 2 exit policies x 2 mixed entry arms.
+  BTC-only: six disjoint 600-hour 15m/1d windows; 3 exit policies x 2 mixed entry arms.
 .DESCRIPTION
-  Runs BTC in four isolated mixed LONG/SHORT x exit-policy paper accounts,
+  Runs BTC in six isolated mixed LONG/SHORT x exit-policy paper accounts,
   exports windows, aggregate, trades, diagnostics, rejection counts and frozen
   configuration into results/. All strategy/capital/risk parameters come from
   an EXPLICIT editable research JSON. No order placement or paid AI.
@@ -62,10 +62,10 @@ $symbols = @($config.symbols)
 if ($symbols.Count -ne 1 -or $symbols[0] -cne 'BTCUSDT') {
     throw 'Stop study must contain BTCUSDT only'
 }
-if (@($config.exitPolicies).Count -ne 2 -or
+if (@($config.exitPolicies).Count -ne 3 -or
     (($config.exitPolicies -join ',') -cne
-        'BASELINE,PRICE_ACTION_VOLUME_REVERSAL')) {
-    throw 'Only BASELINE and PRICE_ACTION_VOLUME_REVERSAL exit policies are supported'
+        'BASELINE,PRICE_ACTION_VOLUME_REVERSAL,PRICE_ACTION_VOLUME_STRUCTURE_REVERSAL')) {
+    throw 'Three explicit and frozen BTC mixed exit policies are required'
 }
 if ($symbols.Count -eq 0 -or @($symbols | Select-Object -Unique).Count -ne $symbols.Count) {
     throw 'Configure distinct USDT symbols'
@@ -164,7 +164,7 @@ if ([int]$status.paperVariants -ne 4 -or
 }
 $policyStatus = Invoke-RestMethod -Uri "$base/api/v1/research/independent-setups/reversal-study/status" -TimeoutSec 15
 if($policyStatus.mode -ne 'PAPER_ONLY' -or $policyStatus.ordersEnabled -ne $false -or
-   $policyStatus.symbol -ne 'BTCUSDT' -or $policyStatus.policyCount -ne 2 -or $policyStatus.baseArms -ne 2 -or
+   $policyStatus.symbol -ne 'BTCUSDT' -or $policyStatus.policyCount -ne 3 -or $policyStatus.baseArms -ne 2 -or
    (($policyStatus.policies -join ',') -cne ($config.exitPolicies -join ','))) {
     throw 'Restart backend: BTC mixed reversal endpoint /reversal-study/status must match frozen exit policies'
 }
@@ -292,7 +292,7 @@ foreach ($symbol in $symbols) {
         if ($response.symbol -ne $symbol -or $response.interval -ne '15m' -or
             [long]$response.lastClose -ne $end -or
             [int]$response.completedBars -ne $steps -or
-            @($response.portfolios.PSObject.Properties).Count -ne 4 -or
+            @($response.portfolios.PSObject.Properties).Count -ne 6 -or
             -not $response.executionModel.Contains('BTC_MIXED_REVERSAL_EXIT_RESEARCH') -or
             -not $response.executionModel.Contains('NO_REAL_ORDERS')) {
             throw "Unexpected research response for $symbol window $w (fail closed)"
@@ -433,4 +433,4 @@ if($rejectionRows.Count -gt 0) {
 [System.IO.File]::WriteAllText($paths.config, $configText, (New-Object System.Text.UTF8Encoding($false)))
 $aggregate | Format-Table -AutoSize
 foreach($item in $paths.GetEnumerator()){ Write-Host "Saved $($item.Key): $($item.Value)" }
-Write-Host 'PAPER ONLY: BTC, 2 exit policies x 2 MIXED entry arms x 6 independent 600h windows. Protective stops remain active. Positions reset across windows.'
+Write-Host 'PAPER ONLY: BTC, 3 exit policies x 2 MIXED entry arms x 6 independent 600h windows. Protective stops remain active. Positions reset across windows.'
