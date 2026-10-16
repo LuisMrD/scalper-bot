@@ -41,12 +41,16 @@ class BollingerDailyComparisonServiceTest {
                 ReentryWaitPolicy.NONE)).thenReturn(replay);
         when(backtests.runBollingerStudyDaily(eq(req), anyBoolean(),
                 any(BollingerFilteredPolicy.StopMode.class))).thenReturn(study);
+        when(backtests.runBollingerStudyDaily(eq(req), eq(true),
+                any(BollingerFilteredPolicy.StopMode.class),
+                eq(BollingerFilteredPolicy.VolumeMode.SEQUENCE_EFFORT_RESULT)))
+                .thenReturn(study);
 
         var report = new BollingerDailyComparisonService(backtests).compare(req);
-        assertEquals(4, report.summaries().size());
+        assertEquals(6, report.summaries().size());
         assertTrue(report.signalDiagnostics().isEmpty());
         assertEquals("CONTROL", report.summaries().getFirst().arm());
-        assertEquals("FILTERED_BOLLINGER_EXTREME", report.summaries().getLast().arm());
+        assertEquals("SEQUENCE_VPA_BOLLINGER_EXTREME", report.summaries().getLast().arm());
         assertEquals(30, report.completeDailyCandles());
         assertEquals(0, report.minimumNetRewardRisk().compareTo(new BigDecimal("1.5")));
         verify(backtests).runFiltered(req, EntryBreakoutFilter.BLOCK_BOTH,
@@ -57,6 +61,12 @@ class BollingerDailyComparisonServiceTest {
                 BollingerFilteredPolicy.StopMode.STRUCTURAL);
         verify(backtests).runBollingerStudyDaily(req, true,
                 BollingerFilteredPolicy.StopMode.EXTREME_CANDLE);
+        verify(backtests).runBollingerStudyDaily(req, true,
+                BollingerFilteredPolicy.StopMode.STRUCTURAL,
+                BollingerFilteredPolicy.VolumeMode.SEQUENCE_EFFORT_RESULT);
+        verify(backtests).runBollingerStudyDaily(req, true,
+                BollingerFilteredPolicy.StopMode.EXTREME_CANDLE,
+                BollingerFilteredPolicy.VolumeMode.SEQUENCE_EFFORT_RESULT);
         verifyNoMoreInteractions(backtests);
     }
 
