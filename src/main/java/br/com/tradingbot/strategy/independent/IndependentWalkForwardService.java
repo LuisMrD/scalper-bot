@@ -41,6 +41,7 @@ public class IndependentWalkForwardService {
         for(int i=0;i<windows.size();i++) {
             var w=windows.get(i);
             if(!w.symbol().equals(first.symbol())
+                    ||!w.entryInterval().equals(first.entryInterval())
                     ||!w.trendInterval().equals(first.trendInterval())
                     ||!w.parameters().equals(first.parameters())
                     ||w.steps()!=first.steps()
@@ -61,7 +62,7 @@ public class IndependentWalkForwardService {
                     ||w.maxHoldingCandles()!=first.maxHoldingCandles())
                 throw new IllegalArgumentException("OOS requires identical frozen parameters");
             if(i>0 && windows.get(i-1).asOf()
-                    +w.steps()*CandleInterval.M5.millis()>w.asOf())
+                    +w.steps()*CandleInterval.parse(first.entryInterval()).millis()>w.asOf())
                 throw new IllegalArgumentException("OOS trade windows overlap");
         }
         var reports=new ArrayList<IndependentResearchService.Report>();
