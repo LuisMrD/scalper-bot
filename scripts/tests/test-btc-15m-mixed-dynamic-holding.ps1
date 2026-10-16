@@ -42,7 +42,7 @@ $source=Get-Content -Raw -Encoding UTF8 $runner
 foreach($text in @('dynamic-holding/status','backtest-dynamic-holding',
        'HISTORICAL_INSAMPLE_ONLY','HoldingPolicy=($arm -split ''__'',2)[1]',
        'MidasAnchorOpenTime=$midTrend.anchorOpenTime',
-       "ExitPolicy=($arm -split '__',2)[1]",
+       'ExitPolicy=($arm -split ''__'',2)[1]',
        'AddHours(-900*$windows).AddDays(-75)')) {
     if(-not $source.Contains($text)){throw "Dynamic study export/safety not found: $text"}
 }
