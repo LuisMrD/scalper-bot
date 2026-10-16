@@ -112,8 +112,12 @@ public class IndependentResearchService {
             }
             var observed=higherContext.at(c.closeTime());
             var higher=observed.timeframes().get(1);
-            WeeklyEmaDirection.Direction weekly=WeeklyEmaDirection.fromClosedWeeks(
-                    higher.recentCandles(),c.closeTime());
+            // 1d/1w retains its existing weekly filter; 15m/1d reads
+            // ONLY completed UTC daily bars. No unfinished higher candle.
+            WeeklyEmaDirection.Direction direction =
+                    "1d".equals(request.trendInterval())
+                        ?DailyEmaDirection.fromClosedDays(higher.recentCandles(),c.closeTime())
+                        :WeeklyEmaDirection.fromClosedWeeks(higher.recentCandles(),c.closeTime());
             var signals=List.of(
                     pullback.evaluate(history,request.priceTick()),
                     mixedPullback.evaluate(history,request.priceTick()),
@@ -122,7 +126,7 @@ public class IndependentResearchService {
             for(var original:signals) {
                 var signal=original;
                 boolean dailyCandidate=original.actionable();
-                boolean weeklyApproved=WeeklyEmaDirection.allows(weekly,signal.side());
+                boolean weeklyApproved=WeeklyEmaDirection.allows(direction,signal.side());
                 if(!weeklyApproved && dailyCandidate) {
                     String reason=signal.side()==IndependentSetupSignal.Side.SHORT
                             ?"HIGHER_TIMEFRAME_NOT_DOWN":"HIGHER_TIMEFRAME_NOT_UP";
@@ -137,11 +141,10 @@ public class IndependentResearchService {
                 var account=accounts.get(arm);
                 account.count(signal);
                 account.close(c,signal,history);
-                // Every closed daily bar in every arm has a weekly diagnosis,
-                // including WAIT days with no other failed filters. The 1w
-                // observation was already validated as fully closed above.
+                // Every fully closed primary bar reports its last completed
+                // higher-timeframe EMA21 direction. WAIT bars are included.
                 events.add(new Event(arm,c.closeTime(),signal.status().name(),
-                        signal.reason(),signal,weekly.name(),
+                        signal.reason(),signal,direction.name(),
                         higher.recentCandles().getLast().closeTime(),
                         weeklyApproved,dailyCandidate));
             }
@@ -159,10 +162,10 @@ public class IndependentResearchService {
         return new Report(runId,request.symbol(),request.entryInterval(),first.openTime(),
                 tape.getLast().closeTime(),request.steps(),
                 "PAPER_ONLY; T+1_OPEN; STOP_FIRST; PRIMARY_" + request.entryInterval()
-                + "; HIGHER_TREND_" + request.trendInterval() + "; ONLY_CLOSED_WEEKLY_BARS; "
+                + "; HIGHER_TREND_" + request.trendInterval() + "; ONLY_COMPLETED_HIGHER_BARS; "
                 + "FIXED_ASSUMED_FEES_SPREAD_SLIPPAGE_FUNDING; "
                 + "STRICT_AND_MIXED_PULLBACK_ONLY; NO_RANGE_BOX_STRATEGY; "
-                + "WEEKLY_EMA21_SLOPE_ONLY; COMPLETED_WEEKLY_BARS_ONLY; "
+                + "HIGHER_EMA21_SLOPE_ONLY; CLOSED_1D_FOR_15M_CLOSED_1W_FOR_1D; "
                 + "INDEPENDENT_LONG_SHORT_PAPER_ACCOUNTS; "
                 + "NO_REAL_ORDERS; NO_COMBINED_ARBITRATION",
                 Map.copyOf(summaries),List.copyOf(events),Map.copyOf(rejectionCounts));
