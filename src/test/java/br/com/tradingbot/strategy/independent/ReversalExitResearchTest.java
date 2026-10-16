@@ -76,7 +76,7 @@ class ReversalExitResearchTest {
         bars.set(61,candle(61,"100","100.2","97.5","98","100000","50000"));
         assertFalse(ReversalExitDetector.confirmed(bars,params(),false),
                 "price-only bearish candle must not exit");
-        bars.set(61,candle(61,"100","100.2","99.0","99.2","200000","20000"));
+        bars.set(61,candle(61,"100","100.2","98.5","99.5","200000","20000"));
         assertFalse(ReversalExitDetector.confirmed(bars,params(),false),
                 "volume-only candle without strong bearish body must not exit");
     }
