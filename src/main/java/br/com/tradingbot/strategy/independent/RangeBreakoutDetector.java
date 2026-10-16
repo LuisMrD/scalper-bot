@@ -90,9 +90,10 @@ public final class RangeBreakoutDetector {
             }
         }
 
-        // The box is first qualified strictly on [n-1-boxBars, n-1):
-        // the current bar is not permitted to alter its top or base.
-        var box=frozenBeforeCurrent(tape);
+        // Freeze a candidate ONCE, using bars already closed before breakout.
+        // Later bars cannot redefine resistance (not even after a wick).
+        if(pending==null)pending=frozenBeforeCurrent(tape);
+        var box=pending;
         if(box==null)
             return IndependentSetupSignal.rejected(setup,current.closeTime(),
                     "NO_PRECONFIRMED_NARROW_DRY_BOX",List.of(),
@@ -100,10 +101,25 @@ public final class RangeBreakoutDetector {
         var pass=new ArrayList<String>();
         var fail=new ArrayList<String>();
         pass.add("BOX_FROZEN_BEFORE_BREAKOUT");
-        if(current.close().compareTo(box.top())<=0)
-            fail.add(current.high().compareTo(box.top())>0
-                    ? "WICK_ONLY_BREAKOUT" : "NO_CLOSE_ABOVE_FROZEN_TOP");
-        else pass.add("CLOSE_ABOVE_FROZEN_TOP");
+        if(current.close().compareTo(box.base())<0) {
+            pending=null;
+            return new IndependentSetupSignal(setup,
+                    IndependentSetupSignal.Status.INVALIDATED,current.closeTime(),
+                    null,null,box.top(),box.base(),"BOX_BASE_BROKEN_PRE_BREAKOUT",
+                    pass,List.of("BOX_BASE_BROKEN_PRE_BREAKOUT"));
+        }
+        if(current.close().compareTo(box.top())<=0) {
+            if(current.high().compareTo(box.top())>0)
+                return new IndependentSetupSignal(setup,
+                        IndependentSetupSignal.Status.WAIT,current.closeTime(),
+                        null,null,box.top(),box.base(),"WICK_ONLY_BREAKOUT",
+                        pass,List.of("WICK_ONLY_BREAKOUT"));
+            return new IndependentSetupSignal(setup,
+                    IndependentSetupSignal.Status.ALERT,current.closeTime(),
+                    null,null,box.top(),box.base(),"FROZEN_BOX_CANDIDATE_WAIT",
+                    pass,List.of());
+        }
+        pass.add("CLOSE_ABOVE_FROZEN_TOP");
         int referenceStart=Math.max(0,n-1-params.volumeLookbackBars());
         BigDecimal baseline=meanVolume(tape,referenceStart,n-1);
         if(baseline.signum()<=0 || current.quoteVolume().compareTo(
@@ -128,6 +144,7 @@ public final class RangeBreakoutDetector {
         if(stop.signum()<=0||stop.compareTo(current.close())>=0)
             return IndependentSetupSignal.rejected(setup,current.closeTime(),
                     "INVALID_BOX_STOP",pass,List.of("INVALID_BOX_STOP"));
+        pending=null; // one confirmed breakout consumes this frozen candidate.
         return new IndependentSetupSignal(setup,IndependentSetupSignal.Status.CONFIRMED,
                 current.closeTime(),current.close(),stop,box.top(),box.base(),
                 "CLOSED_VOLUME_CONFIRMED_BREAKOUT",pass,List.of());
