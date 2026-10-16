@@ -21,6 +21,17 @@ public final class TrendPullbackDetector {
         this.params = Objects.requireNonNull(params);
     }
     public IndependentSetupSignal evaluate(List<MarketCandle> tape,BigDecimal priceTick) {
+        IndependentSetupSignal best=null;
+        for(int k=params.pullbackMinBars();k<=params.pullbackMaxBars();k++) {
+            var candidate=evaluateForLength(tape,priceTick,k);
+            if(candidate.actionable())return candidate;
+            if(best==null || candidate.rejectedFilters().size()
+                    <best.rejectedFilters().size())best=candidate;
+        }
+        return best;
+    }
+    private IndependentSetupSignal evaluateForLength(List<MarketCandle> tape,
+            BigDecimal priceTick,int k) {
         Objects.requireNonNull(priceTick);
         if(priceTick.signum()<=0)throw new IllegalArgumentException("priceTick required");
         check(tape);
@@ -34,7 +45,7 @@ public final class TrendPullbackDetector {
                     IndependentSetupSignal.Setup.TREND_PULLBACK,signalAt,
                     "INSUFFICIENT_HISTORY",passed,List.of("INSUFFICIENT_HISTORY"));
         MarketCandle last=tape.getLast();
-        int k=params.pullbackMinBars();
+        // Evaluate this explicitly configured pullback length without assuming a fixed N.
         // The final k candles BEFORE confirmation must form a retreat.
         int start=n-1-k;
         var structure=risingStructure(tape,start,params);
