@@ -2,7 +2,6 @@ package br.com.tradingbot.strategy.independent;
 
 import br.com.tradingbot.config.TradingProperties;
 import br.com.tradingbot.analysis.context.MarketContextService;
-import br.com.tradingbot.analysis.brooks.PriceActionSnapshot.Trend;
 import br.com.tradingbot.market.model.CandleInterval;
 import br.com.tradingbot.market.model.MarketCandle;
 import br.com.tradingbot.market.service.MarketDataService;
@@ -21,9 +20,8 @@ import org.springframework.web.server.ResponseStatusException;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Completely isolated walk-forward-ready replay for two directional setups (LONG and SHORT in independent portfolios).
- * Research-only: neither order endpoints nor existing DecisionEngine are used.
- * Eight independent paper portfolios; combined live arbitration is disabled.
+ * Independent LONG/SHORT pullback-only historical research. Four paper
+ * portfolios: strict/mixed price-action pullback for each side. No live orders.
  */
 @Service
 public class IndependentResearchService {
@@ -55,12 +53,6 @@ public class IndependentResearchService {
             long lastClose,int completedBars,String executionModel,
             Map<String,IndependentPaperPortfolio.Summary> portfolios,
             List<Event> events,Map<String,Integer> rejectionCounts) {}
-
-    /** Weekly trend must be fully closed before evaluating this side. */
-    static boolean weeklyAllows(Trend trend, IndependentSetupSignal.Side side) {
-        return side==IndependentSetupSignal.Side.SHORT
-                ?trend==Trend.DOWN:trend==Trend.UP;
-    }
 
     public Report backtest(IndependentResearchRequest request) {
         Objects.requireNonNull(request);
@@ -94,28 +86,18 @@ public class IndependentResearchService {
         var pullback=new TrendPullbackDetector(request.parameters());
         var mixedPullback=new TrendPullbackDetector(request.parameters(),
                 TrendPullbackDetector.RetreatMode.MIXED_NET_DECLINE);
-        var immediate=new RangeBreakoutDetector(request.parameters(),
-                RangeBreakoutDetector.Variant.IMMEDIATE);
-        var retest=new RangeBreakoutDetector(request.parameters(),
-                RangeBreakoutDetector.Variant.RETEST);
         var shortStrict=new ShortTrendPullbackDetector(request.parameters(),
                 ShortTrendPullbackDetector.RetreatMode.ALL_BULLISH);
         var shortMixed=new ShortTrendPullbackDetector(request.parameters(),
                 ShortTrendPullbackDetector.RetreatMode.MIXED_NET_RISE);
-        var shortBreak=new ShortRangeBreakoutDetector(request.parameters(),
-                ShortRangeBreakoutDetector.Variant.IMMEDIATE);
-        var shortRetest=new ShortRangeBreakoutDetector(request.parameters(),
-                ShortRangeBreakoutDetector.Variant.RETEST);
         var accounts=new LinkedHashMap<String,IndependentPaperPortfolio>();
         accounts.put("TREND_PULLBACK",new IndependentPaperPortfolio("TREND_PULLBACK",request));
         accounts.put("TREND_PULLBACK_MIXED",
                 new IndependentPaperPortfolio("TREND_PULLBACK_MIXED",request));
-        accounts.put("RANGE_BREAKOUT",new IndependentPaperPortfolio("RANGE_BREAKOUT",request));
-        accounts.put("RANGE_BREAKOUT_RETEST",
-                new IndependentPaperPortfolio("RANGE_BREAKOUT_RETEST",request));
-        for(var shortArm:List.of("TREND_PULLBACK_SHORT","TREND_PULLBACK_MIXED_SHORT",
-                "RANGE_BREAKOUT_SHORT","RANGE_BREAKOUT_RETEST_SHORT"))
-            accounts.put(shortArm,new IndependentPaperPortfolio(shortArm,request));
+        accounts.put("TREND_PULLBACK_SHORT",
+                new IndependentPaperPortfolio("TREND_PULLBACK_SHORT",request));
+        accounts.put("TREND_PULLBACK_MIXED_SHORT",
+                new IndependentPaperPortfolio("TREND_PULLBACK_MIXED_SHORT",request));
         var events=new ArrayList<Event>();
         for(int i=request.contextCandles();i<tape.size();i++) {
             MarketCandle c=tape.get(i);
@@ -130,24 +112,17 @@ public class IndependentResearchService {
             }
             var observed=higherContext.at(c.closeTime());
             var higher=observed.timeframes().get(1);
-            if("1w".equals(request.trendInterval()))
-                CompletedWeeklyTrend.requireCompletedWeeklyCandle(
-                        higher.recentCandles().getLast(),c.closeTime());
-            boolean higherClosed=higher.recentCandles().getLast().closeTime()<=c.closeTime();
+            WeeklyEmaDirection.Direction weekly=WeeklyEmaDirection.fromClosedWeeks(
+                    higher.recentCandles(),c.closeTime());
             var signals=List.of(
                     pullback.evaluate(history,request.priceTick()),
                     mixedPullback.evaluate(history,request.priceTick()),
-                    immediate.onClosed(history,request.priceTick()),
-                    retest.onClosed(history,request.priceTick()),
                     shortStrict.evaluate(history,request.priceTick()),
-                    shortMixed.evaluate(history,request.priceTick()),
-                    shortBreak.onClosed(history,request.priceTick()),
-                    shortRetest.onClosed(history,request.priceTick()));
+                    shortMixed.evaluate(history,request.priceTick()));
             for(var original:signals) {
                 var signal=original;
                 boolean dailyCandidate=original.actionable();
-                boolean weeklyApproved=higherClosed
-                        &&weeklyAllows(higher.priceAction().trend(),signal.side());
+                boolean weeklyApproved=WeeklyEmaDirection.allows(weekly,signal.side());
                 if(!weeklyApproved && dailyCandidate) {
                     String reason=signal.side()==IndependentSetupSignal.Side.SHORT
                             ?"HIGHER_TIMEFRAME_NOT_DOWN":"HIGHER_TIMEFRAME_NOT_UP";
@@ -166,7 +141,7 @@ public class IndependentResearchService {
                 // including WAIT days with no other failed filters. The 1w
                 // observation was already validated as fully closed above.
                 events.add(new Event(arm,c.closeTime(),signal.status().name(),
-                        signal.reason(),signal,higher.priceAction().trend().name(),
+                        signal.reason(),signal,weekly.name(),
                         higher.recentCandles().getLast().closeTime(),
                         weeklyApproved,dailyCandidate));
             }
@@ -186,10 +161,9 @@ public class IndependentResearchService {
                 "PAPER_ONLY; T+1_OPEN; STOP_FIRST; PRIMARY_" + request.entryInterval()
                 + "; HIGHER_TREND_" + request.trendInterval() + "; ONLY_CLOSED_WEEKLY_BARS; "
                 + "FIXED_ASSUMED_FEES_SPREAD_SLIPPAGE_FUNDING; "
-                + "LEGACY_AND_MIXED_PULLBACK_INDEPENDENT; "
-                + "EXHAUSTIVE_BOX_AND_WEEKLY_AUDIT; "
+                + "STRICT_AND_MIXED_PULLBACK_ONLY; NO_RANGE_BOX_STRATEGY; "
+                + "WEEKLY_EMA21_SLOPE_ONLY; COMPLETED_WEEKLY_BARS_ONLY; "
                 + "INDEPENDENT_LONG_SHORT_PAPER_ACCOUNTS; "
-                + "WEEKLY_UP_FOR_LONG_DOWN_FOR_SHORT; "
                 + "NO_REAL_ORDERS; NO_COMBINED_ARBITRATION",
                 Map.copyOf(summaries),List.copyOf(events),Map.copyOf(rejectionCounts));
     }
