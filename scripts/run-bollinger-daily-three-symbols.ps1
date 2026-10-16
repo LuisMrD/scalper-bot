@@ -181,6 +181,17 @@ foreach($symbol in $Symbols){
                 $structural.frozenMiddleTarget -ne $extreme.frozenMiddleTarget){
                 throw 'Mismatched dual-stop diagnostic snapshot'
             }
+            $expectedVpaMode=if($signal.arm -like 'SEQUENCE_VPA_BOLLINGER_*'){
+                'SEQUENCE_EFFORT_RESULT'
+            } else {
+                'DIRECTIONAL_LEGACY'
+            }
+            if($structural.volumeMode -ne $expectedVpaMode -or
+                $extreme.volumeMode -ne $expectedVpaMode -or
+                ($expectedVpaMode -eq 'SEQUENCE_EFFORT_RESULT' -and
+                    $null -eq $structural.sequenceEvidence)){
+                throw "Volume mode / sequence evidence mismatch for $($signal.arm)"
+            }
             $diagnosticRows.Add([pscustomobject]@{
                 Symbol=$symbol;Window=$w.Window;Arm=$signal.arm
                 TriggerCloseTime=$signal.triggerCloseTime
