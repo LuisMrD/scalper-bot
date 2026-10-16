@@ -9,8 +9,14 @@ public record IndependentSetupSignal(
         BigDecimal referencePrice, BigDecimal structuralStop,
         BigDecimal frozenBoxTop, BigDecimal frozenBoxBase,
         String reason, List<String> passedFilters, List<String> rejectedFilters) {
-    public enum Setup { TREND_PULLBACK, TREND_PULLBACK_MIXED, RANGE_BREAKOUT, RANGE_BREAKOUT_RETEST }
+    public enum Setup { TREND_PULLBACK, TREND_PULLBACK_MIXED, RANGE_BREAKOUT, RANGE_BREAKOUT_RETEST,
+        TREND_PULLBACK_SHORT, TREND_PULLBACK_MIXED_SHORT,
+        RANGE_BREAKOUT_SHORT, RANGE_BREAKOUT_RETEST_SHORT }
     public enum Status { WAIT, CONFIRMED, INVALIDATED, ALERT }
+    public enum Side { LONG, SHORT }
+    public Side side() {
+        return setup.name().endsWith("_SHORT") ? Side.SHORT : Side.LONG;
+    }
     public IndependentSetupSignal {
         passedFilters = List.copyOf(passedFilters);
         rejectedFilters = List.copyOf(rejectedFilters);
