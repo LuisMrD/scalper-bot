@@ -83,7 +83,7 @@ class AnchoredMidasResearchTest {
         var p=points(bars,false);
         assertEquals("MIDAS_NO_CONFIRMED_ANCHOR_OR_VOLUME",
                 MidasEntryFilter.assess(MidasEntryPolicy.MIDAS_TREND,
-                        false,bars,p,3,params()).reason());
+                        false,bars,p.subList(0,4),3,params()).reason());
         assertEquals("MIDAS_WRONG_SIDE_OF_CURVE",
                 MidasEntryFilter.assess(MidasEntryPolicy.MIDAS_TREND,
                         true,bars,p,5,params()).reason());
