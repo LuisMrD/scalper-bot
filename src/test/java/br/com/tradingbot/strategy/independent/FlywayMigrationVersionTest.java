@@ -32,5 +32,21 @@ class FlywayMigrationVersionTest {
         assertEquals("V2__add_futures_kline_metrics.sql",versions.get(2));
         assertEquals("V3__create_independent_setup_research.sql",versions.get(3));
         assertEquals("V4__allow_daily_independent_research_runs.sql",versions.get(4));
+        assertEquals("V5__allow_15m_independent_research_runs.sql",versions.get(5));
+
+    @Test
+    void fifteenMinutePaperResearchConstraintIsIncludedInTheLatestFlywayMigration()
+            throws Exception {
+        String sql=Files.readString(Path.of("src/main/resources/db/migration/"
+                + "V5__allow_15m_independent_research_runs.sql"));
+        assertTrue(sql.contains("DROP CHECK ck_independent_research_timeframe"));
+        assertTrue(sql.contains("ADD CONSTRAINT ck_independent_research_timeframe"));
+        assertTrue(Pattern.compile(
+                "timeframe\\s+IN\\s*\\(\\s*'5m'\\s*,\\s*'15m'\\s*,\\s*'1d'\\s*\\)",
+                Pattern.CASE_INSENSITIVE).matcher(sql).find(),
+                "Must preserve 5m and 1d, and explicitly allow 15m paper runs");
+        // Earlier Flyway migration versions/checksums cannot be overwritten
+        // when users already have V3/V4 applied to their local MySQL.
     }
+
 }
