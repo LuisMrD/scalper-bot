@@ -17,14 +17,19 @@ public final class IndependentResearchController {
     }
     @GetMapping("/status")
     public Map<String,Object> status() {
-        return Map.of("mode","PAPER_ONLY","ordersEnabled",false,
-                "combinedStrategyEnabled",false,
-                "entryTimeframes",java.util.List.of("5m","1d"),
-                "higherTrendForDaily","1w","setupCount",1,
-                "paperVariants",4,"allowedDirections",java.util.List.of("LONG","SHORT"),
-                "higherTrendRule","CLOSED_WEEKLY_EMA21_SLOPE",
-                "activeSetups",java.util.List.of("TREND_PULLBACK","TREND_PULLBACK_MIXED"),
-                "userThresholdsRequired",true);
+        return Map.ofEntries(
+                Map.entry("mode","PAPER_ONLY"),
+                Map.entry("ordersEnabled",false),
+                Map.entry("combinedStrategyEnabled",false),
+                Map.entry("entryTimeframes",java.util.List.of("5m","1d")),
+                Map.entry("higherTrendForDaily","1w"),
+                Map.entry("setupCount",1),
+                Map.entry("paperVariants",4),
+                Map.entry("allowedDirections",java.util.List.of("LONG","SHORT")),
+                Map.entry("higherTrendRule","CLOSED_WEEKLY_EMA21_SLOPE"),
+                Map.entry("activeSetups",java.util.List.of(
+                        "TREND_PULLBACK","TREND_PULLBACK_MIXED")),
+                Map.entry("userThresholdsRequired",true));
     }
     @PostMapping("/backtest")
     public IndependentResearchService.Report backtest(
