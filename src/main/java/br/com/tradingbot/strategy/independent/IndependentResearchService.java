@@ -55,7 +55,7 @@ public class IndependentResearchService {
             List<Event> events,Map<String,Integer> rejectionCounts) {}
 
     public Report backtest(IndependentResearchRequest request) {
-        return replay(request,false,false);
+        return replay(request,false,false,false);
     }
     /** Separate BTC-only stop hypotheses. Never changes the default /backtest. */
     public Report backtestStops(IndependentResearchRequest request) {
@@ -64,7 +64,7 @@ public class IndependentResearchService {
                 || request.contextCandles()!=60)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Stop research requires BTCUSDT 15m/1d, 2400 bars, 60 warmup bars");
-        return replay(request,true,false);
+        return replay(request,true,false,false);
     }
     /** BTC-only side-by-side mixed LONG/SHORT reversal EXIT research. */
     public Report backtestReversal(IndependentResearchRequest request) {
@@ -73,10 +73,26 @@ public class IndependentResearchService {
                 || request.contextCandles()!=60)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Reversal exit research requires BTCUSDT 15m/1d, 2400 bars, 60 warmup");
-        return replay(request,false,true);
+        return replay(request,false,true,false);
     }
+    /**
+     * Frozen BTC-only study: 12 disjoint 900-hour windows, 15m with closed 1d
+     * direction, $600 initial capital per mixed-side paper account. The only
+     * exit management is the ORIGINAL hard structural stop, structural
+     * trailing, invalidation and original 30-bar maximum holding.
+     */
+    public Report backtestMixedBaseline900h(IndependentResearchRequest request) {
+        if(!"BTCUSDT".equals(request.symbol()) || !"15m".equals(request.entryInterval())
+                || !"1d".equals(request.trendInterval()) || request.steps()!=3600
+                || request.contextCandles()!=60
+                || request.capitalUsdt().compareTo(new java.math.BigDecimal("600"))!=0)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "BTC baseline study requires BTCUSDT 15m/1d, 3600 bars, 60 warmup, $600 capital");
+        return replay(request,false,false,true);
+    }
+
     private Report replay(IndependentResearchRequest request,boolean compareStops,
-            boolean compareReversal) {
+            boolean compareReversal,boolean mixedBaselineOnly) {
         Objects.requireNonNull(request);
         if(!trading.symbols().contains(request.symbol()))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -113,7 +129,7 @@ public class IndependentResearchService {
         var shortMixed=new ShortTrendPullbackDetector(request.parameters(),
                 ShortTrendPullbackDetector.RetreatMode.MIXED_NET_RISE);
         var accounts=new LinkedHashMap<String,IndependentPaperPortfolio>();
-        var arms=compareReversal
+        var arms=(compareReversal||mixedBaselineOnly)
                 ?List.of("TREND_PULLBACK_MIXED","TREND_PULLBACK_MIXED_SHORT")
                 :List.of("TREND_PULLBACK","TREND_PULLBACK_MIXED",
                         "TREND_PULLBACK_SHORT","TREND_PULLBACK_MIXED_SHORT");
@@ -151,7 +167,7 @@ public class IndependentResearchService {
                     "1d".equals(request.trendInterval())
                         ?DailyEmaDirection.fromClosedDays(higher.recentCandles(),c.closeTime())
                         :WeeklyEmaDirection.fromClosedWeeks(higher.recentCandles(),c.closeTime());
-            var signals=compareReversal
+            var signals=(compareReversal||mixedBaselineOnly)
                     ?List.of(mixedPullback.evaluate(history,request.priceTick()),
                             shortMixed.evaluate(history,request.priceTick()))
                     :List.of(pullback.evaluate(history,request.priceTick()),
@@ -206,7 +222,7 @@ public class IndependentResearchService {
             result.rejectionCounts().forEach((reason,count)->
                     rejectionCounts.merge(item.getKey()+":"+reason,count,Integer::sum));
         }
-        long runId=persist(request,events,compareStops,compareReversal);
+        long runId=persist(request,events,compareStops,compareReversal,mixedBaselineOnly);
         var first=tape.get(request.contextCandles());
         return new Report(runId,request.symbol(),request.entryInterval(),first.openTime(),
                 tape.getLast().closeTime(),request.steps(),
@@ -223,13 +239,17 @@ public class IndependentResearchService {
                 + (compareReversal?"; BTC_MIXED_REVERSAL_EXIT_RESEARCH; 3_POLICIES;"
                     +" PROTECTIVE_STRUCTURAL_STOP_UNCHANGED; OPPOSITE_PA_VOLUME_NEXT_OPEN;"
                     +" OPTIONAL_CONFIRMED_SWING_STRUCTURE_BREAK"
+                    :"")
+                + (mixedBaselineOnly?"; BTC_MIXED_ONLY_BASELINE_900H; 600_USDT_PER_ACCOUNT;"
+                    +" 2_MIXED_ARMS; ORIGINAL_HARD_STOP_TRAILING_MAX_HOLD;"
+                    +" 12_DISJOINT_900H_WINDOWS_RESET_PER_WINDOW"
                     :""),
 
                 Map.copyOf(summaries),List.copyOf(events),Map.copyOf(rejectionCounts));
     }
 
     private long persist(IndependentResearchRequest request,List<Event> events,
-            boolean compareStops,boolean compareReversal) {
+            boolean compareStops,boolean compareReversal,boolean mixedBaselineOnly) {
         var holder=new GeneratedKeyHolder();
         String parameters=compareStops
                 ?json.writeValueAsString(Map.of(
@@ -239,6 +259,9 @@ public class IndependentResearchService {
                         "request",request,
                         "researchType","BTC_15M_MIXED_REVERSAL_EXIT_COMPARISON",
                         "policies",List.of(ReversalExitPolicy.values())))
+                :mixedBaselineOnly?json.writeValueAsString(Map.of(
+                        "request",request,
+                        "researchType","BTC_15M_MIXED_BASELINE_12X900H"))
                 :json.writeValueAsString(request);
         jdbc.update(con-> {
             var statement=con.prepareStatement("""
