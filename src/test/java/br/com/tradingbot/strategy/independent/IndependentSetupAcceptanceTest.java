@@ -22,7 +22,8 @@ class IndependentSetupAcceptanceTest {
         return new IndependentSetupParameters(2,2,3,3,bd("2"),
                 bd("0.9"),bd("0.9"),bd("0.6"),bd("2"),
                 bd("1.1"),bd("1.8"),8,bd("3"),
-                bd("0.9"),bd("0.9"),bd("1.2"),5,bd("0.5"),bd("1"));
+                bd("0.9"),bd("0.9"),bd("1.2"),5,bd("0.5"),bd("1"),
+                14,20,IndependentSetupParameters.DirectStopRule.BOX_BASE,bd("1"));
     }
     private static MarketCandle bar(int i,double open,double high,
             double low,double close,double volume,double takerBuy) {
