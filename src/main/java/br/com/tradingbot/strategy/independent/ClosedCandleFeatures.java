@@ -15,14 +15,14 @@ final class ClosedCandleFeatures {
     static void check(List<MarketCandle> tape) {
         if (tape.isEmpty()) throw new IllegalArgumentException("Missing candles");
         MarketCandle first = tape.getFirst();
-        if (first.interval() != CandleInterval.M5)
-            throw new IllegalArgumentException("New independent setups require 5m candles");
+        if (first.interval() != CandleInterval.M5 && first.interval() != CandleInterval.D1)
+            throw new IllegalArgumentException("Independent setups support only closed 5m or 1d candles");
         for (int i=0; i<tape.size(); i++) {
             var c=tape.get(i);
             if (!c.closed() || !c.symbol().equals(first.symbol())
                     || c.interval() != first.interval()
-                    || (i>0 && c.closeTime()!=tape.get(i-1).closeTime()+CandleInterval.M5.millis()))
-                throw new IllegalArgumentException("Missing/unclosed/noncausal 5m candle");
+                    || (i>0 && c.closeTime()!=tape.get(i-1).closeTime()+first.interval().millis()))
+                throw new IllegalArgumentException("Missing/unclosed/noncausal primary candle");
         }
     }
     static BigDecimal ema(List<MarketCandle> tape, int end, int period) {
