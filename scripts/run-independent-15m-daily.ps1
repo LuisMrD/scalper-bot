@@ -105,7 +105,7 @@ if (-not [string]::IsNullOrWhiteSpace($AsOfDateUtc)) {
     $asOfMs = [long]($utcDate.AddDays(1) - $epoch).TotalMilliseconds - 1L
 }
 if ($PrintOnly) {
-    Write-Output 'RESEARCH=INDEPENDENT_DAILY_WITH_CLOSED_WEEKLY_TREND'
+    Write-Output 'RESEARCH=INDEPENDENT_15M_WITH_CLOSED_DAILY_TREND'
     Write-Output 'PRIMARY=15m'
     Write-Output 'HIGHER_TREND=1d'
     Write-Output 'ACTIVE_SETUP=PULLBACK_ONLY'
@@ -119,7 +119,7 @@ if ($PrintOnly) {
     Write-Output "SYMBOLS=$($symbols -join ',')"
     Write-Output "WINDOWS=$windows"
     Write-Output "STEPS=$steps"
-    Write-Output "CONTEXT_WEEKS=$context"
+    Write-Output "CONTEXT_HIGHER_BARS=$context"
     Write-Output "PORTFOLIOS=$($symbols.Count * $windows * 4)"
     Write-Output "AS_OF=$($asOfMs -as [string])"
     if ($null -ne $asOfMs) {
@@ -265,7 +265,7 @@ foreach ($symbol in $symbols) {
             $response=Invoke-RestMethod -Method Post -Uri "$base/api/v1/research/independent-setups/backtest" -Body ([Text.Encoding]::UTF8.GetBytes($json)) -ContentType 'application/json; charset=utf-8' -TimeoutSec 300
         } catch {
             $details=if($_.ErrorDetails){$_.ErrorDetails.Message}else{''}
-            throw "Daily/weekly paper replay FAILED for $symbol window $w asOf=$end : $($_.Exception.Message) $details"
+            throw "15m/daily paper replay FAILED for $symbol window $w asOf=$end : $($_.Exception.Message) $details"
         }
         if ($response.symbol -ne $symbol -or $response.interval -ne '15m' -or
             [long]$response.lastClose -ne $end -or
