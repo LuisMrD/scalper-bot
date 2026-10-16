@@ -99,3 +99,34 @@ git pull --ff-only
 ```
 
 Inicie o backend atualizado com `-IncludeDailyWeekly` antes da execucao. Os parametros de `scripts/config/independent-daily-weekly-research.json` sao apenas hipoteses explicitamente editaveis, nao regras do autor. **AINDA NAO DEFINIDOS**: limiares otimos, tempo suficiente de mercado, exit/alvo/parcial e mecanismo futuro de arbitragem; nenhuma inferencia de edge sem novas execucoes OOS.
+
+
+## Experimento adicionado: versoes SHORT, preservando todos os LONGs
+
+**Distinguir fonte e engenharia:** o video original fornece exemplos de LONG; os setups SHORT abaixo sao **hipoteses de engenharia espelhadas**, nao regras do apresentador. Parametros tecnicos e de risco permanecem exatamente os mesmos do JSON do estudo anterior, sem otimizacao. Requer validação OOS independente antes de qualquer uso real.
+
+| Direcao | Braco independente | Qualificacao |
+|---|---|---|
+| LONG | `TREND_PULLBACK`, `TREND_PULLBACK_MIXED` | Sem alteracao de detector |
+| LONG | `RANGE_BREAKOUT`, `RANGE_BREAKOUT_RETEST` | Sem alteracao de detector |
+| SHORT | `TREND_PULLBACK_SHORT`, `TREND_PULLBACK_MIXED_SHORT` | Semanal DOWN e 1D com topos/fundos descendentes; recuo comprador para EMA9/21, volume e corpos de rebound contraindo, topo anterior preservado; candlestick de forca vendedora/estrela cadente/fechamento sob minima precedente, volume vendedor agressor crescendo; stop acima do maximo do recuo |
+| SHORT | `RANGE_BREAKOUT_SHORT`, `RANGE_BREAKOUT_RETEST_SHORT` | Semanal DOWN, EMA21 diaria descendente, caixa estreita/volume secando; somente fechamento diario **abaixo da base congelada antes do rompimento** com volume > media historica; reteste da base como resistencia e candle de retomada baixista; stop acima do topo da caixa ou do candle de rompimento conforme `directStopRule`, ou acima do topo do reteste para variante reteste |
+
+`RANGE` no semanal continua bloqueando **ambas** as direcoes. O semanal precisa estar fechado no tempo UTC, jamais pode antecipar a semana corrente. O projeto continua paper-only, sem ordens Futures reais ou arbitragens combinadas.
+
+### Como as carteiras SHORT diferem do LONG
+- Sinal fechado diario => papel executa **SELL** no open seguinte (bid adverso), com recompra de fechamento **BUY** (ask adverso). Taxas em ambas as pernas, slippage, spread, funding assumido e restricoes de lote/notional identicos ao controle LONG.
+- P&L de SHORT e `(preco_venda - preco_recompra) * quantidade - fees + funding`. Funding positivo por convencao de mercado e credito para o short no modelo; negativo e debito. Continua valor hipotetico fornecido no request, nao taxa historica observada.
+- Stop SHORT acima do topo estrutural: toque da **maxima** intrabar encerra na recompra pelo pior entre abertura e stop. Gap de alta pode tornar a perda maior que o risco inicial; nao se promete preenchimento ideal.
+- Aproximacao conservadora separada de preco de liquidacao SHORT. A formula usada NAO substitui mark-price, margin tier e mecanismo real Binance.
+- Trailing sob topos descendentes confirmados: **somente diminui** o stop (o inverso dos fundos crescentes no LONG). Ativacao continua definida em R e mantem comportamento sem lookahead.
+- Retorno do SHORT ao interior da caixa e alerta; fechamento acima do topo congelado invalida a tese e agenda recompra para o open seguinte. O inverso vale no LONG.
+- Identificadores de `Arm` com sufixo `_SHORT` e coluna `Side=LONG/SHORT` nos CSVs. O backend apresenta `higherTrendApproved` por direcao (UP para LONG, DOWN para SHORT) e bloqueia RANGE.
+
+### Comparacao reproduzivel
+**3 pares × 6 janelas de 30 candles 1D × 8 carteiras = 144 backtests independentes.** Alem da contagem detalhada de rejeicoes por filtro, o CSV registra estado semanal da direcao. O script continua:
+```powershell
+.\scripts\run-independent-daily-weekly.ps1 -AsOfDateUtc 2026-10-15 -PrintOnly
+.\scripts\run-independent-daily-weekly.ps1 -AsOfDateUtc 2026-10-15
+```
+A API `/backtest` retorna resultados de todos os oito bracos, e `/walkforward` calcula OOS comparativo de todos os oito bracos, com parametros congelados, sem misturar capital LONG e SHORT. Os arquivos antigos de CSV nao sao sobrescritos. Ainda **nao ha resultados financeiros SHORT** ate a execucao local com candles do MySQL.
