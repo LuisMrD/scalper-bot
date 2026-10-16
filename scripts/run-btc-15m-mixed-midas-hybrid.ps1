@@ -325,6 +325,24 @@ foreach ($symbol in $symbols) {
             -not $response.executionModel.Contains('NO_REAL_ORDERS')) {
             throw "Unexpected research response for $symbol window $w (fail closed)"
         }
+        # Crucial A/B invariant: the LONG hybrid must stay byte-for-byte
+        # equivalent in financial execution to the unchanged LONG control.
+        # The only optional MIDAS gate in HYBRID applies to SHORT.
+        $originalLong=$response.portfolios.TREND_PULLBACK_MIXED__BASELINE
+        $hybridLong=$response.portfolios.TREND_PULLBACK_MIXED__HYBRID_LONG_BASELINE_SHORT_MIDAS_RETEST
+        if($null -eq $originalLong -or $null -eq $hybridLong) {
+            throw "Hybrid comparison missing one of the LONG control accounts, window $w"
+        }
+        foreach($field in @('initialCapital','realizedNetUsdt','finalMarkedEquity',
+                'closedTrades','wins','totalFeesUsdt','totalFundingUsdt',
+                'worstDrawdownPct','openPosition','acceptedSignals','blockedEntries')) {
+            if([string]$originalLong.$field -cne [string]$hybridLong.$field)
+                {throw "Unexpected LONG divergence in $field for window $w"}
+        }
+        if((ConvertTo-Json -InputObject @($originalLong.trades) -Compress -Depth 25) -cne
+           (ConvertTo-Json -InputObject @($hybridLong.trades) -Compress -Depth 25)) {
+            throw "Hybrid LONG trades diverged from unchanged baseline, window $w"
+        }
         $expectedObservations=$baseArms.Count*($steps-1)
         $observations=@($response.events)
         if($observations.Count -ne $expectedObservations) {
