@@ -1,4 +1,4 @@
-# Dois setups isolados — 1D operacional + 1W tendencia maior
+> **HISTÓRICO — NÃO É A CONFIGURAÇÃO ATIVA.** A pesquisa atual abandonou os rompimentos de caixa e usa apenas recuos LONG/SHORT (tradicional e misto), filtrados **somente pela direção da EMA21 semanal fechada**. Veja [o estudo vigente](independent-pullback-only-daily-weekly.md). Os trechos abaixo documentam experimentos anteriores; não descrevem setups ativos.\n\n# Dois setups isolados — 1D operacional + 1W tendencia maior
 
 Atualizacao do PR #25 solicitada em 2026-10-16. O fluxo preexistente `5m` + `15m/1h/4h` continua disponivel; o experimento atual deve informar **`entryInterval: "1d"` e `trendInterval: "1w"`** explicitamente.
 
