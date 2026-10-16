@@ -20,8 +20,10 @@ public final class IndependentResearchController {
         return Map.of("mode","PAPER_ONLY","ordersEnabled",false,
                 "combinedStrategyEnabled",false,
                 "entryTimeframes",java.util.List.of("5m","1d"),
-                "higherTrendForDaily","1w","setupCount",2,
-                "paperVariants",8,"allowedDirections",java.util.List.of("LONG","SHORT"),
+                "higherTrendForDaily","1w","setupCount",1,
+                "paperVariants",4,"allowedDirections",java.util.List.of("LONG","SHORT"),
+                "higherTrendRule","CLOSED_WEEKLY_EMA21_SLOPE",
+                "activeSetups",java.util.List.of("TREND_PULLBACK","TREND_PULLBACK_MIXED"),
                 "userThresholdsRequired",true);
     }
     @PostMapping("/backtest")
