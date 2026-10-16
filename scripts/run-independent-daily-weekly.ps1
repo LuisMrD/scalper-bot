@@ -134,6 +134,12 @@ if ($status.mode -ne 'PAPER_ONLY' -or $status.ordersEnabled -ne $false -or
     $status.combinedStrategyEnabled -ne $false) {
     throw 'Backend is not in isolated paper-only mode'
 }
+if ([int]$status.paperVariants -ne 4 -or
+    $status.higherTrendRule -ne 'CLOSED_WEEKLY_EMA21_SLOPE' -or
+    @($status.activeSetups).Count -ne 2 -or
+    @($status.activeSetups | Where-Object { $_ -match 'BREAKOUT|RANGE' }).Count -ne 0) {
+    throw 'Backend is not running the latest pullback-only weekly EMA21 research. Restart Spring Boot after git pull.'
+}
 $nowMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
 if ($null -eq $asOfMs) {
     foreach ($symbol in $symbols) {
@@ -264,6 +270,7 @@ foreach ($symbol in $symbols) {
                 Side=if($arm.EndsWith('_SHORT')){'SHORT'}else{'LONG'}
                 RunId=$response.runId
                 FirstOpenTime=$response.firstOpen; LastCloseTime=$response.lastClose
+                WeeklyFilter='CLOSED_WEEKLY_EMA21_SLOPE'
                 CapitalUsdt=$p.initialCapital
                 RealizedNetUsdt=$p.realizedNetUsdt
                 MarkedPnlUsdt=([decimal]$p.finalMarkedEquity - [decimal]$p.initialCapital)
@@ -297,6 +304,7 @@ foreach ($symbol in $symbols) {
                 Side=if($event.arm.EndsWith('_SHORT')){'SHORT'}else{'LONG'}
                 RunId=$response.runId
                 CandleCloseTime=$event.closeTime;Status=$event.status;Reason=$event.reason
+                WeeklyFilter='CLOSED_WEEKLY_EMA21_SLOPE'
                 HigherTrend=$event.higherTrend
                 HigherCloseTime=$event.higherCandleCloseTime
                 HigherTrendApproved=$event.higherTrendApproved
@@ -358,7 +366,7 @@ if($tradeRows.Count -gt 0) {
 if($diagnosticRows.Count -gt 0) {
     @($diagnosticRows.ToArray()) | Export-Csv -Path $paths.diagnostics -NoTypeInformation -Encoding UTF8
 } else {
-    'Symbol,Window,Arm,Side,RunId,CandleCloseTime,Status,Reason,HigherTrend,HigherCloseTime,HigherTrendApproved,DailyCandidateBeforeHigherTrend,PassedFilters,RejectedFilters,ReferencePrice,StructuralStop,BoxTop,BoxBase' | Set-Content -Path $paths.diagnostics -Encoding UTF8
+    'Symbol,Window,Arm,Side,RunId,CandleCloseTime,Status,Reason,WeeklyFilter,HigherTrend,HigherCloseTime,HigherTrendApproved,DailyCandidateBeforeHigherTrend,PassedFilters,RejectedFilters,ReferencePrice,StructuralStop,BoxTop,BoxBase' | Set-Content -Path $paths.diagnostics -Encoding UTF8
 }
 if($rejectionRows.Count -gt 0) {
     @($rejectionRows.ToArray()) | Export-Csv -Path $paths.rejections -NoTypeInformation -Encoding UTF8
