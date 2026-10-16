@@ -91,6 +91,28 @@ public final class IndependentResearchController {
         return service.backtestMixedBaseline900h(request);
     }
 
+    @GetMapping("/midas-study/status")
+    public Map<String,Object> midasStudyStatus() {
+        return Map.of(
+                "mode","PAPER_ONLY",
+                "ordersEnabled",false,
+                "symbol","BTCUSDT",
+                "entryInterval","15m",
+                "trendInterval","1d",
+                "capitalUsdt",600,
+                "barsPerWindow",3600,
+                "windows",12,
+                "baseArms",2,
+                "midasWarmupBars",1000,
+                "entryPolicies",java.util.Arrays.stream(MidasEntryPolicy.values())
+                        .map(Enum::name).toList());
+    }
+    @PostMapping("/backtest-midas")
+    public IndependentResearchService.Report backtestMidas(
+            @RequestBody IndependentResearchRequest request) {
+        return service.backtestMidas900h(request);
+    }
+
     @PostMapping("/backtest")
     public IndependentResearchService.Report backtest(
             @RequestBody IndependentResearchRequest request) {
