@@ -23,7 +23,10 @@ public record IndependentSetupParameters(
         BigDecimal breakoutRelativeVolumeMinRatio,
         int retestMaxBars,
         BigDecimal retestTolerancePct,
-        BigDecimal stopBufferTicks) {
+        BigDecimal stopBufferTicks,
+        int atrPeriod, int volumeLookbackBars,
+        DirectStopRule directStopRule, BigDecimal trailingActivationR) {
+    public enum DirectStopRule { BOX_BASE, BREAKOUT_CANDLE_LOW }
     public IndependentSetupParameters {
         if (pivotLeft < 1 || pivotRight < 1 || pullbackMinBars < 1
                 || pullbackMaxBars < pullbackMinBars || pullbackMaxBars > 200
@@ -43,6 +46,10 @@ public record IndependentSetupParameters(
         positive(breakoutRelativeVolumeMinRatio, "breakoutRelativeVolumeMinRatio");
         nonnegative(retestTolerancePct, "retestTolerancePct");
         nonnegative(stopBufferTicks, "stopBufferTicks");
+        if(atrPeriod<2||atrPeriod>200||volumeLookbackBars<2||volumeLookbackBars>200)
+            throw new IllegalArgumentException("ATR and volume lookbacks must be explicit");
+        Objects.requireNonNull(directStopRule,"directStopRule is required");
+        positive(trailingActivationR,"trailingActivationR");
     }
     private static void positive(BigDecimal v, String n) {
         Objects.requireNonNull(v, n + " is required");
