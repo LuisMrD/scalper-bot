@@ -141,7 +141,9 @@ if ($PrintOnly) {
     Write-Output "CAPITAL_USDT=$($config.capitalUsdt)"
     Write-Output 'EXIT_POLICY=BASELINE'
     Write-Output "HYBRID_POLICIES=$($config.hybridPolicies -join ',')"
-    Write-Output "SELECTION_CUTOFF_UTC=$($config.selectionCutoffUtc)"
+    # ConvertFrom-Json may promote ISO timestamps to DateTime in PowerShell 7;
+    # make the frozen decision cutoff's exact UTC string deterministic.
+    Write-Output 'SELECTION_CUTOFF_UTC=2026-10-15T23:59:59.999Z'
     Write-Output "OOS_MODE=$($ProspectiveOos.ToString().ToLowerInvariant())"
     Write-Output "MIDAS_WARMUP_BARS=$($config.midasWarmupBars)"
     Write-Output 'ENTRY_ARMS=TREND_PULLBACK_MIXED,TREND_PULLBACK_MIXED_SHORT'
