@@ -17,7 +17,7 @@
 - Tres carteiras **separadas**: `TREND_PULLBACK`, `RANGE_BREAKOUT`, `RANGE_BREAKOUT_RETEST`. Modo combinado permanece BLOQUEADO; E03 testa esta salvaguarda nesta etapa, NAO uma arbitragem ja aprovada.
 - Paper sizing por distancia ao stop, custo estimado, riskPct, saldo, limite de perda diaria, alavancagem e filtros tick/quantity/minNotional; simulacao usa custos percentuais explicitamente fornecidos.
 - `assumedFundingPer8hPct` e `assumedMaintenanceMarginPct` sao HIPOTESES EXPLICITAS. A estimativa de liquidacao nao equivale ao preco de liquidacao real da Binance (tier/notional/margin/mark price). Sem dados historicos de funding, *nao* afirmar que o valor foi observado.
-- Eventos e parametros por pesquisa persistidos em MySQL via Flyway V2. Logs, risco, estrategia Java/Luna e backtests preexistentes nao sao modificados.
+- Eventos e parametros por pesquisa persistidos em MySQL via Flyway V3 (a migration V2 original de métricas é preservada). Logs, risco, estrategia Java/Luna e backtests preexistentes nao sao modificados.
 
 ## AINDA NAO DEFINIDOS — grade de parametros exclusivamente PARA TESTAR
 
