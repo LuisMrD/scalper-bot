@@ -38,8 +38,13 @@ public class MarketDataController {
     }
     @GetMapping("/candles")
     public List<MarketCandle> candles(@RequestParam @Pattern(regexp="[A-Z0-9]{5,32}") String symbol,
-            @RequestParam String interval,@RequestParam(defaultValue="100") @Min(1) @Max(500) int limit){
-        return service.recent(symbol,interval,limit);
+            @RequestParam String interval,@RequestParam(defaultValue="100") @Min(1) @Max(500) int limit,
+            @RequestParam(required=false) Long asOf){
+        // Historical preflight must not depend on the LAST 500 candles:
+        // the new 450-day study needs completed 1d bars BEFORE its oldest
+        // 15m decision. Null preserves the existing recent-candles API.
+        return asOf==null?service.recent(symbol,interval,limit)
+                :service.recentAtOrBefore(symbol,interval,limit,asOf);
     }
     @PostMapping("/sync")
     public MarketDataService.SyncResult sync(@RequestParam @Pattern(regexp="[A-Z0-9]{5,32}") String symbol,
