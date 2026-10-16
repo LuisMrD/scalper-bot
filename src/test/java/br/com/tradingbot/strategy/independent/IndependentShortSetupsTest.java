@@ -192,6 +192,24 @@ class IndependentShortSetupsTest {
         assertEquals(IndependentSetupSignal.Side.LONG,
                 signal(BEGIN,bd("98"),IndependentSetupSignal.Setup.TREND_PULLBACK).side());
     }
+    @Test void weeklyTrendIsDirectionSpecificAndRangeBlocksBothSides() {
+        var up=br.com.tradingbot.analysis.brooks.PriceActionSnapshot.Trend.UP;
+        var down=br.com.tradingbot.analysis.brooks.PriceActionSnapshot.Trend.DOWN;
+        var range=br.com.tradingbot.analysis.brooks.PriceActionSnapshot.Trend.RANGE;
+        assertTrue(IndependentResearchService.weeklyAllows(
+                up,IndependentSetupSignal.Side.LONG));
+        assertFalse(IndependentResearchService.weeklyAllows(
+                up,IndependentSetupSignal.Side.SHORT));
+        assertTrue(IndependentResearchService.weeklyAllows(
+                down,IndependentSetupSignal.Side.SHORT));
+        assertFalse(IndependentResearchService.weeklyAllows(
+                down,IndependentSetupSignal.Side.LONG));
+        assertFalse(IndependentResearchService.weeklyAllows(
+                range,IndependentSetupSignal.Side.LONG));
+        assertFalse(IndependentResearchService.weeklyAllows(
+                range,IndependentSetupSignal.Side.SHORT));
+    }
+
     @Test void crossingShortSignalIntoLongPortfolioFailsClosed() {
         var paper=new IndependentPaperPortfolio("TREND_PULLBACK",req());
         assertThrows(IllegalArgumentException.class,()->paper.close(
