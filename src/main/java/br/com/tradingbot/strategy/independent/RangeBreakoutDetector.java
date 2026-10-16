@@ -63,7 +63,8 @@ public final class RangeBreakoutDetector {
                         .divide(BigDecimal.valueOf(100),MC);
                 // A candle can wick below old top, but must CLOSE back above it.
                 boolean tested=current.low().compareTo(box.top().add(tol))<=0;
-                BigDecimal minLow=box.retestLow().min(current.low());
+                BigDecimal minLow=box.retestLow()==null
+                        ?current.low():box.retestLow().min(current.low());
                 pending=new Box(box.top(),box.base(),box.frozenAt(),
                         box.breakoutAt(),minLow,box.broken());
                 boolean bullish=bullishStrong(current,params.bullishStrongBodyMinRatio())
@@ -115,7 +116,7 @@ public final class RangeBreakoutDetector {
                     fail.getFirst(),pass,fail);
         if(variant==Variant.RETEST) {
             pending=new Box(box.top(),box.base(),box.frozenAt(),
-                    current.closeTime(),current.low(),true);
+                    current.closeTime(),null,true);
             return new IndependentSetupSignal(setup,IndependentSetupSignal.Status.ALERT,
                     current.closeTime(),null,null,box.top(),box.base(),
                     "BREAKOUT_VALID_WAITING_RETEST",pass,List.of());
