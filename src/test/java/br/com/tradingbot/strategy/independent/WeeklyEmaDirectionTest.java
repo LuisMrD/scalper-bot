@@ -72,10 +72,10 @@ class WeeklyEmaDirectionTest {
     }
 
     @Test void requiresFullWarmupAndUnbrokenCompletedWeeks() {
-        var weeks=new ArrayList<>(series(21,1));
+        var insufficient=new ArrayList<>(series(21,1));
         assertThrows(IllegalArgumentException.class,
-                ()->WeeklyEmaDirection.fromClosedWeeks(weeks,Long.MAX_VALUE));
-        weeks=new ArrayList<>(series(30,1));
+                ()->WeeklyEmaDirection.fromClosedWeeks(insufficient,Long.MAX_VALUE));
+        var weeks=new ArrayList<>(series(30,1));
         weeks.remove(14);
         var missing=List.copyOf(weeks);
         assertThrows(IllegalArgumentException.class,
