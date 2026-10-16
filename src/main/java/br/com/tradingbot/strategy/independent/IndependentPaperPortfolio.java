@@ -283,11 +283,16 @@ final class IndependentPaperPortfolio {
         // Only for the isolated research experiment. Price + taker-volume
         // reversal must be CONFIRMED by the finished candle; exit NEXT open.
         // Hard stop and maximum holding remain active and retain priority.
-        if(reversalExitPolicy==ReversalExitPolicy.PRICE_ACTION_VOLUME_REVERSAL
-                &&!exitNextOpen
-                &&ReversalExitDetector.confirmed(history,r.parameters(),shortSide)) {
-            exitNextOpen=true;
-            exitReason="REVERSAL_PRICE_VOLUME";
+        if(!exitNextOpen) {
+            boolean confirmed=reversalExitPolicy==ReversalExitPolicy.PRICE_ACTION_VOLUME_REVERSAL
+                    &&ReversalExitDetector.confirmed(history,r.parameters(),shortSide);
+            boolean structural=
+                    reversalExitPolicy==ReversalExitPolicy.PRICE_ACTION_VOLUME_STRUCTURE_REVERSAL
+                    &&ReversalExitDetector.confirmedStructural(history,r.parameters(),shortSide);
+            if(confirmed||structural) {
+                exitNextOpen=true;
+                exitReason=structural?"REVERSAL_PRICE_VOLUME_STRUCTURE":"REVERSAL_PRICE_VOLUME";
+            }
         }
         // All candidates are calculated AFTER the completed bar: effective
         // only on the NEXT 15m bar, never on the candle used to calculate ATR.
