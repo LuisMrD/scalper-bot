@@ -55,6 +55,18 @@ public class IndependentResearchService {
             List<Event> events,Map<String,Integer> rejectionCounts) {}
 
     public Report backtest(IndependentResearchRequest request) {
+        return replay(request,false);
+    }
+    /** Separate BTC-only stop hypotheses. Never changes the default /backtest. */
+    public Report backtestStops(IndependentResearchRequest request) {
+        if(!"BTCUSDT".equals(request.symbol()) || !"15m".equals(request.entryInterval())
+                || !"1d".equals(request.trendInterval()) || request.steps()!=2400
+                || request.contextCandles()!=60)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Stop research requires BTCUSDT 15m/1d, 2400 bars, 60 warmup bars");
+        return replay(request,true);
+    }
+    private Report replay(IndependentResearchRequest request,boolean compareStops) {
         Objects.requireNonNull(request);
         if(!trading.symbols().contains(request.symbol()))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -91,13 +103,16 @@ public class IndependentResearchService {
         var shortMixed=new ShortTrendPullbackDetector(request.parameters(),
                 ShortTrendPullbackDetector.RetreatMode.MIXED_NET_RISE);
         var accounts=new LinkedHashMap<String,IndependentPaperPortfolio>();
-        accounts.put("TREND_PULLBACK",new IndependentPaperPortfolio("TREND_PULLBACK",request));
-        accounts.put("TREND_PULLBACK_MIXED",
-                new IndependentPaperPortfolio("TREND_PULLBACK_MIXED",request));
-        accounts.put("TREND_PULLBACK_SHORT",
-                new IndependentPaperPortfolio("TREND_PULLBACK_SHORT",request));
-        accounts.put("TREND_PULLBACK_MIXED_SHORT",
-                new IndependentPaperPortfolio("TREND_PULLBACK_MIXED_SHORT",request));
+        var arms=List.of("TREND_PULLBACK","TREND_PULLBACK_MIXED",
+                "TREND_PULLBACK_SHORT","TREND_PULLBACK_MIXED_SHORT");
+        for(var arm:arms) {
+            if(compareStops) {
+                for(var policy:StopResearchPolicy.values()) {
+                    String label=arm+"__"+policy.name();
+                    accounts.put(label,new IndependentPaperPortfolio(label,request,policy));
+                }
+            }else accounts.put(arm,new IndependentPaperPortfolio(arm,request));
+        }
         var events=new ArrayList<Event>();
         for(int i=request.contextCandles();i<tape.size();i++) {
             MarketCandle c=tape.get(i);
@@ -138,9 +153,17 @@ public class IndependentResearchService {
                             reason,signal.passedFilters(),failures);
                 }
                 String arm=signal.setup().name();
-                var account=accounts.get(arm);
-                account.count(signal);
-                account.close(c,signal,history);
+                if(compareStops) {
+                    for(var policy:StopResearchPolicy.values()) {
+                        var account=accounts.get(arm+"__"+policy.name());
+                        account.count(signal);
+                        account.close(c,signal,history);
+                    }
+                }else {
+                    var account=accounts.get(arm);
+                    account.count(signal);
+                    account.close(c,signal,history);
+                }
                 // Every fully closed primary bar reports its last completed
                 // higher-timeframe EMA21 direction. WAIT bars are included.
                 events.add(new Event(arm,c.closeTime(),signal.status().name(),
@@ -157,7 +180,7 @@ public class IndependentResearchService {
             result.rejectionCounts().forEach((reason,count)->
                     rejectionCounts.merge(item.getKey()+":"+reason,count,Integer::sum));
         }
-        long runId=persist(request,events);
+        long runId=persist(request,events,compareStops);
         var first=tape.get(request.contextCandles());
         return new Report(runId,request.symbol(),request.entryInterval(),first.openTime(),
                 tape.getLast().closeTime(),request.steps(),
@@ -167,13 +190,21 @@ public class IndependentResearchService {
                 + "STRICT_AND_MIXED_PULLBACK_ONLY; NO_RANGE_BOX_STRATEGY; "
                 + "HIGHER_EMA21_SLOPE_ONLY; CLOSED_1D_FOR_15M_CLOSED_1W_FOR_1D; "
                 + "INDEPENDENT_LONG_SHORT_PAPER_ACCOUNTS; "
-                + "NO_REAL_ORDERS; NO_COMBINED_ARBITRATION",
+                + "NO_REAL_ORDERS; NO_COMBINED_ARBITRATION"
+                + (compareStops?"; BTC_STOP_POLICY_RESEARCH; 5_POLICIES;"
+                    +" SAME_DAILY_SIGNALS_PER_BASE_ARM; INITIAL_RISK_SIZED_WITH_ACTUAL_STOP"
+                    :"")
                 Map.copyOf(summaries),List.copyOf(events),Map.copyOf(rejectionCounts));
     }
 
-    private long persist(IndependentResearchRequest request,List<Event> events) {
+    private long persist(IndependentResearchRequest request,List<Event> events,
+            boolean compareStops) {
         var holder=new GeneratedKeyHolder();
-        String parameters=json.writeValueAsString(request);
+        String parameters=compareStops
+                ?json.writeValueAsString(Map.of(
+                        "request",request,"researchType","BTC_15M_STOP_POLICY_COMPARISON",
+                        "policies",List.of(StopResearchPolicy.values())))
+                :json.writeValueAsString(request);
         jdbc.update(con-> {
             var statement=con.prepareStatement("""
                 INSERT INTO independent_setup_research_runs
