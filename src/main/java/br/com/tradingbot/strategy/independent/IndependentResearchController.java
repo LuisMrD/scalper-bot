@@ -93,19 +93,19 @@ public final class IndependentResearchController {
 
     @GetMapping("/midas-study/status")
     public Map<String,Object> midasStudyStatus() {
-        return Map.of(
-                "mode","PAPER_ONLY",
-                "ordersEnabled",false,
-                "symbol","BTCUSDT",
-                "entryInterval","15m",
-                "trendInterval","1d",
-                "capitalUsdt",600,
-                "barsPerWindow",3600,
-                "windows",12,
-                "baseArms",2,
-                "midasWarmupBars",1000,
-                "entryPolicies",java.util.Arrays.stream(MidasEntryPolicy.values())
-                        .map(Enum::name).toList());
+        return Map.ofEntries(
+                Map.entry("mode","PAPER_ONLY"),
+                Map.entry("ordersEnabled",false),
+                Map.entry("symbol","BTCUSDT"),
+                Map.entry("entryInterval","15m"),
+                Map.entry("trendInterval","1d"),
+                Map.entry("capitalUsdt",600),
+                Map.entry("barsPerWindow",3600),
+                Map.entry("windows",12),
+                Map.entry("baseArms",2),
+                Map.entry("midasWarmupBars",1000),
+                Map.entry("entryPolicies",java.util.Arrays.stream(MidasEntryPolicy.values())
+                        .map(Enum::name).toList()));
     }
     @PostMapping("/backtest-midas")
     public IndependentResearchService.Report backtestMidas(
