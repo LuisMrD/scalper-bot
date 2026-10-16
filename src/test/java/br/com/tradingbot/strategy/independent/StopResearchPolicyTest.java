@@ -122,7 +122,10 @@ class StopResearchPolicyTest {
         enter(paper,false,"96");
         var advance=bar(61,"100","108","99.5","107");
         paper.begin(advance);
-        paper.close(advance,null,List.of(advance));
+        var history=new ArrayList<>(tape());
+        history.add(bar(60,"100","100.5","99.5","100"));
+        history.add(advance);
+        paper.close(advance,null,history);
         var pullback=bar(62,"106","107","104","105");
         paper.begin(pullback);
         var t=paper.summary(pullback).trades().getFirst();
