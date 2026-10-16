@@ -24,8 +24,10 @@ public record IndependentResearchRequest(
             throw new IllegalArgumentException("Invalid historical window or holding limit");
         if(asOf==null||asOf<0)
             throw new IllegalArgumentException("Explicit closed primary candle asOf required");
-        if(!java.util.List.of("5m","1d").contains(entryInterval))
-            throw new IllegalArgumentException("Choose explicit primary timeframe: 5m or 1d");
+        if(!java.util.List.of("5m","15m","1d").contains(entryInterval))
+            throw new IllegalArgumentException("Choose explicit primary timeframe: 5m, 15m or 1d");
+        if("15m".equals(entryInterval) && !"1d".equals(trendInterval))
+            throw new IllegalArgumentException("15m pullback setups must use daily (1d) higher trend");
         if("1d".equals(entryInterval) && !"1w".equals(trendInterval))
             throw new IllegalArgumentException("Daily setups must use weekly (1w) higher trend");
         if("5m".equals(entryInterval)
