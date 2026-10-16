@@ -1,4 +1,4 @@
-# Dois setups de continuacao de tendencia — pesquisa 5m (branch isolada)
+> **HISTÓRICO — NÃO É A CONFIGURAÇÃO ATIVA.** A pesquisa atual abandonou os rompimentos de caixa e usa apenas recuos LONG/SHORT (tradicional e misto), filtrados **somente pela direção da EMA21 semanal fechada**. Veja [o estudo vigente](independent-pullback-only-daily-weekly.md). Os trechos abaixo documentam experimentos anteriores; não descrevem setups ativos.\n\n# Dois setups de continuacao de tendencia — pesquisa 5m (branch isolada)
 
 **Fonte:** documento original `analise_setups_video_Nd7cCEIhRy0.md`, baseado em evidencias visuais do vídeo Nd7cCEIhRy0, nao em transcricao integral de audio. O video demonstra exemplos em outros timeframes/ativos; 5m em cripto e **adaptacao experimental**. Nenhuma rentabilidade ou regra numerica e atribuida ao apresentador.
 
