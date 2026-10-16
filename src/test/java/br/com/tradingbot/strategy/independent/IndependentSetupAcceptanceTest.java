@@ -68,7 +68,7 @@ class IndependentSetupAcceptanceTest {
     }
     private static MarketCandle breakout(int kind) {
         return switch(kind) {
-            case 1 -> bar(68,100.5,100.7,100.2,100.6,1100,600);
+            case 1 -> bar(68,100.5,100.65,100.2,100.6,1100,600);
             case 2 -> bar(68,100.5,101.1,100.3,100.6,1600,900);
             case 3 -> bar(68,100.7,101.5,100.6,101.2,600,400);
             case 4 -> bar(68,100.7,101.5,100.6,101.2,1800,1100);
