@@ -220,8 +220,9 @@ public class IndependentResearchService {
                 + (compareStops?"; BTC_STOP_POLICY_RESEARCH; 5_POLICIES;"
                     +" SAME_DAILY_SIGNALS_PER_BASE_ARM; INITIAL_RISK_SIZED_WITH_ACTUAL_STOP"
                     :"")
-                + (compareReversal?"; BTC_MIXED_REVERSAL_EXIT_RESEARCH; 2_POLICIES;"
-                    +" PROTECTIVE_STRUCTURAL_STOP_UNCHANGED; OPPOSITE_PA_VOLUME_NEXT_OPEN"
+                + (compareReversal?"; BTC_MIXED_REVERSAL_EXIT_RESEARCH; 3_POLICIES;"
+                    +" PROTECTIVE_STRUCTURAL_STOP_UNCHANGED; OPPOSITE_PA_VOLUME_NEXT_OPEN;"
+                    +" OPTIONAL_CONFIRMED_SWING_STRUCTURE_BREAK"
                     :""),
 
                 Map.copyOf(summaries),List.copyOf(events),Map.copyOf(rejectionCounts));
