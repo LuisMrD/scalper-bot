@@ -3,8 +3,9 @@
 **PAPER ONLY**, sem ordens reais. Este experimento é separado do estudo
 de stops, não altera os demais endpoints e não habilita setups de caixa.
 Implementa a hipótese nova discutida em 16/10/2026: investigar saída
-por **reversão confirmada de price action + volume**, mantendo o stop
-estrutural, o trailing atual e o limite de 30 candles (7,5 horas) como proteção.
+por **reversão confirmada de price action + volume e perda de estrutura**,
+mantendo o stop estrutural, o trailing atual e o limite de 30 candles
+(7,5 horas) como proteção.
 
 ## Universo e controle
 
@@ -12,7 +13,7 @@ estrutural, o trailing atual e o limite de 30 candles (7,5 horas) como proteçã
   completamente fechado**, direção maior pela inclinação da EMA21 diária.
 - Somente **TREND_PULLBACK_MIXED** (LONG) e
   **TREND_PULLBACK_MIXED_SHORT** (SHORT). Os detectores existentes de recuo
-  misto não são modificados. Recuso tradicional e breakout não participam.
+  misto não são modificados. Recuo tradicional e breakout não participam.
 - Seis janelas não sobrepostas de **600 horas = 2.400 candles 15m**,
   encerrando em `2026-10-15T23:59:59.999Z`.
 - Três políticas independentes em cada braço: `BASELINE` (stop estrutural
@@ -80,7 +81,7 @@ O endpoint adicional
 JSON do estudo 15m anterior, mas exige BTCUSDT/15m/1d, 2.400 candles e
 60 candles de aquecimento. O endpoint
 `GET /api/v1/research/independent-setups/reversal-study/status` comprova
-`PAPER_ONLY`, os dois braços e as duas políticas.
+`PAPER_ONLY`, os dois braços e as três políticas.
 
 O script `scripts/run-btc-15m-mixed-reversal.ps1` exporta seis artefatos com
 prefixo `BTC-mixed-reversal-15m-1d-600h` para `results/`:
