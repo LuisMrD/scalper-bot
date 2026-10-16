@@ -90,5 +90,8 @@ jobs:
       - name: Validate frozen BTC hybrid and strictly future MIDAS OOS windows (offline)
         shell: pwsh
         run: ./scripts/tests/test-btc-15m-mixed-midas-hybrid.ps1
+      - name: Validate BTC dynamic holding 30/45/60 and structural continuation (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-btc-15m-mixed-dynamic-holding.ps1
       - name: Validate and test (no real orders)
         run: mvn -B -ntp verify
