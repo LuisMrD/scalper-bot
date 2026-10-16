@@ -209,7 +209,9 @@ $tradeRows = New-Object System.Collections.Generic.List[object]
 $diagnosticRows = New-Object System.Collections.Generic.List[object]
 $rejectionRows = New-Object System.Collections.Generic.List[object]
 foreach ($symbol in $symbols) {
-    for ($w=1; $w -le $windows; $w++) {
+    # Oldest first: missing early history fails before running the recent
+    # windows. Window IDs/asOf dates stay exactly the same (newest is 1).
+    for ($w=$windows; $w -ge 1; $w--) {
         [long]$end = $asOfMs - [long]($w-1)*$steps*$dayMs
         [long]$start = $end - [long]($steps-1)*$dayMs
         $request = [ordered]@{
