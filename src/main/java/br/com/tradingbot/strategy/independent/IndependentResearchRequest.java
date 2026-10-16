@@ -5,7 +5,7 @@ import java.util.Objects;
 
 /** Explicit research inputs. No capital, leverage, fee, funding or stop default. */
 public record IndependentResearchRequest(
-        String symbol,int steps,int contextCandles,Long asOf,
+        String symbol,int steps,int contextCandles,String trendInterval,Long asOf,
         IndependentSetupParameters parameters,
         BigDecimal capitalUsdt,BigDecimal riskPerTradePct,
         BigDecimal dailyStopPct,int leverage,
@@ -21,6 +21,8 @@ public record IndependentResearchRequest(
                 ||maxHoldingCandles<1||maxHoldingCandles>5000)
             throw new IllegalArgumentException("Invalid historical window or holding limit");
         if(asOf==null||asOf<0)throw new IllegalArgumentException("Explicit closed 5m asOf required");
+        if(!java.util.List.of("15m","1h","4h").contains(trendInterval))
+            throw new IllegalArgumentException("Choose explicit higher timeframe: 15m, 1h or 4h");
         Objects.requireNonNull(parameters,"Unapproved rules must be provided explicitly");
         positive(capitalUsdt,"capitalUsdt");
         positive(riskPerTradePct,"riskPerTradePct");
