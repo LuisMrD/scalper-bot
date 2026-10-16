@@ -99,8 +99,12 @@ public class IndependentResearchService {
             int start=Math.max(0,i-request.contextCandles()+1);
             var history=tape.subList(start,i+1);
             for(var account:accounts.values())account.begin(c);
-            // The final bar cannot submit a signal without a NEXT opening fill.
-            if(i==tape.size()-1)break;
+            // Final bar settles the already-open paper position, but cannot
+            // create a signal without a NEXT open available for execution.
+            if(i==tape.size()-1) {
+                for(var account:accounts.values())account.settleFinal(c,history);
+                break;
+            }
             var observed=higherContext.at(c.closeTime());
             var higher=observed.timeframes().get(1);
             if("1w".equals(request.trendInterval()))
