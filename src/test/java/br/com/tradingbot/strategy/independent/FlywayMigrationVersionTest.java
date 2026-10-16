@@ -33,6 +33,7 @@ class FlywayMigrationVersionTest {
         assertEquals("V3__create_independent_setup_research.sql",versions.get(3));
         assertEquals("V4__allow_daily_independent_research_runs.sql",versions.get(4));
         assertEquals("V5__allow_15m_independent_research_runs.sql",versions.get(5));
+    }
 
     @Test
     void fifteenMinutePaperResearchConstraintIsIncludedInTheLatestFlywayMigration()
