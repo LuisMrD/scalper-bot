@@ -329,7 +329,12 @@ final class IndependentPaperPortfolio {
                 ?BigDecimal.ONE.add(exitAdverse).multiply(BigDecimal.ONE.add(fee),MC)
                 :BigDecimal.ONE.subtract(exitAdverse).multiply(BigDecimal.ONE.subtract(fee),MC);
         if(denominator.signum()<=0)throw new IllegalArgumentException("Invalid fee/slippage");
-        return roundStop(numerator.divide(denominator,MC));
+        BigDecimal raw=numerator.divide(denominator,MC);
+        // Round toward MORE protection, ensuring nonnegative modeled P&L
+        // after spread, adverse slippage, BOTH fees and accrued funding.
+        return shortSide?floorStep(raw,r.priceTick())
+                :raw.divide(r.priceTick(),0,RoundingMode.CEILING)
+                    .multiply(r.priceTick());
     }
     private void tightenAfterClose(BigDecimal candidate,BigDecimal lastClose) {
         if(candidate.signum()<=0)return;
