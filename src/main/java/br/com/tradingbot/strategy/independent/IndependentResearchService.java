@@ -55,7 +55,7 @@ public class IndependentResearchService {
             List<Event> events,Map<String,Integer> rejectionCounts) {}
 
     public Report backtest(IndependentResearchRequest request) {
-        return replay(request,false);
+        return replay(request,false,false);
     }
     /** Separate BTC-only stop hypotheses. Never changes the default /backtest. */
     public Report backtestStops(IndependentResearchRequest request) {
@@ -64,9 +64,19 @@ public class IndependentResearchService {
                 || request.contextCandles()!=60)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Stop research requires BTCUSDT 15m/1d, 2400 bars, 60 warmup bars");
-        return replay(request,true);
+        return replay(request,true,false);
     }
-    private Report replay(IndependentResearchRequest request,boolean compareStops) {
+    /** BTC-only side-by-side mixed LONG/SHORT reversal EXIT research. */
+    public Report backtestReversal(IndependentResearchRequest request) {
+        if(!"BTCUSDT".equals(request.symbol()) || !"15m".equals(request.entryInterval())
+                || !"1d".equals(request.trendInterval()) || request.steps()!=2400
+                || request.contextCandles()!=60)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Reversal exit research requires BTCUSDT 15m/1d, 2400 bars, 60 warmup");
+        return replay(request,false,true);
+    }
+    private Report replay(IndependentResearchRequest request,boolean compareStops,
+            boolean compareReversal) {
         Objects.requireNonNull(request);
         if(!trading.symbols().contains(request.symbol()))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -103,13 +113,21 @@ public class IndependentResearchService {
         var shortMixed=new ShortTrendPullbackDetector(request.parameters(),
                 ShortTrendPullbackDetector.RetreatMode.MIXED_NET_RISE);
         var accounts=new LinkedHashMap<String,IndependentPaperPortfolio>();
-        var arms=List.of("TREND_PULLBACK","TREND_PULLBACK_MIXED",
-                "TREND_PULLBACK_SHORT","TREND_PULLBACK_MIXED_SHORT");
+        var arms=compareReversal
+                ?List.of("TREND_PULLBACK_MIXED","TREND_PULLBACK_MIXED_SHORT")
+                :List.of("TREND_PULLBACK","TREND_PULLBACK_MIXED",
+                        "TREND_PULLBACK_SHORT","TREND_PULLBACK_MIXED_SHORT");
         for(var arm:arms) {
             if(compareStops) {
                 for(var policy:StopResearchPolicy.values()) {
                     String label=arm+"__"+policy.name();
                     accounts.put(label,new IndependentPaperPortfolio(label,request,policy));
+                }
+            }else if(compareReversal) {
+                for(var policy:ReversalExitPolicy.values()) {
+                    String label=arm+"__"+policy.name();
+                    accounts.put(label,new IndependentPaperPortfolio(label,request,
+                            StopResearchPolicy.BASELINE,policy));
                 }
             }else accounts.put(arm,new IndependentPaperPortfolio(arm,request));
         }
@@ -133,11 +151,13 @@ public class IndependentResearchService {
                     "1d".equals(request.trendInterval())
                         ?DailyEmaDirection.fromClosedDays(higher.recentCandles(),c.closeTime())
                         :WeeklyEmaDirection.fromClosedWeeks(higher.recentCandles(),c.closeTime());
-            var signals=List.of(
-                    pullback.evaluate(history,request.priceTick()),
-                    mixedPullback.evaluate(history,request.priceTick()),
-                    shortStrict.evaluate(history,request.priceTick()),
-                    shortMixed.evaluate(history,request.priceTick()));
+            var signals=compareReversal
+                    ?List.of(mixedPullback.evaluate(history,request.priceTick()),
+                            shortMixed.evaluate(history,request.priceTick()))
+                    :List.of(pullback.evaluate(history,request.priceTick()),
+                            mixedPullback.evaluate(history,request.priceTick()),
+                            shortStrict.evaluate(history,request.priceTick()),
+                            shortMixed.evaluate(history,request.priceTick()));
             for(var original:signals) {
                 var signal=original;
                 boolean dailyCandidate=original.actionable();
@@ -155,6 +175,12 @@ public class IndependentResearchService {
                 String arm=signal.setup().name();
                 if(compareStops) {
                     for(var policy:StopResearchPolicy.values()) {
+                        var account=accounts.get(arm+"__"+policy.name());
+                        account.count(signal);
+                        account.close(c,signal,history);
+                    }
+                }else if(compareReversal) {
+                    for(var policy:ReversalExitPolicy.values()) {
                         var account=accounts.get(arm+"__"+policy.name());
                         account.count(signal);
                         account.close(c,signal,history);
@@ -180,7 +206,7 @@ public class IndependentResearchService {
             result.rejectionCounts().forEach((reason,count)->
                     rejectionCounts.merge(item.getKey()+":"+reason,count,Integer::sum));
         }
-        long runId=persist(request,events,compareStops);
+        long runId=persist(request,events,compareStops,compareReversal);
         var first=tape.get(request.contextCandles());
         return new Report(runId,request.symbol(),request.entryInterval(),first.openTime(),
                 tape.getLast().closeTime(),request.steps(),
@@ -193,17 +219,25 @@ public class IndependentResearchService {
                 + "NO_REAL_ORDERS; NO_COMBINED_ARBITRATION"
                 + (compareStops?"; BTC_STOP_POLICY_RESEARCH; 5_POLICIES;"
                     +" SAME_DAILY_SIGNALS_PER_BASE_ARM; INITIAL_RISK_SIZED_WITH_ACTUAL_STOP"
+                    :"")
+                + (compareReversal?"; BTC_MIXED_REVERSAL_EXIT_RESEARCH; 2_POLICIES;"
+                    +" PROTECTIVE_STRUCTURAL_STOP_UNCHANGED; OPPOSITE_PA_VOLUME_NEXT_OPEN"
                     :""),
+
                 Map.copyOf(summaries),List.copyOf(events),Map.copyOf(rejectionCounts));
     }
 
     private long persist(IndependentResearchRequest request,List<Event> events,
-            boolean compareStops) {
+            boolean compareStops,boolean compareReversal) {
         var holder=new GeneratedKeyHolder();
         String parameters=compareStops
                 ?json.writeValueAsString(Map.of(
                         "request",request,"researchType","BTC_15M_STOP_POLICY_COMPARISON",
                         "policies",List.of(StopResearchPolicy.values())))
+                :compareReversal?json.writeValueAsString(Map.of(
+                        "request",request,
+                        "researchType","BTC_15M_MIXED_REVERSAL_EXIT_COMPARISON",
+                        "policies",List.of(ReversalExitPolicy.values())))
                 :json.writeValueAsString(request);
         jdbc.update(con-> {
             var statement=con.prepareStatement("""
