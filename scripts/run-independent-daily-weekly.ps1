@@ -191,7 +191,7 @@ foreach($symbol in $symbols) {
     }
     $eligible = @($weeks | Where-Object { $_.closed -eq $true -and [long]$_.closeTime -le $firstStudyClose })
     if ($eligible.Count -lt $context) {
-        throw "$symbol: only $($eligible.Count) completed historical 1w candles before oldest 1d window; $context needed. Sync an older period or reduce the selected OOS horizon."
+        throw "${symbol}: only $($eligible.Count) completed historical 1w candles before oldest 1d window; $context needed. Sync an older period or reduce the selected OOS horizon."
     }
 }
 $arms = @('TREND_PULLBACK','RANGE_BREAKOUT','RANGE_BREAKOUT_RETEST')
