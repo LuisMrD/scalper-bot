@@ -33,8 +33,8 @@ foreach($expected in @(
 if(@($plan|Where-Object{$_ -match '^WINDOW=\d+ FROM='}).Count -ne 6)
     {throw 'Six historical 600h windows required'}
 $source=Get-Content -LiteralPath $script -Raw -Encoding UTF8
-if($source -notmatch "BaseSetup=\(\$arm -split '__',2\)\[0\]" -or
-   $source -notmatch "ExitPolicy=\(\$arm -split '__',2\)\[1\]") {
+if(-not $source.Contains('BaseSetup=($arm -split ''__'',2)[0]') -or
+   -not $source.Contains('ExitPolicy=($arm -split ''__'',2)[1]')) {
     throw 'Composite arm must preserve all underscores in BaseSetup and ExitPolicy'
 }
 Write-Host 'PASS: BTC 2 mixed setups x 2 exit policies x 6 frozen 600h paper windows'
