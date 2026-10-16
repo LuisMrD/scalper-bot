@@ -42,15 +42,18 @@ final class IndependentPaperPortfolio {
     private boolean exitNextOpen;
     private String exitReason;
     private int acceptedSignals,blockedEntries;
-    private record Pending(long signalClose,BigDecimal stop,BigDecimal frozenBoxBase) {}
+    private record Pending(long signalClose,BigDecimal stop,
+            BigDecimal frozenBoxTop,BigDecimal frozenBoxBase) {}
     private static final class Position {
         final long signalClose, entryAt;
-        final BigDecimal entry,initialStop,qty,entryFee,frozenBoxBase;
+        final BigDecimal entry,initialStop,qty,entryFee,frozenBoxTop,frozenBoxBase;
+        boolean alertedInsideBox;
         BigDecimal stop,fees,funding=BigDecimal.ZERO;
         int heldBars;
         Position(Pending p,long entered,BigDecimal price,BigDecimal qty,BigDecimal fee) {
             signalClose=p.signalClose;entryAt=entered;entry=price;
             initialStop=p.stop;stop=p.stop;this.qty=qty;
+            frozenBoxTop=p.frozenBoxTop();
             frozenBoxBase=p.frozenBoxBase();
             entryFee=fee;fees=fee;
         }
@@ -158,7 +161,8 @@ final class IndependentPaperPortfolio {
             if(s.actionable()&&pending==null) {
                 BigDecimal stop=floorStep(s.structuralStop(),r.priceTick());
                 if(stop.signum()>0&&stop.compareTo(candle.close())<0) {
-                    pending=new Pending(s.candleCloseTime(),stop,s.frozenBoxBase());
+                    pending=new Pending(s.candleCloseTime(),stop,
+                            s.frozenBoxTop(),s.frozenBoxBase());
                     acceptedSignals++;
                 }else blockedEntries++;
             }
@@ -171,6 +175,14 @@ final class IndependentPaperPortfolio {
             cash=cash.subtract(charged);
             funding=funding.add(charged);
             position.funding=position.funding.add(charged);
+        }
+        if(position.frozenBoxTop!=null
+                &&candle.close().compareTo(position.frozenBoxTop)<0
+                &&position.frozenBoxBase!=null
+                &&candle.close().compareTo(position.frozenBoxBase)>=0
+                &&!position.alertedInsideBox) {
+            rejected.merge("OPEN_POSITION_BACK_INSIDE_BOX_ALERT",1,Integer::sum);
+            position.alertedInsideBox=true;
         }
         if((position.frozenBoxBase!=null
                     &&candle.close().compareTo(position.frozenBoxBase)<0)
