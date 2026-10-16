@@ -193,7 +193,7 @@ public class IndependentResearchService {
                 + "NO_REAL_ORDERS; NO_COMBINED_ARBITRATION"
                 + (compareStops?"; BTC_STOP_POLICY_RESEARCH; 5_POLICIES;"
                     +" SAME_DAILY_SIGNALS_PER_BASE_ARM; INITIAL_RISK_SIZED_WITH_ACTUAL_STOP"
-                    :"")
+                    :""),
                 Map.copyOf(summaries),List.copyOf(events),Map.copyOf(rejectionCounts));
     }
 
