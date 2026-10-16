@@ -66,7 +66,7 @@ public class IndependentResearchService {
             List<Event> events,Map<String,Integer> rejectionCounts) {}
 
     public Report backtest(IndependentResearchRequest request) {
-        return replay(request,false,false,false,false);
+        return replay(request,false,false,false,false,false,false);
     }
     /** Separate BTC-only stop hypotheses. Never changes the default /backtest. */
     public Report backtestStops(IndependentResearchRequest request) {
@@ -75,7 +75,7 @@ public class IndependentResearchService {
                 || request.contextCandles()!=60)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Stop research requires BTCUSDT 15m/1d, 2400 bars, 60 warmup bars");
-        return replay(request,true,false,false,false);
+        return replay(request,true,false,false,false,false,false);
     }
     /** BTC-only side-by-side mixed LONG/SHORT reversal EXIT research. */
     public Report backtestReversal(IndependentResearchRequest request) {
@@ -84,7 +84,7 @@ public class IndependentResearchService {
                 || request.contextCandles()!=60)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Reversal exit research requires BTCUSDT 15m/1d, 2400 bars, 60 warmup");
-        return replay(request,false,true,false,false);
+        return replay(request,false,true,false,false,false,false);
     }
     /**
      * Frozen BTC-only study: 12 disjoint 900-hour windows, 15m with closed 1d
@@ -99,7 +99,7 @@ public class IndependentResearchService {
                 || request.capitalUsdt().compareTo(new java.math.BigDecimal("600"))!=0)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "BTC baseline study requires BTCUSDT 15m/1d, 3600 bars, 60 warmup, $600 capital");
-        return replay(request,false,false,true,false);
+        return replay(request,false,false,true,false,false,false);
     }
 
     /** BTC $600, 12x900h, mixed setups with BASELINE vs two optional
@@ -112,11 +112,46 @@ public class IndependentResearchService {
                 || request.capitalUsdt().compareTo(new java.math.BigDecimal("600"))!=0)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "MIDAS study requires BTCUSDT 15m/1d, 3600 bars, 60 signal context, $600 capital");
-        return replay(request,false,false,false,true);
+        return replay(request,false,false,false,true,false,false);
+    }
+
+    /** In-sample DIAGNOSTIC ONLY, preserving the original 12 x 900h
+     * BTC comparison and adding one hybrid policy for each mixed direction. */
+    public Report backtestMidasHybrid900h(IndependentResearchRequest request) {
+        validateHybridRequest(request);
+        return replay(request,false,false,false,false,true,false);
+    }
+
+    /**
+     * Prospective OUT-OF-SAMPLE gate: all 900 hours of 15m decisions must
+     * start on/after 2026-10-16T00:00:00Z. Earlier 450d were already
+     * inspected in hypothesis selection; do not relabel them as OOS.
+     * The 1000 pre-start warmup bars may be earlier, as historical context.
+     */
+    public Report backtestMidasHybridOos900h(IndependentResearchRequest request) {
+        validateHybridRequest(request);
+        long firstOpen=request.asOf()-(long)request.steps()*900_000L+1L;
+        long oosStart=java.time.Instant.parse("2026-10-16T00:00:00Z").toEpochMilli();
+        if(firstOpen<oosStart)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "OOS HYBRID requires every decision candle from 2026-10-16 UTC onward; earliest full 900h completed window closes on 2026-11-22 11:59:59.999Z");
+        return replay(request,false,false,false,false,true,true);
+    }
+
+    private static void validateHybridRequest(IndependentResearchRequest request) {
+        Objects.requireNonNull(request);
+        if(!"BTCUSDT".equals(request.symbol()) || !"15m".equals(request.entryInterval())
+                || !"1d".equals(request.trendInterval()) || request.steps()!=3600
+                || request.contextCandles()!=60
+                || request.capitalUsdt().compareTo(new java.math.BigDecimal("600"))!=0
+                || request.maxHoldingCandles()!=30)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Hybrid requires BTCUSDT 15m/closed 1d, $600, 3600 bars, 60 context, 30-bar max holding");
     }
 
     private Report replay(IndependentResearchRequest request,boolean compareStops,
-            boolean compareReversal,boolean mixedBaselineOnly,boolean compareMidas) {
+            boolean compareReversal,boolean mixedBaselineOnly,boolean compareMidas,
+            boolean compareHybrid,boolean hybridOos) {
         Objects.requireNonNull(request);
         if(!trading.symbols().contains(request.symbol()))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -127,7 +162,7 @@ public class IndependentResearchService {
                         !=primaryInterval.millis()-1)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "asOf must be a fully closed UTC " + request.entryInterval() + " candle");
-        int warmup=compareMidas?MIDAS_WARMUP_BARS:request.contextCandles();
+        int warmup=(compareMidas||compareHybrid)?MIDAS_WARMUP_BARS:request.contextCandles();
         int required=Math.addExact(warmup,request.steps());
         var tape=new ArrayList<>(market.recentAtOrBefore(
                 request.symbol(),request.entryInterval(),required,request.asOf()));
@@ -154,7 +189,7 @@ public class IndependentResearchService {
         var shortMixed=new ShortTrendPullbackDetector(request.parameters(),
                 ShortTrendPullbackDetector.RetreatMode.MIXED_NET_RISE);
         var accounts=new LinkedHashMap<String,IndependentPaperPortfolio>();
-        var arms=(compareReversal||mixedBaselineOnly||compareMidas)
+        var arms=(compareReversal||mixedBaselineOnly||compareMidas||compareHybrid)
                 ?List.of("TREND_PULLBACK_MIXED","TREND_PULLBACK_MIXED_SHORT")
                 :List.of("TREND_PULLBACK","TREND_PULLBACK_MIXED",
                         "TREND_PULLBACK_SHORT","TREND_PULLBACK_MIXED_SHORT");
@@ -174,15 +209,21 @@ public class IndependentResearchService {
                 for(var policy:MidasEntryPolicy.values())
                     accounts.put(arm+"__"+policy.name(),
                             new IndependentPaperPortfolio(arm+"__"+policy.name(),request));
+            }else if(compareHybrid) {
+                for(var policy:MidasHybridPolicy.values())
+                    accounts.put(arm+"__"+policy.name(),
+                            new IndependentPaperPortfolio(arm+"__"+policy.name(),request));
             }else accounts.put(arm,new IndependentPaperPortfolio(arm,request));
         }
         var events=new ArrayList<Event>();
-        var midasLong=compareMidas?new AnchoredMidasCurve(false,request.parameters()):null;
-        var midasShort=compareMidas?new AnchoredMidasCurve(true,request.parameters()):null;
+        var midasLong=(compareMidas||compareHybrid)
+                ?new AnchoredMidasCurve(false,request.parameters()):null;
+        var midasShort=(compareMidas||compareHybrid)
+                ?new AnchoredMidasCurve(true,request.parameters()):null;
         var longPoints=new ArrayList<AnchoredMidasCurve.Point>();
         var shortPoints=new ArrayList<AnchoredMidasCurve.Point>();
         for(int i=0;i<tape.size();i++) {
-            if(compareMidas) {
+            if(compareMidas||compareHybrid) {
                 // Feed each fully closed primary candle ONCE, from the 1,000
                 // bar warmup onward. No retroactive revisions to prior points.
                 longPoints.add(midasLong.observe(tape,i));
@@ -207,7 +248,7 @@ public class IndependentResearchService {
                     "1d".equals(request.trendInterval())
                         ?DailyEmaDirection.fromClosedDays(higher.recentCandles(),c.closeTime())
                         :WeeklyEmaDirection.fromClosedWeeks(higher.recentCandles(),c.closeTime());
-            var signals=(compareReversal||mixedBaselineOnly||compareMidas)
+            var signals=(compareReversal||mixedBaselineOnly||compareMidas||compareHybrid)
                     ?List.of(mixedPullback.evaluate(history,request.priceTick()),
                             shortMixed.evaluate(history,request.priceTick()))
                     :List.of(pullback.evaluate(history,request.priceTick()),
@@ -241,6 +282,33 @@ public class IndependentResearchService {
                         var account=accounts.get(arm+"__"+policy.name());
                         account.count(signal);
                         account.close(c,signal,history);
+                    }
+                }else if(compareHybrid) {
+                    boolean isShort=signal.side()==IndependentSetupSignal.Side.SHORT;
+                    for(var policy:MidasHybridPolicy.values()) {
+                        var account=accounts.get(arm+"__"+policy.name());
+                        var actualFilter=policy.entryPolicy(isShort);
+                        IndependentSetupSignal filtered=signal;
+                        if(signal.actionable()) {
+                            // LONG HYBRID is ALWAYS the unmodified original.
+                            // SHORT HYBRID reuses the already tested MIDAS
+                            // filter; neither variant changes protective stops.
+                            var pts=isShort?shortPoints:longPoints;
+                            var assessment=MidasEntryFilter.assess(actualFilter,
+                                    isShort,tape,pts,i,request.parameters());
+                            midasAssessments.put(policy.name(),assessment);
+                            if(!assessment.allowed()) {
+                                var failed=new ArrayList<>(signal.rejectedFilters());
+                                failed.add(assessment.reason());
+                                filtered=new IndependentSetupSignal(signal.setup(),
+                                        IndependentSetupSignal.Status.WAIT,c.closeTime(),
+                                        null,null,signal.frozenBoxTop(),
+                                        signal.frozenBoxBase(),assessment.reason(),
+                                        signal.passedFilters(),failed);
+                            }
+                        }
+                        account.count(filtered);
+                        account.close(c,filtered,history);
                     }
                 }else if(compareMidas) {
                     for(var policy:MidasEntryPolicy.values()) {
@@ -287,7 +355,7 @@ public class IndependentResearchService {
                     rejectionCounts.merge(item.getKey()+":"+reason,count,Integer::sum));
         }
         long runId=persist(request,events,compareStops,compareReversal,
-                mixedBaselineOnly,compareMidas);
+                mixedBaselineOnly,compareMidas,compareHybrid,hybridOos);
         var first=tape.get(warmup);
         return new Report(runId,request.symbol(),request.entryInterval(),first.openTime(),
                 tape.getLast().closeTime(),request.steps(),
@@ -313,6 +381,11 @@ public class IndependentResearchService {
                     +" 1000_CAUSAL_PRIMARY_WARMUP; ANCHORED_BASE_VOLUME_MIDPOINT;"
                     +" CONFIRMED_SWING_LOW_HIGH; ORIGINAL_STRUCTURAL_STOP;"
                     +" 600_USDT_PER_ACCOUNT; NO_REAL_ORDERS"
+                    :"")
+                + (compareHybrid?"; BTC_MIXED_MIDAS_HYBRID_900H; 2_POLICY_AB;"
+                    +" LONG_BASELINE_SHORT_MIDAS_RETEST; ORIGINAL_STOP;"
+                    +" 600_USDT_PER_ACCOUNT; 1000_BAR_MIDAS_WARMUP;"
+                    +(hybridOos?" PROSPECTIVE_OOS_POST_20261015":" INSAMPLE_DIAGNOSTIC_ONLY")
                     :""),
 
                 Map.copyOf(summaries),List.copyOf(events),Map.copyOf(rejectionCounts));
@@ -320,7 +393,7 @@ public class IndependentResearchService {
 
     private long persist(IndependentResearchRequest request,List<Event> events,
             boolean compareStops,boolean compareReversal,boolean mixedBaselineOnly,
-            boolean compareMidas) {
+            boolean compareMidas,boolean compareHybrid,boolean hybridOos) {
         var holder=new GeneratedKeyHolder();
         String parameters=compareStops
                 ?json.writeValueAsString(Map.of(
@@ -338,6 +411,13 @@ public class IndependentResearchService {
                         "researchType","BTC_15M_MIXED_MIDAS_12X900H",
                         "primaryWarmupBars",MIDAS_WARMUP_BARS,
                         "policies",List.of(MidasEntryPolicy.values())))
+                :compareHybrid?json.writeValueAsString(Map.of(
+                        "request",request,
+                        "researchType",hybridOos?"BTC_HYBRID_PROSPECTIVE_OOS"
+                                :"BTC_HYBRID_INSAMPLE_DIAGNOSTIC",
+                        "primaryWarmupBars",MIDAS_WARMUP_BARS,
+                        "policies",List.of(MidasHybridPolicy.values()),
+                        "frozenDecisionCutoffUtc","2026-10-15T23:59:59.999Z"))
                 :json.writeValueAsString(request);
         jdbc.update(con-> {
             var statement=con.prepareStatement("""
