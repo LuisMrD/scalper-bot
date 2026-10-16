@@ -24,13 +24,13 @@ if($new.entryInterval -ne '15m' -or $new.trendInterval -ne '1d' -or
 }
 $plan=@(& $script -PrintOnly -AsOfDateUtc 2026-10-15)
 foreach($expected in @(
-    'RESEARCH=INDEPENDENT_DAILY_WITH_CLOSED_WEEKLY_TREND',
+    'RESEARCH=INDEPENDENT_15M_WITH_CLOSED_DAILY_TREND',
     'PRIMARY=15m','HIGHER_TREND=1d',
     'ACTIVE_SETUP=PULLBACK_ONLY','DAILY_FILTER=CLOSED_DAILY_EMA21_SLOPE',
     'ORDERS_ENABLED=false','WINDOW_HOURS=600','TOTAL_HOURS=3600',
     'MAX_HOLDING_HOURS=7.5','CAPITAL_RESET_EACH_600H_WINDOW=true',
     'SYMBOLS=BTCUSDT,SOLUSDT,DOGEUSDT','WINDOWS=6','STEPS=2400',
-    'PORTFOLIOS=72','CONTEXT_WEEKS=60','AS_OF=1792108799999',
+    'PORTFOLIOS=72','CONTEXT_HIGHER_BARS=60','AS_OF=1792108799999',
     'WINDOW=1 FROM=1789949699999 THROUGH=1792108799999',
     'WINDOW=6 FROM=1779149699999 THROUGH=1781308799999'
 )) {
@@ -53,12 +53,10 @@ foreach($line in $windows) {
 }
 $chron=@($parsed|Sort-Object From)
 for($i=1;$i -lt $chron.Count;$i++) {
-    if($chron[$i].From -ne $chron[$i-1].End+1+900000) {
-        # End close at xx:14:59.999; the next open/close pair
-        # is one 15m step away. The adjacent close must differ 900000ms.
-        if($chron[$i].From -ne $chron[$i-1].End+900000) {
-            throw "Adjacent 600-hour windows must have no gap or overlap: $($chron[$i-1].Id) -> $($chron[$i].Id)"
-        }
+    # Window N+1 starts exactly one 15m candle close after the
+    # final closed candle of the preceding window.
+    if($chron[$i].From -ne $chron[$i-1].End+900000) {
+        throw "Adjacent 600-hour windows must have no gap or overlap: $($chron[$i-1].Id) -> $($chron[$i].Id)"
     }
 }
 Write-Host 'PASS: six disjoint 600-hour 15m/1d paper windows, unchanged price-action/VPA/risk inputs'
