@@ -21,6 +21,7 @@ public final class RangeBreakoutDetector {
     private long lastClose=-1;
     private record Box(BigDecimal top,BigDecimal base,long frozenAt,
             long breakoutAt,BigDecimal retestLow,boolean broken) {}
+    private record BoxAssessment(Box box,List<String> failures) {}
 
     public RangeBreakoutDetector(IndependentSetupParameters params,Variant variant) {
         this.params=Objects.requireNonNull(params);
@@ -92,12 +93,14 @@ public final class RangeBreakoutDetector {
 
         // Freeze a candidate ONCE, using bars already closed before breakout.
         // Later bars cannot redefine resistance (not even after a wick).
-        if(pending==null)pending=frozenBeforeCurrent(tape);
+        if(pending==null) {
+            var assessed=assessBeforeCurrent(tape);
+            pending=assessed.box();
+            if(pending==null)
+                return IndependentSetupSignal.rejected(setup,current.closeTime(),
+                        assessed.failures().getFirst(),List.of(),assessed.failures());
+        }
         var box=pending;
-        if(box==null)
-            return IndependentSetupSignal.rejected(setup,current.closeTime(),
-                    "NO_PRECONFIRMED_NARROW_DRY_BOX",List.of(),
-                    List.of("NO_PRECONFIRMED_NARROW_DRY_BOX"));
         var pass=new ArrayList<String>();
         var fail=new ArrayList<String>();
         pass.add("BOX_FROZEN_BEFORE_BREAKOUT");
@@ -150,38 +153,60 @@ public final class RangeBreakoutDetector {
                 "CLOSED_VOLUME_CONFIRMED_BREAKOUT",pass,List.of());
     }
 
-    private Box frozenBeforeCurrent(List<MarketCandle> tape) {
+    /**
+     * Evaluate ALL independent prerequisites at the prior close. The first
+     * rejection preserves ordering; every failed criterion remains observable.
+     * This does not change which boxes are eligible for either breakout arm.
+     */
+    private BoxAssessment assessBeforeCurrent(List<MarketCandle> tape) {
         int end=tape.size()-1;
         int start=end-params.consolidationBars();
-        if(start<25) return null;
+        if(start<25)
+            return new BoxAssessment(null,List.of("BOX_INSUFFICIENT_PREBREAKOUT_HISTORY"));
+
+        var failures=new ArrayList<String>();
         var structure=risingStructure(tape,start,params);
+        if(!structure.established())
+            failures.add("BOX_NO_CONFIRMED_RISING_STRUCTURE");
+
         BigDecimal previous21=ema(tape,end-1,21);
         BigDecimal now21=ema(tape,end,21);
-        if(!structure.established()||previous21==null||now21==null
-                ||now21.compareTo(previous21)<=0)
-            return null;
+        if(previous21==null||now21==null||now21.compareTo(previous21)<=0)
+            failures.add("BOX_EMA21_NOT_RISING");
+
         BigDecimal atr=atr(tape,end,params.atrPeriod());
-        if(atr==null||atr.signum()<=0)return null;
+        if(atr==null||atr.signum()<=0)
+            failures.add("BOX_ATR_UNAVAILABLE");
+
         BigDecimal high=tape.get(start).high();
         BigDecimal low=tape.get(start).low();
         for(int i=start;i<end;i++) {
             high=high.max(tape.get(i).high());
             low=low.min(tape.get(i).low());
         }
-        if(high.subtract(low).compareTo(atr.multiply(params.boxWidthMaxAtr()))>0)
-            return null;
+        if(atr!=null && atr.signum()>0
+                && high.subtract(low).compareTo(
+                        atr.multiply(params.boxWidthMaxAtr()))>0)
+            failures.add("BOX_WIDTH_TOO_WIDE");
+
         int half=params.consolidationBars()/2;
-        if(half==0)return null;
         BigDecimal earlyRange=meanRange(tape,start,start+half);
         BigDecimal lateRange=meanRange(tape,end-half,end);
         BigDecimal earlyVolume=meanVolume(tape,start,start+half);
         BigDecimal lateVolume=meanVolume(tape,end-half,end);
-        if(earlyRange.signum()<=0||earlyVolume.signum()<=0
+        if(earlyRange.signum()<=0
                 ||lateRange.compareTo(earlyRange.multiply(
-                    params.boxProgressiveRangeMaxRatio()))>0
+                        params.boxProgressiveRangeMaxRatio()))>0)
+            failures.add("BOX_RANGE_NOT_CONTRACTING");
+        if(earlyVolume.signum()<=0
                 ||lateVolume.compareTo(earlyVolume.multiply(
-                    params.boxVolumeDryUpMaxRatio()))>0)
-            return null;
-        return new Box(high,low,tape.get(end-1).closeTime(),0,null,false);
+                        params.boxVolumeDryUpMaxRatio()))>0)
+            failures.add("BOX_VOLUME_NOT_DRYING");
+
+        if(!failures.isEmpty())
+            return new BoxAssessment(null,List.copyOf(failures));
+        return new BoxAssessment(
+                new Box(high,low,tape.get(end-1).closeTime(),0,null,false),
+                List.of());
     }
 }
