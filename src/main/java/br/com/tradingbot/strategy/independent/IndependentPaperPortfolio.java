@@ -80,9 +80,13 @@ final class IndependentPaperPortfolio {
         return value.divide(step,0,RoundingMode.FLOOR).multiply(step);
     }
     void count(IndependentSetupSignal s) {
-        for(String reason:s.rejectedFilters())rejected.merge(reason,1,Integer::sum);
-        if(s.status()==IndependentSetupSignal.Status.INVALIDATED)
-            rejected.merge(s.reason(),1,Integer::sum);
+        // One occurrence per unique failed filter and evaluated candle.
+        // INVALIDATED.reason is descriptive metadata, not another rejection
+        // when rejectedFilters already includes the underlying violation.
+        var unique=new java.util.LinkedHashSet<>(s.rejectedFilters());
+        if(unique.isEmpty() && s.status()==IndependentSetupSignal.Status.INVALIDATED)
+            unique.add(s.reason());
+        for(String reason:unique) rejected.merge(reason,1,Integer::sum);
     }
     void begin(MarketCandle c) {
         long day=c.openTime()/ONE_DAY;
