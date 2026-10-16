@@ -66,5 +66,8 @@ jobs:
       - name: Validate opt-in daily/weekly historical plan (offline)
         shell: pwsh
         run: ./scripts/tests/test-independent-daily-weekly-plan.ps1
+      - name: Validate independent daily/weekly research export plan (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-independent-research-export-plan.ps1
       - name: Validate and test (no real orders)
         run: mvn -B -ntp verify
