@@ -16,9 +16,20 @@ import static br.com.tradingbot.strategy.independent.ClosedCandleFeatures.*;
  */
 public final class TrendPullbackDetector {
     private static final BigDecimal HUNDRED = new BigDecimal("100");
+    public enum RetreatMode { ALL_BEARISH_LEGACY, MIXED_NET_DECLINE }
     private final IndependentSetupParameters params;
+    private final RetreatMode mode;
     public TrendPullbackDetector(IndependentSetupParameters params) {
+        this(params, RetreatMode.ALL_BEARISH_LEGACY);
+    }
+    public TrendPullbackDetector(IndependentSetupParameters params, RetreatMode mode) {
         this.params = Objects.requireNonNull(params);
+        this.mode = Objects.requireNonNull(mode);
+    }
+    private IndependentSetupSignal.Setup setup() {
+        return mode == RetreatMode.ALL_BEARISH_LEGACY
+                ? IndependentSetupSignal.Setup.TREND_PULLBACK
+                : IndependentSetupSignal.Setup.TREND_PULLBACK_MIXED;
     }
     public IndependentSetupSignal evaluate(List<MarketCandle> tape,BigDecimal priceTick) {
         IndependentSetupSignal best=null;
@@ -42,7 +53,7 @@ public final class TrendPullbackDetector {
         if(n<Math.max(35,2*params.pullbackMaxBars()+params.pivotLeft()
                 +params.pivotRight()+5))
             return IndependentSetupSignal.rejected(
-                    IndependentSetupSignal.Setup.TREND_PULLBACK,signalAt,
+                    setup(),signalAt,
                     "INSUFFICIENT_HISTORY",passed,List.of("INSUFFICIENT_HISTORY"));
         MarketCandle last=tape.getLast();
         // Evaluate this explicitly configured pullback length without assuming a fixed N.
@@ -58,14 +69,27 @@ public final class TrendPullbackDetector {
         BigDecimal pullbackLow=null, sellVolume=BigDecimal.ZERO;
         BigDecimal bodySum=BigDecimal.ZERO;
         boolean bearishRetreat=true;
+        boolean hasBearishCandle=false;
         for(int i=start;i<n-1;i++) {
             var c=tape.get(i);
-            bearishRetreat &= c.close().compareTo(c.open())<0;
+            boolean bearish = c.close().compareTo(c.open())<0;
+            bearishRetreat &= bearish;
+            hasBearishCandle |= bearish;
             pullbackLow=pullbackLow==null?c.low():pullbackLow.min(c.low());
             sellVolume=sellVolume.add(c.quoteVolume());
             bodySum=bodySum.add(body(c));
         }
-        if(!bearishRetreat) failed.add("PULLBACK_NOT_ORDERLY_BEARISH");
+        if(mode == RetreatMode.ALL_BEARISH_LEGACY) {
+            if(!bearishRetreat) failed.add("PULLBACK_NOT_ORDERLY_BEARISH");
+        } else {
+            // Explicit alternative: allow green pause candles, but require a
+            // genuine net price retreat AND at least one bearish closed bar.
+            // Same VPA, EMA zone, swing-low preservation and buy confirmation.
+            boolean retreat = hasBearishCandle
+                    && tape.get(n-2).close().compareTo(tape.get(start).open()) < 0;
+            if(!retreat) failed.add("MIXED_PULLBACK_NO_NET_DECLINE");
+            else passed.add("MIXED_PULLBACK_NET_DECLINE");
+        }
         BigDecimal precedingVolume=meanVolume(tape,start-k,start);
         BigDecimal pullbackMean=sellVolume.divide(BigDecimal.valueOf(k),MC);
         BigDecimal precedingBody=BigDecimal.ZERO;
@@ -121,11 +145,11 @@ public final class TrendPullbackDetector {
                     || failed.contains("DOMINANT_BEARISH_CANDLE")
                     ? IndependentSetupSignal.Status.INVALIDATED
                     : IndependentSetupSignal.Status.WAIT;
-            return new IndependentSetupSignal(IndependentSetupSignal.Setup.TREND_PULLBACK,
+            return new IndependentSetupSignal(setup(),
                     status,signalAt,null,null,null,null,failed.getFirst(),
                     passed,failed);
         }
-        return new IndependentSetupSignal(IndependentSetupSignal.Setup.TREND_PULLBACK,
+        return new IndependentSetupSignal(setup(),
                 IndependentSetupSignal.Status.CONFIRMED,signalAt,last.close(),stop,
                 null,null,"BULLISH_PULLBACK_CONFIRMED",passed,List.of());
     }
