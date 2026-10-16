@@ -33,6 +33,25 @@ public final class IndependentResearchController {
                         "TREND_PULLBACK","TREND_PULLBACK_MIXED")),
                 Map.entry("userThresholdsRequired",true));
     }
+    @GetMapping("/stop-study/status")
+    public Map<String,Object> stopStudyStatus() {
+        return Map.of(
+                "mode","PAPER_ONLY",
+                "ordersEnabled",false,
+                "symbol","BTCUSDT",
+                "entryInterval","15m",
+                "trendInterval","1d",
+                "policyCount",StopResearchPolicy.values().length,
+                "baseArms",4,
+                "policies",java.util.Arrays.stream(StopResearchPolicy.values())
+                        .map(Enum::name).toList());
+    }
+    @PostMapping("/backtest-stops")
+    public IndependentResearchService.Report backtestStops(
+            @RequestBody IndependentResearchRequest request) {
+        return service.backtestStops(request);
+    }
+
     @PostMapping("/backtest")
     public IndependentResearchService.Report backtest(
             @RequestBody IndependentResearchRequest request) {
