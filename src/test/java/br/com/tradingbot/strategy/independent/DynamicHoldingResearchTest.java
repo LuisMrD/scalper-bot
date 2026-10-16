@@ -131,6 +131,45 @@ class DynamicHoldingResearchTest {
         assertTrue(p45.summary(next).openPosition());
         assertTrue(p60.summary(next).openPosition());
     }
+    @Test void strongClosedTrendExtendsPast30AndCapsAt60WithoutChangingStop() {
+        var p30=initialized(HoldingExitPolicy.BASELINE_30);
+        var p45=initialized(HoldingExitPolicy.HOLD_45);
+        var p60=initialized(HoldingExitPolicy.HOLD_60);
+        var pDynamic=initialized(HoldingExitPolicy.DYNAMIC_TREND_60);
+        var accounts=List.of(p30,p45,p60,pDynamic);
+        var tape=new ArrayList<>(warmup());
+        for(int i=60;i<=120;i++) {
+            var price=b("100").add(b("0.8").multiply(BigDecimal.valueOf(i-60L)));
+            // A genuine support pivot at index 82, confirmed at index 84.
+            var low=i==82?b("104"):price.subtract(b("0.5"));
+            var bar=bar(i,price,price.add(b("0.5")),low);
+            tape.add(bar);
+            var recent=tape.subList(Math.max(0,tape.size()-60),tape.size());
+            for(var p:accounts) {
+                p.begin(bar);
+                p.close(bar,null,recent,WeeklyEmaDirection.Direction.UP);
+            }
+            if(i==90) {
+                assertFalse(p30.summary(bar).openPosition());
+                assertTrue(p45.summary(bar).openPosition());
+                assertTrue(p60.summary(bar).openPosition());
+                assertTrue(pDynamic.summary(bar).openPosition(),
+                        "Dynamic must continue after bar 30 if all confirmations remain valid");
+            }
+            if(i==106) {
+                assertFalse(p45.summary(bar).openPosition());
+                assertTrue(p60.summary(bar).openPosition());
+                assertTrue(pDynamic.summary(bar).openPosition());
+            }
+        }
+        var last=tape.getLast();
+        assertEquals("MAX_HOLDING",p30.summary(last).trades().getFirst().reason());
+        assertEquals("MAX_HOLDING_45",p45.summary(last).trades().getFirst().reason());
+        assertEquals("MAX_HOLDING_60",p60.summary(last).trades().getFirst().reason());
+        assertEquals("MAX_HOLDING_60",pDynamic.summary(last).trades().getFirst().reason());
+        assertFalse(pDynamic.summary(last).openPosition());
+    }
+
     @Test void dynamicHardStopAlwaysWorksBeforeConditionalExit() {
         var dynamic=initialized(HoldingExitPolicy.DYNAMIC_TREND_60);
         var shock=bar(60,b("100"),b("101"),b("79"));
