@@ -26,7 +26,7 @@ param(
 )
 $ErrorActionPreference='Stop'
 $inv=[Globalization.CultureInfo]::InvariantCulture
-$utc=[System.DateTimeStyles]::AssumeUniversal -bor [System.DateTimeStyles]::AdjustToUniversal
+$utc=[Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal
 $first=[DateTime]::ParseExact($FromUtc,'yyyy-MM-dd',$inv,$utc)
 $last=[DateTime]::ParseExact($UntilUtc,'yyyy-MM-dd',$inv,$utc).AddDays(1).AddMilliseconds(-1)
 if($last -lt $first){throw 'UntilUtc must not precede FromUtc'}
