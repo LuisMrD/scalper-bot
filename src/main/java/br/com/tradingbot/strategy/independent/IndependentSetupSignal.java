@@ -9,7 +9,7 @@ public record IndependentSetupSignal(
         BigDecimal referencePrice, BigDecimal structuralStop,
         BigDecimal frozenBoxTop, BigDecimal frozenBoxBase,
         String reason, List<String> passedFilters, List<String> rejectedFilters) {
-    public enum Setup { TREND_PULLBACK, RANGE_BREAKOUT, RANGE_BREAKOUT_RETEST }
+    public enum Setup { TREND_PULLBACK, TREND_PULLBACK_MIXED, RANGE_BREAKOUT, RANGE_BREAKOUT_RETEST }
     public enum Status { WAIT, CONFIRMED, INVALIDATED, ALERT }
     public IndependentSetupSignal {
         passedFilters = List.copyOf(passedFilters);
