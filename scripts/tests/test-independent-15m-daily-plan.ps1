@@ -13,7 +13,8 @@ foreach($property in $baseline.PSObject.Properties) {
            ($new.parameters | ConvertTo-Json -Compress -Depth 30)) {
             throw 'The new 15m experiment must not retune ANY pullback threshold'
         }
-    } elseif($property.Value -cne $new.$name) {
+    } elseif((ConvertTo-Json -InputObject $property.Value -Depth 30 -Compress) -cne
+             (ConvertTo-Json -InputObject $new.$name -Depth 30 -Compress)) {
         throw "Unexpected change from 1d control to 15m study: $name"
     }
 }
