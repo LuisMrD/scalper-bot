@@ -167,7 +167,7 @@ class ReversalExitResearchTest {
         assertTrue(ReversalExitDetector.confirmedStructural(withPivot,params(),false));
         // A strong candle whose wick pierces support but CLOSES above
         // must not confirm a swing break.
-        withPivot.set(61,candle(61,"100","100.2","98.0","99.0","200000","20000"));
+        withPivot.set(61,candle(61,"100","100","98.0","98.7","200000","20000"));
         assertTrue(ReversalExitDetector.confirmed(withPivot,params(),false));
         assertFalse(ReversalExitDetector.confirmedStructural(withPivot,params(),false));
     }
@@ -177,7 +177,7 @@ class ReversalExitResearchTest {
         assertTrue(ReversalExitDetector.confirmedStructural(data,params(),true));
         // A prior CLOSE already beyond the same pivot is not a fresh break.
         data.set(60,candle(60,"100","102","99.7","102","100000","50000"));
-        data.set(61,candle(61,"102","104","101.5","103.5","200000","180000"));
+        data.set(61,candle(61,"102","103.7","101.9","103.5","200000","180000"));
         assertTrue(ReversalExitDetector.confirmed(data,params(),true));
         assertFalse(ReversalExitDetector.confirmedStructural(data,params(),true));
     }
