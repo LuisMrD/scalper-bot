@@ -143,7 +143,19 @@ public class IndependentResearchService {
             (run_id,arm,candle_close_epoch_ms,event_type,reason,
              reference_price,structural_stop,box_top,box_base,detail_json)
             VALUES(?,?,?,?,?,?,?,?,?,?)
-            """,events,new int[]{},(ps,event)-> {});
+            """,events,250,(ps,event)-> {
+                var signal=event.signal();
+                ps.setLong(1,runId);
+                ps.setString(2,event.arm());
+                ps.setLong(3,event.closeTime());
+                ps.setString(4,event.status());
+                ps.setString(5,event.reason());
+                ps.setBigDecimal(6,signal.referencePrice());
+                ps.setBigDecimal(7,signal.structuralStop());
+                ps.setBigDecimal(8,signal.frozenBoxTop());
+                ps.setBigDecimal(9,signal.frozenBoxBase());
+                ps.setString(10,json.writeValueAsString(signal));
+            });
         return runId;
     }
 }
