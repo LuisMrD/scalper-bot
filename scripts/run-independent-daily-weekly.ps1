@@ -2,7 +2,7 @@
 .SYNOPSIS
   Six disjoint 30-closed-daily-bar paper studies, with completed weekly trend.
 .DESCRIPTION
-  Runs BTC/SOL/DOGE in separate independent research accounts (3 arms each),
+  Runs BTC/SOL/DOGE in separate independent research accounts (4 arms each),
   exports windows, aggregate, trades, diagnostics, rejection counts and frozen
   configuration into results/. All strategy/capital/risk parameters come from
   an EXPLICIT editable research JSON. No order placement or paid AI.
@@ -107,7 +107,7 @@ if ($PrintOnly) {
     Write-Output "WINDOWS=$windows"
     Write-Output "STEPS=$steps"
     Write-Output "CONTEXT_WEEKS=$context"
-    Write-Output "PORTFOLIOS=$($symbols.Count * $windows * 3)"
+    Write-Output "PORTFOLIOS=$($symbols.Count * $windows * 4)"
     Write-Output "AS_OF=$($asOfMs -as [string])"
     if ($null -ne $asOfMs) {
         for ($w=1; $w -le $windows; $w++) {
@@ -194,7 +194,8 @@ foreach($symbol in $symbols) {
         throw "${symbol}: only $($eligible.Count) completed historical 1w candles before oldest 1d window; $context needed. Sync an older period or reduce the selected OOS horizon."
     }
 }
-$arms = @('TREND_PULLBACK','RANGE_BREAKOUT','RANGE_BREAKOUT_RETEST')
+$arms = @('TREND_PULLBACK','TREND_PULLBACK_MIXED',
+    'RANGE_BREAKOUT','RANGE_BREAKOUT_RETEST')
 $windowRows = New-Object System.Collections.Generic.List[object]
 $tradeRows = New-Object System.Collections.Generic.List[object]
 $diagnosticRows = New-Object System.Collections.Generic.List[object]
@@ -234,7 +235,7 @@ foreach ($symbol in $symbols) {
         if ($response.symbol -ne $symbol -or $response.interval -ne '1d' -or
             [long]$response.lastClose -ne $end -or
             [int]$response.completedBars -ne $steps -or
-            @($response.portfolios.PSObject.Properties).Count -ne 3 -or
+            @($response.portfolios.PSObject.Properties).Count -ne 4 -or
             -not $response.executionModel.Contains('NO_REAL_ORDERS')) {
             throw "Unexpected research response for $symbol window $w (fail closed)"
         }
@@ -274,6 +275,10 @@ foreach ($symbol in $symbols) {
             $diagnosticRows.Add([pscustomobject]@{
                 Symbol=$symbol;Window=$w;Arm=$event.arm;RunId=$response.runId
                 CandleCloseTime=$event.closeTime;Status=$event.status;Reason=$event.reason
+                HigherTrend=$event.higherTrend
+                HigherCloseTime=$event.higherCandleCloseTime
+                HigherTrendApproved=$event.higherTrendApproved
+                DailyCandidateBeforeHigherTrend=$event.candidateBeforeHigherTrend
                 PassedFilters=($signal.passedFilters -join '|')
                 RejectedFilters=($signal.rejectedFilters -join '|')
                 ReferencePrice=$signal.referencePrice;StructuralStop=$signal.structuralStop
@@ -329,7 +334,7 @@ if($tradeRows.Count -gt 0) {
 if($diagnosticRows.Count -gt 0) {
     @($diagnosticRows.ToArray()) | Export-Csv -Path $paths.diagnostics -NoTypeInformation -Encoding UTF8
 } else {
-    'Symbol,Window,Arm,RunId,CandleCloseTime,Status,Reason,PassedFilters,RejectedFilters,ReferencePrice,StructuralStop,BoxTop,BoxBase' | Set-Content -Path $paths.diagnostics -Encoding UTF8
+    'Symbol,Window,Arm,RunId,CandleCloseTime,Status,Reason,HigherTrend,HigherCloseTime,HigherTrendApproved,DailyCandidateBeforeHigherTrend,PassedFilters,RejectedFilters,ReferencePrice,StructuralStop,BoxTop,BoxBase' | Set-Content -Path $paths.diagnostics -Encoding UTF8
 }
 if($rejectionRows.Count -gt 0) {
     @($rejectionRows.ToArray()) | Export-Csv -Path $paths.rejections -NoTypeInformation -Encoding UTF8
