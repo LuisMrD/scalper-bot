@@ -22,6 +22,7 @@ param(
     [string]$UntilUtc,
     [ValidatePattern('^https?://(localhost|127\.0\.0\.1)(:\d+)?$')]
     [string]$BaseUrl='http://127.0.0.1:8080',
+    [switch]$FailOnEmptyDaily,
     [switch]$PrintOnly
 )
 $ErrorActionPreference='Stop'
@@ -59,6 +60,9 @@ foreach($symbol in $Symbols) {
                 Write-Output "PLAN $symbol $interval $($start.ToString('yyyy-MM-dd'))..$($end.ToString('yyyy-MM-dd'))"
             } else {
                 $r=Invoke-RestMethod -Method Post -Uri $uri -TimeoutSec 180 -ErrorAction Stop
+                if($FailOnEmptyDaily -and $interval -eq '1d' -and [int]$r.fetched -eq 0) {
+                    throw "No daily candles from the configured Binance market source for $symbol starting $($start.ToString('yyyy-MM-dd')). Historical range may be unavailable on TESTNET. Research did NOT complete; do not fill or invent missing bars."
+                }
                 Write-Host "$($r.symbol) $($r.interval): fetched=$($r.fetched), persisted=$($r.persisted), pages=$($r.pages)"
             }
             $start=$end.AddMilliseconds(1)
