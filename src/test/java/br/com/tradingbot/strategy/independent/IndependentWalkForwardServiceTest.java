@@ -46,7 +46,8 @@ class IndependentWalkForwardServiceTest {
         var backtest=mock(IndependentResearchService.class);
         var a=request(BASE,n("0.05"));
         var b=request(BASE+100*300_000L,n("0.05"));
-        var names=List.of("TREND_PULLBACK","RANGE_BREAKOUT","RANGE_BREAKOUT_RETEST");
+        var names=List.of("TREND_PULLBACK","TREND_PULLBACK_MIXED",
+                "RANGE_BREAKOUT","RANGE_BREAKOUT_RETEST");
         for(var w:List.of(a,b)) {
             var summaries=new java.util.LinkedHashMap<String,IndependentPaperPortfolio.Summary>();
             for(var arm:names) {
@@ -66,7 +67,7 @@ class IndependentWalkForwardServiceTest {
                 new IndependentWalkForwardService.Request(List.of(b,a)));
         assertEquals(2,out.windows().size());
         assertEquals(List.of(a.asOf(),b.asOf()),out.persistedRunIds());
-        assertEquals(3,out.aggregate().size());
+        assertEquals(4,out.aggregate().size());
         var score=out.aggregate().getFirst();
         assertEquals(2,score.trades());
         assertEquals(2,score.wins());
