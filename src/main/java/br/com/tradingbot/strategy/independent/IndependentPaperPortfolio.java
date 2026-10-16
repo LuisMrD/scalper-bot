@@ -47,6 +47,7 @@ final class IndependentPaperPortfolio {
     private final boolean shortSide;
     private final StopResearchPolicy stopPolicy;
     private final ReversalExitPolicy reversalExitPolicy;
+    private final HoldingExitPolicy holdingExitPolicy;
     private final List<Trade> trades=new ArrayList<>();
     private final Map<String,Integer> rejected=new HashMap<>();
     private BigDecimal cash,peak,worstDrawdown=BigDecimal.ZERO,fees=BigDecimal.ZERO,funding=BigDecimal.ZERO;
@@ -84,7 +85,17 @@ final class IndependentPaperPortfolio {
     }
     IndependentPaperPortfolio(String arm,IndependentResearchRequest r,
             StopResearchPolicy policy,ReversalExitPolicy reversalPolicy) {
+        this(arm,r,policy,reversalPolicy,HoldingExitPolicy.BASELINE_30);
+    }
+    IndependentPaperPortfolio(String arm,IndependentResearchRequest r,
+            HoldingExitPolicy holdingPolicy) {
+        this(arm,r,StopResearchPolicy.BASELINE,ReversalExitPolicy.BASELINE,holdingPolicy);
+    }
+    IndependentPaperPortfolio(String arm,IndependentResearchRequest r,
+            StopResearchPolicy policy,ReversalExitPolicy reversalPolicy,
+            HoldingExitPolicy holdingPolicy) {
         this.arm=arm;this.r=r;
+        this.holdingExitPolicy=java.util.Objects.requireNonNull(holdingPolicy);
         this.stopPolicy=java.util.Objects.requireNonNull(policy);
         this.reversalExitPolicy=java.util.Objects.requireNonNull(reversalPolicy);
         // Determine direction ONLY from the base setup (before "__").
@@ -225,6 +236,15 @@ final class IndependentPaperPortfolio {
     }
     void close(MarketCandle candle,IndependentSetupSignal s,
             List<MarketCandle> history) {
+        close(candle,s,history,null);
+    }
+
+    /**
+     * The higher direction is from a fully completed daily reference as of
+     * THIS 15m close, never the unfinished 1d candle.
+     */
+    void close(MarketCandle candle,IndependentSetupSignal s,
+            List<MarketCandle> history,WeeklyEmaDirection.Direction completedDaily) {
         if(position==null) {
             if(s!=null && s.actionable() && pending==null) {
                 if((s.side()==IndependentSetupSignal.Side.SHORT)!=shortSide)
@@ -285,8 +305,21 @@ final class IndependentPaperPortfolio {
             exitNextOpen=true;
             exitReason=shortSide?"SHORT_BOX_TOP_INVALIDATION":"BOX_BASE_INVALIDATION";
         }
-        if(position.heldBars>=r.maxHoldingCandles()) {
-            exitNextOpen=true;exitReason="MAX_HOLDING";
+        int cap=holdingExitPolicy==HoldingExitPolicy.BASELINE_30
+                ?r.maxHoldingCandles():holdingExitPolicy.maxBars();
+        // Preserve existing stop / box-invalidation precedence.
+        if(!exitNextOpen && position.heldBars>=cap) {
+            exitNextOpen=true;
+            exitReason=holdingExitPolicy==HoldingExitPolicy.BASELINE_30
+                    ?"MAX_HOLDING":"MAX_HOLDING_"+cap;
+        }else if(!exitNextOpen && holdingExitPolicy.conditional()
+                &&position.heldBars>=r.maxHoldingCandles()) {
+            String failure=TrendContinuationExitRule.failedCondition(
+                    history,r.parameters(),shortSide,completedDaily);
+            if(failure!=null) {
+                exitNextOpen=true;
+                exitReason=failure;
+            }
         }
         updateDrawdown(candle.close());
         // Only for the isolated research experiment. Price + taker-volume
