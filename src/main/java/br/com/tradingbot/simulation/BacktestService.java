@@ -291,6 +291,8 @@ public class BacktestService {
         int cooldownRejected, riskApproved, filteredRejected;
         boolean filtered;
         BollingerFilteredPolicy.StopMode stopMode = BollingerFilteredPolicy.StopMode.STRUCTURAL;
+        BollingerFilteredPolicy.VolumeMode volumeMode =
+                BollingerFilteredPolicy.VolumeMode.DIRECTIONAL_LEGACY;
         final java.util.Map<Long, BigDecimal> targets = new java.util.LinkedHashMap<>();
         final java.util.Map<Long, Long> triggerCloses = new java.util.LinkedHashMap<>();
         final java.util.Map<Long, String> patterns = new java.util.LinkedHashMap<>();
@@ -327,6 +329,14 @@ public class BacktestService {
      */
     public BollingerReplay runBollingerStudyDaily(BacktestRequest request,
             boolean filtered, BollingerFilteredPolicy.StopMode stopMode) {
+        return runBollingerStudyDaily(request, filtered, stopMode,
+                BollingerFilteredPolicy.VolumeMode.DIRECTIONAL_LEGACY);
+    }
+
+    /** Experimental independent VPA arm; all existing callers remain unchanged. */
+    public BollingerReplay runBollingerStudyDaily(BacktestRequest request,
+            boolean filtered, BollingerFilteredPolicy.StopMode stopMode,
+            BollingerFilteredPolicy.VolumeMode volumeMode) {
         if (request == null || !List.of("SOLUSDT", "DOGEUSDT", "BTCUSDT").contains(request.symbol())
                 || !request.intervals().equals(List.of("1d"))
                 || request.steps() != 30 || request.asOf() == null
@@ -338,6 +348,7 @@ public class BacktestService {
         var counters = new BollingerCounter();
         counters.filtered = filtered;
         counters.stopMode = stopMode;
+        counters.volumeMode = java.util.Objects.requireNonNull(volumeMode);
         var replay = runFilteredInternal(request, EntryBreakoutFilter.BLOCK_BOTH,
                 ReentryWaitPolicy.NONE, MagicMacroLongPolicy.NONE, false,
                 ShortRangePolicy.CONTROL, L2RangePolicy.CONTROL,
@@ -751,10 +762,12 @@ public class BacktestService {
                             if (bollingerPolicy != null) {
                                 structural = bollingerPolicy.diagnose(context, bbConfirmed,
                                         request, policy,
-                                        BollingerFilteredPolicy.StopMode.STRUCTURAL);
+                                        BollingerFilteredPolicy.StopMode.STRUCTURAL,
+                                        bollinger.volumeMode);
                                 extreme = bollingerPolicy.diagnose(context, bbConfirmed,
                                         request, policy,
-                                        BollingerFilteredPolicy.StopMode.EXTREME_CANDLE);
+                                        BollingerFilteredPolicy.StopMode.EXTREME_CANDLE,
+                                        bollinger.volumeMode);
                                 bollinger.diagnostics.add(new BollingerFilterTrace(
                                         bbConfirmed.trigger().candleCloseTime(),
                                         bbConfirmed.confirmedAtCloseTime(),
