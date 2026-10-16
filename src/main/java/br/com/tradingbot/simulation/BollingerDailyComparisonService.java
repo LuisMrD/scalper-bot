@@ -9,7 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
- * Four independent DAILY portfolios. Thirty fully closed 1d bars per
+ * Six independent DAILY portfolios. Thirty fully closed 1d bars per
  * 30-calendar-day window. Each arm trades the same nonoverlapping period.
  * Historical context preceding the window is indicator warmup ONLY.
  */
@@ -68,7 +68,8 @@ public final class BollingerDailyComparisonService {
         var diagnostics = new ArrayList<SignalDiagnostic>();
         Long first = null, last = null;
         for (String arm : List.of("CONTROL", "LEGACY_BOLLINGER_STRUCTURAL",
-                "FILTERED_BOLLINGER_STRUCTURAL", "FILTERED_BOLLINGER_EXTREME")) {
+                "FILTERED_BOLLINGER_STRUCTURAL", "FILTERED_BOLLINGER_EXTREME",
+                "SEQUENCE_VPA_BOLLINGER_STRUCTURAL", "SEQUENCE_VPA_BOLLINGER_EXTREME")) {
             BacktestService.BollingerReplay study = switch (arm) {
                 case "LEGACY_BOLLINGER_STRUCTURAL" ->
                     backtests.runBollingerStudyDaily(request, false,
@@ -79,6 +80,14 @@ public final class BollingerDailyComparisonService {
                 case "FILTERED_BOLLINGER_EXTREME" ->
                     backtests.runBollingerStudyDaily(request, true,
                             BollingerFilteredPolicy.StopMode.EXTREME_CANDLE);
+                case "SEQUENCE_VPA_BOLLINGER_STRUCTURAL" ->
+                    backtests.runBollingerStudyDaily(request, true,
+                            BollingerFilteredPolicy.StopMode.STRUCTURAL,
+                            BollingerFilteredPolicy.VolumeMode.SEQUENCE_EFFORT_RESULT);
+                case "SEQUENCE_VPA_BOLLINGER_EXTREME" ->
+                    backtests.runBollingerStudyDaily(request, true,
+                            BollingerFilteredPolicy.StopMode.EXTREME_CANDLE,
+                            BollingerFilteredPolicy.VolumeMode.SEQUENCE_EFFORT_RESULT);
                 default -> null;
             };
             var result = study == null
@@ -95,7 +104,8 @@ public final class BollingerDailyComparisonService {
                         "Daily arms must replay the identical thirty completed daily candles");
             first = result.fromCandleOpenTime();
             last = result.throughCandleCloseTime();
-            if (study != null && arm.startsWith("FILTERED_BOLLINGER_")) {
+            if (study != null && (arm.startsWith("FILTERED_BOLLINGER_")
+                    || arm.startsWith("SEQUENCE_VPA_BOLLINGER_"))) {
                 for (var trace : study.diagnostics()) {
                     if (trace.confirmationCloseTime() < result.fromCandleOpenTime()
                             || trace.confirmationCloseTime() > result.throughCandleCloseTime()
@@ -160,6 +170,7 @@ public final class BollingerDailyComparisonService {
                 "SIMULATION_ONLY; CLOSED_1D_UTC; 30D_WINDOW_30_COMPLETE_BARS; "
                         + "OUTSIDE_CLOSE_ARM; ORIGINAL_REVERSAL_CANDLE_CONFIRMATION; "
                         + "NO_INSIDE_BAND_CLOSE_GATE; NO_EXTRA_MICROSTRUCTURE_BREAK_GATE; "
+                        + "DIRECTIONAL_VPA_VS_SEQUENCE_VPA_INDEPENDENT_ARMS; "
                         + "VPA_AND_TREND_FILTER; NET_RR_AT_SIGNAL_AND_FILL; "
                         + "STOP_ONE_TICK_BEYOND_OBSERVED_EXTREME; FROZEN_MIDDLE_TARGET; "
                         + "NEXT_OPEN_FILL_STOP_FIRST; NO_LUNA_NO_ORDERS; "
