@@ -139,6 +139,114 @@ class ReversalExitResearchTest {
         exit.close(hitsStop,null,history);
         assertEquals("STOP",exit.summary(hitsStop).trades().getFirst().reason());
     }
+    private static ArrayList<MarketCandle> withSupportPivot() {
+        var bars=warmup();
+        // Index 57 makes a unique swing LOW confirmed by CLOSED bars 58/59.
+        bars.set(57,candle(57,"100","100.4","98.5","100","100000","50000"));
+        bars.add(flat(60));
+        bars.add(bearish(61));
+        return bars;
+    }
+    private static ArrayList<MarketCandle> withResistancePivot() {
+        var bars=warmup();
+        // A unique swing HIGH at index 57 confirmed at 59 (before reversal).
+        bars.set(57,candle(57,"100","101.5","99.5","100","100000","50000"));
+        bars.add(flat(60));
+        bars.add(bullish(61));
+        return bars;
+    }
+
+    @Test void structuralExitRequiresLatestConfirmedLowBreakForLong() {
+        var noPivot=warmup();
+        noPivot.add(flat(60));
+        noPivot.add(bearish(61));
+        assertTrue(ReversalExitDetector.confirmed(noPivot,params(),false));
+        assertFalse(ReversalExitDetector.confirmedStructural(noPivot,params(),false),
+                "A strong opposing volume candle alone is NOT enough for structural exit");
+        var withPivot=withSupportPivot();
+        assertTrue(ReversalExitDetector.confirmedStructural(withPivot,params(),false));
+        // A strong candle whose wick pierces support but CLOSES above
+        // must not confirm a swing break.
+        withPivot.set(61,candle(61,"100","100.2","98.0","99.0","200000","20000"));
+        assertTrue(ReversalExitDetector.confirmed(withPivot,params(),false));
+        assertFalse(ReversalExitDetector.confirmedStructural(withPivot,params(),false));
+    }
+
+    @Test void structuralExitRequiresLatestConfirmedHighBreakForShort() {
+        var data=withResistancePivot();
+        assertTrue(ReversalExitDetector.confirmedStructural(data,params(),true));
+        // A prior CLOSE already beyond the same pivot is not a fresh break.
+        data.set(60,candle(60,"100","102","99.7","102","100000","50000"));
+        data.set(61,candle(61,"102","104","101.5","103.5","200000","180000"));
+        assertTrue(ReversalExitDetector.confirmed(data,params(),true));
+        assertFalse(ReversalExitDetector.confirmedStructural(data,params(),true));
+    }
+
+    @Test void structuralExitDoesNotConfirmPivotsUsingCurrentReversalCandle() {
+        var history=warmup();
+        // Pivot at 59 would only become confirmed at candle 61, which
+        // is the SAME candle carrying the reversal: fail closed.
+        history.set(59,candle(59,"100","100.4","98.5","100","100000","50000"));
+        history.add(flat(60));
+        history.add(bearish(61));
+        assertTrue(ReversalExitDetector.confirmed(history,params(),false));
+        assertFalse(ReversalExitDetector.confirmedStructural(history,params(),false));
+    }
+
+    @Test void structuralLongExitIsNextOpenAndRetainsProtectiveStop() {
+        var control=portfolio(false,ReversalExitPolicy.BASELINE);
+        var simple=portfolio(false,ReversalExitPolicy.PRICE_ACTION_VOLUME_REVERSAL);
+        var structural=portfolio(false,ReversalExitPolicy.PRICE_ACTION_VOLUME_STRUCTURE_REVERSAL);
+        for(var p:List.of(control,simple,structural))enter(p,false);
+        // First demonstrate a simple reversal without structure: the
+        // original policy schedules exit but the stricter one stays in.
+        var noPivot=warmup();
+        noPivot.add(flat(60));
+        noPivot.add(bearish(61));
+        for(var p:List.of(control,simple,structural)) {
+            p.begin(bearish(61));
+            p.close(bearish(61),null,noPivot);
+        }
+        var next=candle(62,"98","99","97.5","98.5","100000","50000");
+        for(var p:List.of(control,simple,structural))p.begin(next);
+        assertEquals("REVERSAL_PRICE_VOLUME",simple.summary(next).trades().getFirst().reason());
+        assertTrue(structural.summary(next).openPosition());
+        assertTrue(control.summary(next).openPosition());
+
+        // A fresh position can schedule structural exit after the completed
+        // candle, never during that same bar; the fill occurs NEXT open.
+        var newPosition=portfolio(false,ReversalExitPolicy.PRICE_ACTION_VOLUME_STRUCTURE_REVERSAL);
+        enter(newPosition,false);
+        var history=withSupportPivot();
+        newPosition.begin(bearish(61));
+        newPosition.close(bearish(61),null,history);
+        assertTrue(newPosition.summary(bearish(61)).openPosition());
+        newPosition.begin(next);
+        var result=newPosition.summary(next);
+        assertEquals(1,result.closedTrades());
+        assertEquals("REVERSAL_PRICE_VOLUME_STRUCTURE",result.trades().getFirst().reason());
+    }
+
+    @Test void structuralShortExitRetainsHardStopAndNextOpenScheduling() {
+        var paper=portfolio(true,ReversalExitPolicy.PRICE_ACTION_VOLUME_STRUCTURE_REVERSAL);
+        enter(paper,true);
+        var history=withResistancePivot();
+        paper.begin(bullish(61));
+        paper.close(bullish(61),null,history);
+        assertTrue(paper.summary(bullish(61)).openPosition());
+        paper.begin(candle(62,"102","103","101","102","100000","50000"));
+        assertEquals("REVERSAL_PRICE_VOLUME_STRUCTURE",
+                paper.summary(bullish(61)).trades().getFirst().reason());
+
+        var stopped=portfolio(true,ReversalExitPolicy.PRICE_ACTION_VOLUME_STRUCTURE_REVERSAL);
+        enter(stopped,true);
+        var blowout=candle(61,"100","105","99.7","102","200000","180000");
+        stopped.begin(blowout);
+        history.set(61,blowout);
+        stopped.close(blowout,null,history);
+        assertEquals("STOP",stopped.summary(blowout).trades().getFirst().reason());
+    }
+
     @Test void incompleteOrMissingCandleHistoryCannotCauseAnExit() {
         var history=warmup();
         history.add(flat(60));
