@@ -14,6 +14,8 @@ param(
     [Parameter(Mandatory=$true)]
     [ValidateNotNullOrEmpty()]
     [string[]]$Symbols,
+    [ValidateSet('15m','1d','1w')]
+    [string[]]$Intervals=@('1d','1w'),
     [Parameter(Mandatory=$true)]
     [ValidatePattern('^\d{4}-\d{2}-\d{2}$')]
     [string]$FromUtc,
@@ -43,7 +45,7 @@ $epoch=[DateTime]::SpecifyKind([DateTime]'1970-01-01T00:00:00',[DateTimeKind]::U
 $oneDay=[TimeSpan]::FromDays(1)
 $base=$BaseUrl.TrimEnd('/')
 foreach($symbol in $Symbols) {
-    foreach($interval in @('1d','1w')) {
+    foreach($interval in $Intervals) {
         $start=$first
         if($interval -eq '1w') {
             $daysSinceMonday=([int]$start.DayOfWeek+6)%7
@@ -60,8 +62,8 @@ foreach($symbol in $Symbols) {
                 Write-Output "PLAN $symbol $interval $($start.ToString('yyyy-MM-dd'))..$($end.ToString('yyyy-MM-dd'))"
             } else {
                 $r=Invoke-RestMethod -Method Post -Uri $uri -TimeoutSec 180 -ErrorAction Stop
-                if($FailOnEmptyDaily -and $interval -eq '1d' -and [int]$r.fetched -eq 0) {
-                    throw "No daily candles from the configured Binance market source for $symbol starting $($start.ToString('yyyy-MM-dd')). Historical range may be unavailable on TESTNET. Research did NOT complete; do not fill or invent missing bars."
+                if($FailOnEmptyDaily -and $interval -in @('15m','1d') -and [int]$r.fetched -eq 0) {
+                    throw "No $interval candles from the configured Binance market source for $symbol starting $($start.ToString('yyyy-MM-dd')). Historical range may be unavailable on TESTNET. Research did NOT complete; do not fill or invent missing bars."
                 }
                 Write-Host "$($r.symbol) $($r.interval): fetched=$($r.fetched), persisted=$($r.persisted), pages=$($r.pages)"
             }
