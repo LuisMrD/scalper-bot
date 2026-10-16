@@ -1,0 +1,51 @@
+{
+  "_notice": "BTCUSDT ONLY: experimental mixed LONG/SHORT confirmed price-action plus aggressive-volume exit vs unchanged structural-stop control, 6 disjoint 600h windows 15m/1d, PAPER ONLY; all signal, stop, cost and risk inputs unchanged.",
+  "symbols": [
+    "BTCUSDT"
+  ],
+  "windows": 6,
+  "steps": 2400,
+  "contextCandles": 60,
+  "capitalUsdt": 1500,
+  "riskPerTradePct": 0.5,
+  "dailyStopPct": 3,
+  "leverage": 1,
+  "feePerSidePct": 0.05,
+  "slippagePerSidePct": 0.02,
+  "spreadPct": 0.01,
+  "assumedFundingPer8hPct": 0,
+  "assumedMaintenanceMarginPct": 0.5,
+  "maxCostToInitialRiskPct": 50,
+  "maxHoldingCandles": 30,
+  "parameters": {
+    "pivotLeft": 2,
+    "pivotRight": 2,
+    "pullbackMinBars": 3,
+    "pullbackMaxBars": 5,
+    "emaTouchTolerancePct": 0.5,
+    "pullbackVolumeContractionMaxRatio": 0.85,
+    "pullbackBodyContractionMaxRatio": 0.85,
+    "bullishStrongBodyMinRatio": 0.65,
+    "rejectionWickToBodyMinRatio": 2,
+    "buyerVolumeGrowthMinRatio": 1.2,
+    "exceptionalSellingVolumeMinRatio": 2,
+    "consolidationBars": 10,
+    "boxWidthMaxAtr": 2,
+    "boxProgressiveRangeMaxRatio": 0.85,
+    "boxVolumeDryUpMaxRatio": 0.85,
+    "breakoutRelativeVolumeMinRatio": 1.2,
+    "retestMaxBars": 6,
+    "retestTolerancePct": 0.2,
+    "stopBufferTicks": 1,
+    "atrPeriod": 14,
+    "volumeLookbackBars": 20,
+    "directStopRule": "BOX_BASE",
+    "trailingActivationR": 1
+  },
+  "entryInterval": "15m",
+  "trendInterval": "1d",
+  "exitPolicies": [
+    "BASELINE",
+    "PRICE_ACTION_VOLUME_REVERSAL"
+  ]
+}
