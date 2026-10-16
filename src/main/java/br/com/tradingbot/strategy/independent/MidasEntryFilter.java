@@ -21,7 +21,8 @@ final class MidasEntryFilter {
             int currentIndex,IndependentSetupParameters params) {
         if(policy==MidasEntryPolicy.BASELINE)
             return new Assessment(true,"BASELINE_UNCHANGED",null,null,null);
-        if(bars.size()!=points.size() || currentIndex>=bars.size() || currentIndex<0)
+        if(currentIndex<0 || currentIndex>=bars.size()
+                || points.size()!=currentIndex+1)
             throw new IllegalArgumentException("Missing MIDAS curve state");
         var current=bars.get(currentIndex);
         var point=points.get(currentIndex);
@@ -41,8 +42,6 @@ final class MidasEntryFilter {
         // treat crossing the curve at any arbitrary point in history as retest.
         BigDecimal tolerance=params.retestTolerancePct()
                 .divide(BigDecimal.valueOf(100),MC);
-        BigDecimal lower=point.value().multiply(BigDecimal.ONE.subtract(tolerance),MC);
-        BigDecimal upper=point.value().multiply(BigDecimal.ONE.add(tolerance),MC);
         int first=Math.max(0,currentIndex-params.pullbackMaxBars());
         for(int j=currentIndex-1;j>=first;j--) {
             var previous=points.get(j);
