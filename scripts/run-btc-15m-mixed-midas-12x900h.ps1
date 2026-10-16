@@ -363,6 +363,12 @@ foreach ($symbol in $symbols) {
         foreach($event in @($response.events)) {
             if($null -eq $event) {continue}
             $signal=$event.signal
+            $midTrend=$null
+            $midRetest=$null
+            if($null -ne $event.midasAssessments) {
+                $midTrend=$event.midasAssessments.MIDAS_TREND
+                $midRetest=$event.midasAssessments.MIDAS_PULLBACK_REJECTION
+            }
             $diagnosticRows.Add([pscustomobject]@{
                 Symbol=$symbol;Window=$w;Arm=$event.arm
                 Side=if($event.arm.EndsWith('_SHORT')){'SHORT'}else{'LONG'}
@@ -377,6 +383,13 @@ foreach ($symbol in $symbols) {
                 RejectedFilters=($signal.rejectedFilters -join '|')
                 ReferencePrice=$signal.referencePrice;StructuralStop=$signal.structuralStop
                 BoxTop=$signal.frozenBoxTop;BoxBase=$signal.frozenBoxBase
+                MidasValue=$midTrend.value
+                MidasAnchorOpenTime=$midTrend.anchorOpenTime
+                MidasTrendAllowed=$midTrend.allowed
+                MidasTrendReason=$midTrend.reason
+                MidasRetestAllowed=$midRetest.allowed
+                MidasRetestReason=$midRetest.reason
+                MidasRetestTouchedCloseTime=$midRetest.touchedCloseTime
             })
         }
         foreach($reason in @($response.rejectionCounts.PSObject.Properties)) {
@@ -433,7 +446,7 @@ if($tradeRows.Count -gt 0) {
 if($diagnosticRows.Count -gt 0) {
     @($diagnosticRows.ToArray()) | Export-Csv -Path $paths.diagnostics -NoTypeInformation -Encoding UTF8
 } else {
-    'Symbol,Window,Arm,Side,RunId,CandleCloseTime,Status,Reason,HigherFilter,HigherTrend,HigherCloseTime,HigherTrendApproved,DailyCandidateBeforeHigherTrend,PassedFilters,RejectedFilters,ReferencePrice,StructuralStop,BoxTop,BoxBase' | Set-Content -Path $paths.diagnostics -Encoding UTF8
+    'Symbol,Window,Arm,Side,RunId,CandleCloseTime,Status,Reason,HigherFilter,HigherTrend,HigherCloseTime,HigherTrendApproved,DailyCandidateBeforeHigherTrend,PassedFilters,RejectedFilters,ReferencePrice,StructuralStop,BoxTop,BoxBase,MidasValue,MidasAnchorOpenTime,MidasTrendAllowed,MidasTrendReason,MidasRetestAllowed,MidasRetestReason,MidasRetestTouchedCloseTime' | Set-Content -Path $paths.diagnostics -Encoding UTF8
 }
 if($rejectionRows.Count -gt 0) {
     @($rejectionRows.ToArray()) | Export-Csv -Path $paths.rejections -NoTypeInformation -Encoding UTF8
