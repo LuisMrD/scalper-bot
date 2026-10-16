@@ -1,0 +1,60 @@
+{
+  "_notice": "PAPER-ONLY BTC $600 12x900h: SAME FROZEN HYBRID LONG original/SHORT MIDAS retest entries, hard original structural stop/trailing, alternative time exits BASELINE_30/HOLD_45/HOLD_60/DYNAMIC_TREND_60. Dynamic requires completed 1d EMA21 direction, completed 15m EMA9/21 trend and last confirmed swing structure after 30 held candles; fail closed, hard cap 60; study is INSAMPLE only.",
+  "symbols": [
+    "BTCUSDT"
+  ],
+  "windows": 12,
+  "steps": 3600,
+  "contextCandles": 60,
+  "capitalUsdt": 600,
+  "riskPerTradePct": 0.5,
+  "dailyStopPct": 3,
+  "leverage": 1,
+  "feePerSidePct": 0.05,
+  "slippagePerSidePct": 0.02,
+  "spreadPct": 0.01,
+  "assumedFundingPer8hPct": 0,
+  "assumedMaintenanceMarginPct": 0.5,
+  "maxCostToInitialRiskPct": 50,
+  "maxHoldingCandles": 30,
+  "parameters": {
+    "pivotLeft": 2,
+    "pivotRight": 2,
+    "pullbackMinBars": 3,
+    "pullbackMaxBars": 5,
+    "emaTouchTolerancePct": 0.5,
+    "pullbackVolumeContractionMaxRatio": 0.85,
+    "pullbackBodyContractionMaxRatio": 0.85,
+    "bullishStrongBodyMinRatio": 0.65,
+    "rejectionWickToBodyMinRatio": 2,
+    "buyerVolumeGrowthMinRatio": 1.2,
+    "exceptionalSellingVolumeMinRatio": 2,
+    "consolidationBars": 10,
+    "boxWidthMaxAtr": 2,
+    "boxProgressiveRangeMaxRatio": 0.85,
+    "boxVolumeDryUpMaxRatio": 0.85,
+    "breakoutRelativeVolumeMinRatio": 1.2,
+    "retestMaxBars": 6,
+    "retestTolerancePct": 0.2,
+    "stopBufferTicks": 1,
+    "atrPeriod": 14,
+    "volumeLookbackBars": 20,
+    "directStopRule": "BOX_BASE",
+    "trailingActivationR": 1
+  },
+  "entryInterval": "15m",
+  "trendInterval": "1d",
+  "exitPolicy": "BASELINE",
+  "midasWarmupBars": 1000,
+  "hybridPolicies": [
+    "BASELINE",
+    "HYBRID_LONG_BASELINE_SHORT_MIDAS_RETEST"
+  ],
+  "selectionCutoffUtc": "2026-10-15T23:59:59.999Z",
+  "holdingPolicies": [
+    "BASELINE_30",
+    "HOLD_45",
+    "HOLD_60",
+    "DYNAMIC_TREND_60"
+  ]
+}
