@@ -158,7 +158,7 @@ final class IndependentPaperPortfolio {
     void close(MarketCandle candle,IndependentSetupSignal s,
             List<MarketCandle> history) {
         if(position==null) {
-            if(s.actionable()&&pending==null) {
+            if(s!=null && s.actionable() && pending==null) {
                 BigDecimal stop=floorStep(s.structuralStop(),r.priceTick());
                 if(stop.signum()>0&&stop.compareTo(candle.close())<0) {
                     pending=new Pending(s.candleCloseTime(),stop,
@@ -190,7 +190,7 @@ final class IndependentPaperPortfolio {
         }
         if((position.frozenBoxBase!=null
                     &&candle.close().compareTo(position.frozenBoxBase)<0)
-                ||(s.status()==IndependentSetupSignal.Status.INVALIDATED
+                ||(s!=null && s.status()==IndependentSetupSignal.Status.INVALIDATED
                     &&"CLOSE_BELOW_FROZEN_BOX_BASE".equals(s.reason()))) {
             exitNextOpen=true;exitReason="BOX_BASE_INVALIDATION";
         }
@@ -216,6 +216,11 @@ final class IndependentPaperPortfolio {
             }
         }
     }
+    /** On the final completed bar, settle funding/trailing without emitting an unfillable signal. */
+    void settleFinal(MarketCandle candle,List<MarketCandle> history) {
+        close(candle,null,history);
+    }
+
     /** Simulation only; expected Binance-style three settlements per completed UTC day. */
     static int fundingOccurrences(MarketCandle candle) {
         if (candle.interval().millis() >= EIGHT_HOURS)
