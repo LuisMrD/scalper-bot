@@ -15,8 +15,9 @@ final class ClosedCandleFeatures {
     static void check(List<MarketCandle> tape) {
         if (tape.isEmpty()) throw new IllegalArgumentException("Missing candles");
         MarketCandle first = tape.getFirst();
-        if (first.interval() != CandleInterval.M5 && first.interval() != CandleInterval.D1)
-            throw new IllegalArgumentException("Independent setups support only closed 5m or 1d candles");
+        if (first.interval() != CandleInterval.M5 && first.interval() != CandleInterval.M15
+                && first.interval() != CandleInterval.D1)
+            throw new IllegalArgumentException("Independent setups support only closed 5m, 15m or 1d candles");
         for (int i=0; i<tape.size(); i++) {
             var c=tape.get(i);
             if (!c.closed() || !c.symbol().equals(first.symbol())
