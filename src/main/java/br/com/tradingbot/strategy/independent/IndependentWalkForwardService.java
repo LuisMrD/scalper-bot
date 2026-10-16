@@ -74,9 +74,7 @@ public class IndependentWalkForwardService {
         }
         var scores=new ArrayList<ArmScore>();
         for(var arm:List.of("TREND_PULLBACK","TREND_PULLBACK_MIXED",
-                "RANGE_BREAKOUT","RANGE_BREAKOUT_RETEST",
-                "TREND_PULLBACK_SHORT","TREND_PULLBACK_MIXED_SHORT",
-                "RANGE_BREAKOUT_SHORT","RANGE_BREAKOUT_RETEST_SHORT")) {
+                "TREND_PULLBACK_SHORT","TREND_PULLBACK_MIXED_SHORT")) {
             int tradeCount=0,wins=0;
             BigDecimal realized=BigDecimal.ZERO,marked=BigDecimal.ZERO,
                     grossWins=BigDecimal.ZERO,grossLoss=BigDecimal.ZERO,
