@@ -104,7 +104,7 @@ public final class RangeBreakoutDetector {
             fail.add(current.high().compareTo(box.top())>0
                     ? "WICK_ONLY_BREAKOUT" : "NO_CLOSE_ABOVE_FROZEN_TOP");
         else pass.add("CLOSE_ABOVE_FROZEN_TOP");
-        int referenceStart=Math.max(0,n-1-20);
+        int referenceStart=Math.max(0,n-1-params.volumeLookbackBars());
         BigDecimal baseline=meanVolume(tape,referenceStart,n-1);
         if(baseline.signum()<=0 || current.quoteVolume().compareTo(
                 baseline.multiply(params.breakoutRelativeVolumeMinRatio()))<=0)
@@ -121,7 +121,10 @@ public final class RangeBreakoutDetector {
                     current.closeTime(),null,null,box.top(),box.base(),
                     "BREAKOUT_VALID_WAITING_RETEST",pass,List.of());
         }
-        BigDecimal stop=box.base().subtract(tick.multiply(params.stopBufferTicks()));
+        BigDecimal referenceStop=params.directStopRule()
+                == IndependentSetupParameters.DirectStopRule.BOX_BASE
+                ?box.base():current.low();
+        BigDecimal stop=referenceStop.subtract(tick.multiply(params.stopBufferTicks()));
         if(stop.signum()<=0||stop.compareTo(current.close())>=0)
             return IndependentSetupSignal.rejected(setup,current.closeTime(),
                     "INVALID_BOX_STOP",pass,List.of("INVALID_BOX_STOP"));
@@ -140,7 +143,7 @@ public final class RangeBreakoutDetector {
         if(!structure.established()||previous21==null||now21==null
                 ||now21.compareTo(previous21)<=0)
             return null;
-        BigDecimal atr=atr(tape,end,14);
+        BigDecimal atr=atr(tape,end,params.atrPeriod());
         if(atr==null||atr.signum()<=0)return null;
         BigDecimal high=tape.get(start).high();
         BigDecimal low=tape.get(start).low();
