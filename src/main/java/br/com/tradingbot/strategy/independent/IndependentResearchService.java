@@ -171,7 +171,30 @@ public class IndependentResearchService {
             throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
                     "Insufficient persisted closed " + request.entryInterval()
                             + " candles including warmup");
-        ClosedCandleFeatures.check(tape);
+        // Fail with an explicit 422 instead of an opaque 500 when long MIDAS
+        // warmup reaches a missing, stale or unclosed historical 15m bar.
+        try {
+            ClosedCandleFeatures.check(tape);
+        } catch(IllegalArgumentException ex) {
+            if(compareHybrid || compareMidas) {
+                long expectedClose=request.asOf()-(long)(required-1)*primaryInterval.millis();
+                int firstGap=-1;
+                for(int idx=0;idx<tape.size();idx++) {
+                    long expected=expectedClose+(long)idx*primaryInterval.millis();
+                    if(!tape.get(idx).closed() || tape.get(idx).closeTime()!=expected) {
+                        firstGap=idx;
+                        break;
+                    }
+                }
+                throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+                        "MIDAS historical 15m tape is incomplete/noncausal for "
+                        +request.symbol()+" asOf="+request.asOf()
+                        +" required="+required+" firstBadIndex="+firstGap
+                        +" expectedFirstClose="+expectedClose
+                        +": "+ex.getMessage(),ex);
+            }
+            throw ex;
+        }
         var higherContext=contexts.prepareReplay(request.symbol(),
                 List.of(request.entryInterval(),request.trendInterval()),
                 request.contextCandles(),
@@ -226,8 +249,15 @@ public class IndependentResearchService {
             if(compareMidas||compareHybrid) {
                 // Feed each fully closed primary candle ONCE, from the 1,000
                 // bar warmup onward. No retroactive revisions to prior points.
-                longPoints.add(midasLong.observe(tape,i));
-                shortPoints.add(midasShort.observe(tape,i));
+                try {
+                    longPoints.add(midasLong.observe(tape,i));
+                    shortPoints.add(midasShort.observe(tape,i));
+                }catch(IllegalArgumentException ex) {
+                    throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+                            "MIDAS candle calculation failed at candleIndex="+i
+                            +" closeTime="+tape.get(i).closeTime()
+                            +" asOf="+request.asOf()+": "+ex.getMessage(),ex);
+                }
             }
             if(i<warmup)continue;
             MarketCandle c=tape.get(i);
