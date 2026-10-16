@@ -307,11 +307,16 @@ final class IndependentPaperPortfolio {
         }
         int cap=holdingExitPolicy==HoldingExitPolicy.BASELINE_30
                 ?r.maxHoldingCandles():holdingExitPolicy.maxBars();
-        // Preserve existing stop / box-invalidation precedence.
-        if(!exitNextOpen && position.heldBars>=cap) {
+        // Keep legacy BASELINE exactly as implemented: at the same close,
+        // max holding originally overrode a pending box invalidation reason.
+        if(holdingExitPolicy==HoldingExitPolicy.BASELINE_30
+                &&position.heldBars>=cap) {
             exitNextOpen=true;
-            exitReason=holdingExitPolicy==HoldingExitPolicy.BASELINE_30
-                    ?"MAX_HOLDING":"MAX_HOLDING_"+cap;
+            exitReason="MAX_HOLDING";
+        }else if(holdingExitPolicy!=HoldingExitPolicy.BASELINE_30
+                &&!exitNextOpen && position.heldBars>=cap) {
+            exitNextOpen=true;
+            exitReason="MAX_HOLDING_"+cap;
         }else if(!exitNextOpen && holdingExitPolicy.conditional()
                 &&position.heldBars>=r.maxHoldingCandles()) {
             String failure=TrendContinuationExitRule.failedCondition(
