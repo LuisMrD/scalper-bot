@@ -16,6 +16,41 @@ import static br.com.tradingbot.strategy.independent.ClosedCandleFeatures.*;
 final class ReversalExitDetector {
     private ReversalExitDetector() {}
 
+    /**
+     * Strong opposing PA + taker pressure is NECESSARY but not sufficient:
+     * the same closed candle must break the latest already CONFIRMED swing
+     * LOW (closing a LONG) / HIGH (closing a SHORT). The previous candle
+     * must still be on the holding side: a fresh close-through, not a
+     * long-broken or merely wicked level. This is an experiment, not a
+     * claim about an author's precise reversal system.
+     *
+     * The pivot scan excludes the current confirmation candle even as
+     * right-side pivot confirmation data; no future candle is consulted.
+     */
+    static boolean confirmedStructural(List<MarketCandle> closed,
+            IndependentSetupParameters params,boolean shortPosition) {
+        if(!confirmed(closed,params,shortPosition))return false;
+        int n=closed.size();
+        if(n<params.pivotLeft()+params.pivotRight()+2)return false;
+        var pivotList=pivots(closed,n-1,params.pivotLeft(),params.pivotRight());
+        ClosedCandleFeatures.Pivot relevant=null;
+        for(var pivot:pivotList) {
+            // Swing highs support shorts as resistance; swing lows support
+            // longs as support. A pivot needs its RIGHT candles CLOSED
+            // prior to the candle whose close triggers the exit.
+            if(pivot.high()==shortPosition)relevant=pivot;
+        }
+        if(relevant==null)return false;
+        var current=closed.getLast();
+        var prior=closed.get(n-2);
+        if(relevant.confirmedAt()>prior.closeTime())return false;
+        return shortPosition
+                ?prior.close().compareTo(relevant.price())<=0
+                        &&current.close().compareTo(relevant.price())>0
+                :prior.close().compareTo(relevant.price())>=0
+                        &&current.close().compareTo(relevant.price())<0;
+    }
+
     static boolean confirmed(List<MarketCandle> closed,
             IndependentSetupParameters params,boolean shortPosition) {
         Objects.requireNonNull(closed);
