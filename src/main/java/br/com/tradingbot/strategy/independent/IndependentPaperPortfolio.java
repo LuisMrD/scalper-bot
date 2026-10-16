@@ -46,6 +46,7 @@ final class IndependentPaperPortfolio {
     private final String arm;
     private final boolean shortSide;
     private final StopResearchPolicy stopPolicy;
+    private final ReversalExitPolicy reversalExitPolicy;
     private final List<Trade> trades=new ArrayList<>();
     private final Map<String,Integer> rejected=new HashMap<>();
     private BigDecimal cash,peak,worstDrawdown=BigDecimal.ZERO,fees=BigDecimal.ZERO,funding=BigDecimal.ZERO;
@@ -79,8 +80,13 @@ final class IndependentPaperPortfolio {
     }
     IndependentPaperPortfolio(String arm,IndependentResearchRequest r,
             StopResearchPolicy policy) {
+        this(arm,r,policy,ReversalExitPolicy.BASELINE);
+    }
+    IndependentPaperPortfolio(String arm,IndependentResearchRequest r,
+            StopResearchPolicy policy,ReversalExitPolicy reversalPolicy) {
         this.arm=arm;this.r=r;
         this.stopPolicy=java.util.Objects.requireNonNull(policy);
+        this.reversalExitPolicy=java.util.Objects.requireNonNull(reversalPolicy);
         // The separate stop study uses labels like TREND_PULLBACK_SHORT__ATR_050.
         shortSide=arm.contains("_SHORT");
         cash=r.capitalUsdt();peak=cash;
@@ -274,6 +280,15 @@ final class IndependentPaperPortfolio {
             exitNextOpen=true;exitReason="MAX_HOLDING";
         }
         updateDrawdown(candle.close());
+        // Only for the isolated research experiment. Price + taker-volume
+        // reversal must be CONFIRMED by the finished candle; exit NEXT open.
+        // Hard stop and maximum holding remain active and retain priority.
+        if(reversalExitPolicy==ReversalExitPolicy.PRICE_ACTION_VOLUME_REVERSAL
+                &&!exitNextOpen
+                &&ReversalExitDetector.confirmed(history,r.parameters(),shortSide)) {
+            exitNextOpen=true;
+            exitReason="REVERSAL_PRICE_VOLUME";
+        }
         // All candidates are calculated AFTER the completed bar: effective
         // only on the NEXT 15m bar, never on the candle used to calculate ATR.
         if(stopPolicy.atrTrailing()) {
