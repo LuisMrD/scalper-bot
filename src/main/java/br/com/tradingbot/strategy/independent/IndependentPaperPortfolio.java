@@ -11,7 +11,7 @@ import java.util.HashMap;
 import static br.com.tradingbot.strategy.independent.ClosedCandleFeatures.*;
 
 /**
- * LONG-only, independent research account. Signals after close; fills at NEXT
+ * LONG or SHORT, separate research accounts. Signals after close; fills at NEXT
  * open with adverse assumed spread/slippage. Stop-first OHLC convention.
  * Funding input is an explicitly assumed rate per 8h, NOT historical Binance
  * funding. No order client is injected.
@@ -32,6 +32,7 @@ final class IndependentPaperPortfolio {
             Map<String,Integer> rejectionCounts) {}
     private final IndependentResearchRequest r;
     private final String arm;
+    private final boolean shortSide;
     private final List<Trade> trades=new ArrayList<>();
     private final Map<String,Integer> rejected=new HashMap<>();
     private BigDecimal cash,peak,worstDrawdown=BigDecimal.ZERO,fees=BigDecimal.ZERO,funding=BigDecimal.ZERO;
@@ -59,11 +60,18 @@ final class IndependentPaperPortfolio {
         }
     }
     IndependentPaperPortfolio(String arm,IndependentResearchRequest r) {
-        this.arm=arm;this.r=r;cash=r.capitalUsdt();peak=cash;
+        this.arm=arm;this.r=r;shortSide=arm.endsWith("_SHORT");
+        cash=r.capitalUsdt();peak=cash;
     }
     /** Proven monotone under all candidates; used after confirmed pivot closure. */
     static BigDecimal tightenStop(BigDecimal previous,BigDecimal candidate) {
         return previous.max(candidate);
+    }
+    static BigDecimal tightenShortStop(BigDecimal previous,BigDecimal candidate) {
+        return previous.min(candidate);
+    }
+    private BigDecimal directionalPnl(BigDecimal entry,BigDecimal exit) {
+        return shortSide?entry.subtract(exit):exit.subtract(entry);
     }
     private BigDecimal percent(BigDecimal n) { return n.divide(HUNDRED,MC); }
     private BigDecimal adverseRate() {
@@ -96,9 +104,9 @@ final class IndependentPaperPortfolio {
         if(pending!=null && position==null) {
             Pending proposal=pending;
             pending=null;
-            BigDecimal fill=buy(c.open());
+            BigDecimal fill=shortSide?sell(c.open()):buy(c.open());
             BigDecimal stop=proposal.stop;
-            BigDecimal distance=fill.subtract(stop);
+            BigDecimal distance=shortSide?stop.subtract(fill):fill.subtract(stop);
             BigDecimal entryCostRate=percent(r.feePerSidePct())
                     .add(adverseRate());
             BigDecimal unitCosts=fill.add(stop).multiply(entryCostRate,MC);
@@ -106,15 +114,19 @@ final class IndependentPaperPortfolio {
                     ?unitCosts.divide(distance,MC).multiply(HUNDRED):HUNDRED;
             BigDecimal riskBudget=cash.multiply(percent(r.riskPerTradePct()),MC);
             BigDecimal dailyLimit=r.capitalUsdt().multiply(percent(r.dailyStopPct()));
-            // Conservative HYPOTHETICAL long liquidation approximation only.
-            // Exact Binance liquidation also depends on notional tiers, wallet
-            // balance, cross/isolated margin, maintenance fees and mark price.
-            BigDecimal liquidationFloor=fill.multiply(
-                    BigDecimal.ONE.subtract(BigDecimal.ONE.divide(
-                            BigDecimal.valueOf(r.leverage()),MC))
-                    .add(percent(r.assumedMaintenanceMarginPct())),MC);
+            // Approximate hypothetical liquidation limits, not Binance's
+            // real mark-price/tier/cross-isolated margin liquidation formula.
+            BigDecimal leverageFraction=BigDecimal.ONE.divide(
+                    BigDecimal.valueOf(r.leverage()),MC);
+            BigDecimal marginRate=percent(r.assumedMaintenanceMarginPct());
+            BigDecimal liquidationBarrier=fill.multiply(shortSide
+                    ?BigDecimal.ONE.add(leverageFraction).subtract(marginRate)
+                    :BigDecimal.ONE.subtract(leverageFraction).add(marginRate),MC);
+            boolean stopPastLiquidation=shortSide
+                    ?stop.compareTo(liquidationBarrier)>=0
+                    :stop.compareTo(liquidationBarrier)<=0;
             if(realizedToday.compareTo(dailyLimit.negate())<=0
-                    ||distance.signum()<=0 || stop.compareTo(liquidationFloor)<=0
+                    ||distance.signum()<=0 ||stopPastLiquidation
                     ||costRatio.compareTo(r.maxCostToInitialRiskPct())>0) {
                 blockedEntries++;
             }else{
@@ -137,8 +149,10 @@ final class IndependentPaperPortfolio {
         if(position!=null) {
             position.heldBars++;
             // Unknown intrabar ordering is settled STOP FIRST.
-            if(c.low().compareTo(position.stop)<=0) {
-                BigDecimal px=c.open().min(position.stop);
+            if(shortSide?c.high().compareTo(position.stop)>=0
+                    :c.low().compareTo(position.stop)<=0) {
+                BigDecimal px=shortSide?c.open().max(position.stop)
+                        :c.open().min(position.stop);
                 closeAt(px,c.openTime(),"STOP");
             }
         }
@@ -146,10 +160,10 @@ final class IndependentPaperPortfolio {
     private void closeAt(BigDecimal raw,long time,String reason) {
         if(position==null)return;
         Position p=position;
-        BigDecimal fill=sell(raw);
+        BigDecimal fill=shortSide?buy(raw):sell(raw);
         BigDecimal exitFee=fill.multiply(p.qty,MC)
                 .multiply(percent(r.feePerSidePct()),MC);
-        BigDecimal gross=fill.subtract(p.entry).multiply(p.qty,MC);
+        BigDecimal gross=directionalPnl(p.entry,fill).multiply(p.qty,MC);
         BigDecimal realizedNow=gross.subtract(exitFee);
         BigDecimal tradeNet=realizedNow.subtract(p.entryFee).subtract(p.funding);
         cash=cash.add(realizedNow);
@@ -163,8 +177,15 @@ final class IndependentPaperPortfolio {
             List<MarketCandle> history) {
         if(position==null) {
             if(s!=null && s.actionable() && pending==null) {
-                BigDecimal stop=floorStep(s.structuralStop(),r.priceTick());
-                if(stop.signum()>0&&stop.compareTo(candle.close())<0) {
+                if((s.side()==IndependentSetupSignal.Side.SHORT)!=shortSide)
+                    throw new IllegalArgumentException("Signal/portfolio direction mismatch");
+                BigDecimal stop=shortSide
+                        ?s.structuralStop().divide(r.priceTick(),0,
+                            RoundingMode.CEILING).multiply(r.priceTick())
+                        :floorStep(s.structuralStop(),r.priceTick());
+                boolean valid=shortSide?stop.compareTo(candle.close())>0
+                        :stop.compareTo(candle.close())<0;
+                if(stop.signum()>0&&valid) {
                     pending=new Pending(s.candleCloseTime(),stop,
                             s.frozenBoxTop(),s.frozenBoxBase());
                     acceptedSignals++;
@@ -180,23 +201,32 @@ final class IndependentPaperPortfolio {
             BigDecimal charged=candle.close().multiply(position.qty,MC)
                     .multiply(percent(r.assumedFundingPer8hPct()),MC)
                     .multiply(BigDecimal.valueOf(fundingPeriods));
+            if(shortSide)charged=charged.negate();
             cash=cash.subtract(charged);
             funding=funding.add(charged);
             position.funding=position.funding.add(charged);
         }
-        if(position.frozenBoxTop!=null
-                &&candle.close().compareTo(position.frozenBoxTop)<0
-                &&position.frozenBoxBase!=null
-                &&candle.close().compareTo(position.frozenBoxBase)>=0
+        if(position.frozenBoxTop!=null && position.frozenBoxBase!=null
+                &&(shortSide
+                    ?candle.close().compareTo(position.frozenBoxBase)>0
+                        &&candle.close().compareTo(position.frozenBoxTop)<=0
+                    :candle.close().compareTo(position.frozenBoxTop)<0
+                        &&candle.close().compareTo(position.frozenBoxBase)>=0)
                 &&!position.alertedInsideBox) {
             rejected.merge("OPEN_POSITION_BACK_INSIDE_BOX_ALERT",1,Integer::sum);
             position.alertedInsideBox=true;
         }
-        if((position.frozenBoxBase!=null
-                    &&candle.close().compareTo(position.frozenBoxBase)<0)
-                ||(s!=null && s.status()==IndependentSetupSignal.Status.INVALIDATED
-                    &&"CLOSE_BELOW_FROZEN_BOX_BASE".equals(s.reason()))) {
-            exitNextOpen=true;exitReason="BOX_BASE_INVALIDATION";
+        boolean boxBroken=shortSide
+                ?position.frozenBoxTop!=null
+                    &&candle.close().compareTo(position.frozenBoxTop)>0
+                :position.frozenBoxBase!=null
+                    &&candle.close().compareTo(position.frozenBoxBase)<0;
+        if(boxBroken || s!=null && s.status()==IndependentSetupSignal.Status.INVALIDATED
+                &&(shortSide
+                    ?"SHORT_CLOSE_ABOVE_FROZEN_BOX_TOP".equals(s.reason())
+                    :"CLOSE_BELOW_FROZEN_BOX_BASE".equals(s.reason()))) {
+            exitNextOpen=true;
+            exitReason=shortSide?"SHORT_BOX_TOP_INVALIDATION":"BOX_BASE_INVALIDATION";
         }
         if(position.heldBars>=r.maxHoldingCandles()) {
             exitNextOpen=true;exitReason="MAX_HOLDING";
@@ -204,19 +234,29 @@ final class IndependentPaperPortfolio {
         updateDrawdown(candle.close());
         // Trail only after user-configured favorable movement in initial R.
         // A confirmed structural low may tighten but can NEVER widen the stop.
-        BigDecimal favorable=candle.close().subtract(position.entry);
-        BigDecimal needed=position.entry.subtract(position.initialStop)
+        BigDecimal favorable=directionalPnl(position.entry,candle.close());
+        BigDecimal needed=position.entry.subtract(position.initialStop).abs()
                 .multiply(r.parameters().trailingActivationR());
         if(favorable.compareTo(needed)<0)return;
         // Only pivots whose right confirmation is CLOSED may tighten stop.
         var pivots=pivots(history,history.size(),r.parameters().pivotLeft(),
                 r.parameters().pivotRight());
         for(var pivot:pivots) {
-            if(!pivot.high() && pivot.confirmedAt()>=position.entryAt) {
-                BigDecimal candidate=floorStep(pivot.price().subtract(
-                        r.priceTick().multiply(r.parameters().stopBufferTicks())),r.priceTick());
-                if(candidate.compareTo(candle.close())<0)
-                    position.stop=tightenStop(position.stop,candidate);
+            if(pivot.high()==shortSide && pivot.confirmedAt()>=position.entryAt) {
+                BigDecimal raw=shortSide
+                        ?pivot.price().add(r.priceTick().multiply(
+                            r.parameters().stopBufferTicks()))
+                        :pivot.price().subtract(r.priceTick().multiply(
+                            r.parameters().stopBufferTicks()));
+                BigDecimal candidate=shortSide
+                        ?raw.divide(r.priceTick(),0,RoundingMode.CEILING)
+                            .multiply(r.priceTick())
+                        :floorStep(raw,r.priceTick());
+                if(shortSide?candidate.compareTo(candle.close())>0
+                        :candidate.compareTo(candle.close())<0)
+                    position.stop=shortSide
+                            ?tightenShortStop(position.stop,candidate)
+                            :tightenStop(position.stop,candidate);
             }
         }
     }
@@ -233,7 +273,7 @@ final class IndependentPaperPortfolio {
     }
     private void updateDrawdown(BigDecimal lastPrice) {
         BigDecimal marked=cash;
-        if(position!=null)marked=marked.add(lastPrice.subtract(position.entry)
+        if(position!=null)marked=marked.add(directionalPnl(position.entry,lastPrice)
                 .multiply(position.qty,MC));
         peak=peak.max(marked);
         if(peak.signum()>0)
@@ -243,7 +283,7 @@ final class IndependentPaperPortfolio {
     Summary summary(MarketCandle last) {
         BigDecimal marked=cash;
         if(position!=null)
-            marked=marked.add(last.close().subtract(position.entry)
+            marked=marked.add(directionalPnl(position.entry,last.close())
                     .multiply(position.qty,MC));
         if(marked.compareTo(peak)>0)peak=marked;
         if(peak.signum()>0) {
