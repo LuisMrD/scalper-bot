@@ -2,9 +2,10 @@
 .SYNOPSIS
   BTCUSDT, SOLUSDT, DOGEUSDT: six disjoint 30-candle UTC daily windows.
 .DESCRIPTION
-  Research only. Four independent arms per symbol/window:
+  Research only. Six independent arms per symbol/window:
   CONTROL, LEGACY_BOLLINGER_STRUCTURAL, FILTERED_BOLLINGER_STRUCTURAL,
-  FILTERED_BOLLINGER_EXTREME.
+  FILTERED_BOLLINGER_EXTREME, SEQUENCE_VPA_BOLLINGER_STRUCTURAL,
+  SEQUENCE_VPA_BOLLINGER_EXTREME.
   Every window contains exactly 30 complete UTC daily candles (720 hours).
   Warmup candles are never traded and no window shares trading candles.
   Exports four CSVs, including paired structural/extreme filter diagnostics for
@@ -35,7 +36,8 @@ $ErrorActionPreference='Stop'
 [long]$dayMs=86400000L
 [long]$windowMs=30L*$dayMs
 $arms=@('CONTROL','LEGACY_BOLLINGER_STRUCTURAL',
-    'FILTERED_BOLLINGER_STRUCTURAL','FILTERED_BOLLINGER_EXTREME')
+    'FILTERED_BOLLINGER_STRUCTURAL','FILTERED_BOLLINGER_EXTREME',
+    'SEQUENCE_VPA_BOLLINGER_STRUCTURAL','SEQUENCE_VPA_BOLLINGER_EXTREME')
 if(@($Symbols|Select-Object -Unique).Count -ne $Symbols.Count){
     throw 'Symbols cannot be duplicated'
 }
@@ -65,7 +67,7 @@ for($i=0;$i -lt $Windows;$i++){
     }
 }
 if($PrintOnly){
-    Write-Output 'RESEARCH=DAILY_30_CANDLES_4_INDEPENDENT_ARMS'
+    Write-Output 'RESEARCH=DAILY_30_CANDLES_6_INDEPENDENT_ARMS'
     Write-Output "SYMBOLS=$($Symbols -join ',')"
     Write-Output "WINDOWS=$Windows"
     Write-Output 'HOURS_PER_WINDOW=720'
@@ -76,6 +78,7 @@ if($PrintOnly){
     Write-Output 'STOP_MODES=STRUCTURAL,ONE_TICK_BEYOND_EXTREME'
     Write-Output 'MINIMUM_NET_REWARD_RISK=1.5'
     Write-Output 'SIGNAL_DIAGNOSTICS=BOTH_STOPS_ALL_FILTERS'
+    Write-Output 'VPA_MODES=DIRECTIONAL_LEGACY,SEQUENCE_EFFORT_RESULT'
     Write-Output 'CSV_OUTPUTS=WINDOWS,AGGREGATE,TRADES,DIAGNOSTICS'
     Write-Output 'NO_ORDERS=true'
     Write-Output 'NO_LUNA=true'
@@ -158,7 +161,8 @@ foreach($symbol in $Symbols){
         }
         $signals=@($report.signalDiagnostics)
         if(@($signals|Where-Object {
-            $_.arm -notin @('FILTERED_BOLLINGER_STRUCTURAL','FILTERED_BOLLINGER_EXTREME')
+            $_.arm -notin @('FILTERED_BOLLINGER_STRUCTURAL','FILTERED_BOLLINGER_EXTREME',
+                'SEQUENCE_VPA_BOLLINGER_STRUCTURAL','SEQUENCE_VPA_BOLLINGER_EXTREME')
         }).Count -ne 0){
             throw "Unexpected diagnostic arm"
         }
@@ -195,6 +199,16 @@ foreach($symbol in $Symbols){
                 EffortResult=$structural.effortResult
                 ExtremeLow=$structural.extremeLow
                 ExtremeHigh=$structural.extremeHigh
+                VolumeMode=$structural.volumeMode
+                SequenceBars=$structural.sequenceEvidence.sequenceCandles
+                TriggerRelativeVolume=$structural.sequenceEvidence.triggerRelativeVolume
+                TriggerRelativeSpread=$structural.sequenceEvidence.triggerRelativeSpread
+                ConfirmationRelativeVolume=$structural.sequenceEvidence.confirmationRelativeVolume
+                TriggerAbsorption=$structural.sequenceEvidence.triggerAbsorption
+                ContinuationPressureFaded=$structural.sequenceEvidence.continuationPressureFaded
+                FailedContinuation=$structural.sequenceEvidence.failedContinuation
+                ConfirmationRejection=$structural.sequenceEvidence.confirmationRejection
+                StrongContinuation=$structural.sequenceEvidence.strongContinuation
                 StructuralApproved=$structural.approved
                 StructuralFirstRejection=$structural.firstRejection
                 StructuralAllFailures=($structural.failedChecks -join '|')
@@ -215,15 +229,16 @@ foreach($symbol in $Symbols){
                 ExtremeCostToRiskPct=$extreme.costToRiskPct
             })
         }
-        if($summaries.Count -ne 4 -or
-           @($summaries|ForEach-Object {$_.arm}|Sort-Object -Unique).Count -ne 4){
+        if($summaries.Count -ne $arms.Count -or
+           @($summaries|ForEach-Object {$_.arm}|Sort-Object -Unique).Count -ne $arms.Count){
             throw "Missing independent comparison arms"
         }
         foreach($arm in $arms){
             $matching=@($summaries|Where-Object {$_.arm -eq $arm})
             if($matching.Count -ne 1){throw "Missing arm: $arm"}
             $s=$matching[0]
-            if($arm -like 'FILTERED_BOLLINGER_*' -and
+            if(($arm -like 'FILTERED_BOLLINGER_*' -or
+                 $arm -like 'SEQUENCE_VPA_BOLLINGER_*') -and
                 @($signals|Where-Object {$_.arm -eq $arm}).Count -ne [int]$s.confirmedSignals){
                 throw "Missing per-signal filter diagnostics for $arm"
             }
@@ -276,13 +291,13 @@ foreach($symbol in $Symbols){
         }
     }
 }
-if($rows.Count -ne $Symbols.Count*$Windows*4){
+if($rows.Count -ne $Symbols.Count*$Windows*$arms.Count){
     throw 'Incomplete study; not exporting partial CSVs'
 }
 $root=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $out=Join-Path $root 'results'
 New-Item -Path $out -ItemType Directory -Force | Out-Null
-$stamp="1d-30candles-diagnostics-$AsOf-w$StartWindow-$($StartWindow+$Windows-1)"
+$stamp="1d-30candles-seqvpa-$AsOf-w$StartWindow-$($StartWindow+$Windows-1)"
 $windowsPath=Join-Path $out "bollinger-daily-windows-$stamp.csv"
 $aggregatePath=Join-Path $out "bollinger-daily-aggregate-$stamp.csv"
 $tradesPath=Join-Path $out "bollinger-daily-trades-$stamp.csv"
@@ -307,7 +322,7 @@ $aggregate=@($rows|Group-Object Symbol,Arm|ForEach-Object {
         SumFeesUsdt=$fees
     }
 })
-if($aggregate.Count -ne $Symbols.Count*4 -or
+if($aggregate.Count -ne $Symbols.Count*$arms.Count -or
     @($aggregate|Where-Object {$_.Windows -ne $Windows}).Count -ne 0){
     throw 'Missing symbol/scenario windows'
 }
@@ -322,7 +337,7 @@ if($tradeRows.Count -gt 0){
 if($diagnosticRows.Count -gt 0){
     @($diagnosticRows.ToArray()) | Export-Csv -Path $diagnosticsPath -NoTypeInformation -Encoding UTF8
 } else {
-    'Symbol,Window,Arm,TriggerCloseTime,ConfirmationCloseTime,Side,Pattern,CooldownBlocked,SignalClosePrice,FrozenMiddleTarget,TargetDistancePrice,PrimaryTrend,PrimaryBreakout,StrongHigherTimeframeTrend,VolumeCloseTime,VolumeLevel,TakerBalance,EffortResult,ExtremeLow,ExtremeHigh,StructuralApproved,StructuralFirstRejection,StructuralAllFailures,StructuralStop,StructuralStopDistance,StructuralNetReward,StructuralRisk,StructuralNetRR,StructuralCostToRiskPct,ExtremeApproved,ExtremeFirstRejection,ExtremeAllFailures,ExtremeStop,ExtremeStopDistance,ExtremeNetReward,ExtremeRisk,ExtremeNetRR,ExtremeCostToRiskPct' |
+    'Symbol,Window,Arm,TriggerCloseTime,ConfirmationCloseTime,Side,Pattern,CooldownBlocked,SignalClosePrice,FrozenMiddleTarget,TargetDistancePrice,PrimaryTrend,PrimaryBreakout,StrongHigherTimeframeTrend,VolumeCloseTime,VolumeLevel,TakerBalance,EffortResult,ExtremeLow,ExtremeHigh,VolumeMode,SequenceBars,TriggerRelativeVolume,TriggerRelativeSpread,ConfirmationRelativeVolume,TriggerAbsorption,ContinuationPressureFaded,FailedContinuation,ConfirmationRejection,StrongContinuation,StructuralApproved,StructuralFirstRejection,StructuralAllFailures,StructuralStop,StructuralStopDistance,StructuralNetReward,StructuralRisk,StructuralNetRR,StructuralCostToRiskPct,ExtremeApproved,ExtremeFirstRejection,ExtremeAllFailures,ExtremeStop,ExtremeStopDistance,ExtremeNetReward,ExtremeRisk,ExtremeNetRR,ExtremeCostToRiskPct' |
         Set-Content -Path $diagnosticsPath -Encoding UTF8
 }
 $aggregate | Format-Table -AutoSize
