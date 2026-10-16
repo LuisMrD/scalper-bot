@@ -69,5 +69,8 @@ jobs:
       - name: Validate independent daily/weekly research export plan (offline)
         shell: pwsh
         run: ./scripts/tests/test-independent-research-export-plan.ps1
+      - name: Validate frozen 12/24-window pullback historical plans (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-independent-extended-sample.ps1
       - name: Validate and test (no real orders)
         run: mvn -B -ntp verify
