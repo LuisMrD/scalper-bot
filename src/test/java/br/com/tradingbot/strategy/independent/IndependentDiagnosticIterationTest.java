@@ -79,12 +79,29 @@ class IndependentDiagnosticIterationTest {
         var breakout=new RangeBreakoutDetector(parameters(),
                 RangeBreakoutDetector.Variant.IMMEDIATE).onClosed(tape,b("0.01"));
         assertFalse(breakout.actionable());
-        assertTrue(breakout.rejectedFilters().contains("BOX_WIDTH_TOO_WIDE"),
+        assertTrue(breakout.rejectedFilters().contains("BOX_RANGE_NOT_CONTRACTING"),
                 breakout.rejectedFilters().toString());
-        assertTrue(breakout.rejectedFilters().contains("BOX_RANGE_NOT_CONTRACTING"));
         assertTrue(breakout.rejectedFilters().contains("BOX_VOLUME_NOT_DRYING"));
         assertNotEquals("NO_PRECONFIRMED_NARROW_DRY_BOX",breakout.reason());
     }
+    @Test
+    void explicitTighterAtrWidthReportsBoxTooWideWithoutChangingStrategyDefaults() {
+        // This is a TEST-FIXTURE threshold, not a video specification.
+        var p=new IndependentSetupParameters(2,2,3,3,b("2"),
+                b("0.9"),b("0.9"),b("0.6"),b("2"),
+                b("1.1"),b("1.8"),8,b("0.5"),
+                b("0.9"),b("0.9"),b("1.2"),5,b("0.5"),b("1"),
+                14,20,IndependentSetupParameters.DirectStopRule.BOX_BASE,b("1"));
+        var tape=trend();
+        for(int i=60;i<68;i++)
+            tape.add(bar(i,103,110,90,105,800+100*(i-60),500));
+        tape.add(bar(68,105,108,104,107,1800,1200));
+        var signal=new RangeBreakoutDetector(p,
+                RangeBreakoutDetector.Variant.IMMEDIATE).onClosed(tape,b("0.01"));
+        assertTrue(signal.rejectedFilters().contains("BOX_WIDTH_TOO_WIDE"),
+                signal.rejectedFilters().toString());
+    }
+
     @Test
     void invalidatedEventDoesNotCountTheSameUnderlyingFilterTwice() {
         var account=new IndependentPaperPortfolio("TREND_PULLBACK",
