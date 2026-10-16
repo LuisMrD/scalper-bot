@@ -168,10 +168,14 @@ final class IndependentPaperPortfolio {
             }
             return;
         }
-        if(candle.closeTime()%EIGHT_HOURS==EIGHT_HOURS-1) {
-            // Funding assumption, even when negative (credit); NOT actual funding.
+        int fundingPeriods=fundingOccurrences(candle);
+        if(fundingPeriods>0) {
+            // Hypothetical funding settled at the bar close. A 1d candle
+            // spans THREE 8-hour settlements; historical rate and within-bar
+            // prices are unknown. This cannot substitute actual funding history.
             BigDecimal charged=candle.close().multiply(position.qty,MC)
-                    .multiply(percent(r.assumedFundingPer8hPct()),MC);
+                    .multiply(percent(r.assumedFundingPer8hPct()),MC)
+                    .multiply(BigDecimal.valueOf(fundingPeriods));
             cash=cash.subtract(charged);
             funding=funding.add(charged);
             position.funding=position.funding.add(charged);
@@ -211,6 +215,12 @@ final class IndependentPaperPortfolio {
                     position.stop=tightenStop(position.stop,candidate);
             }
         }
+    }
+    /** Simulation only; expected Binance-style three settlements per completed UTC day. */
+    static int fundingOccurrences(MarketCandle candle) {
+        if (candle.interval().millis() >= EIGHT_HOURS)
+            return Math.toIntExact(candle.interval().millis()/EIGHT_HOURS);
+        return candle.closeTime()%EIGHT_HOURS==EIGHT_HOURS-1 ? 1 : 0;
     }
     private void updateDrawdown(BigDecimal lastPrice) {
         BigDecimal marked=cash;
