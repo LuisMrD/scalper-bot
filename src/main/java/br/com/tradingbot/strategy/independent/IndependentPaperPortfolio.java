@@ -87,10 +87,19 @@ final class IndependentPaperPortfolio {
         this.arm=arm;this.r=r;
         this.stopPolicy=java.util.Objects.requireNonNull(policy);
         this.reversalExitPolicy=java.util.Objects.requireNonNull(reversalPolicy);
-        // The separate stop study uses labels like TREND_PULLBACK_SHORT__ATR_050.
-        shortSide=arm.contains("_SHORT");
+        // Determine direction ONLY from the base setup (before "__").
+        // The HYBRID policy name itself contains "_SHORT_MIDAS_RETEST" even
+        // for a LONG book. Scanning the entire arm silently reverses LONG
+        // financial calculations, stop distance and execution side.
+        shortSide=isShortSetupArm(arm);
         cash=r.capitalUsdt();peak=cash;
     }
+    static boolean isShortSetupArm(String accountLabel) {
+        java.util.Objects.requireNonNull(accountLabel);
+        String base=accountLabel.split("__",2)[0];
+        return base.endsWith("_SHORT");
+    }
+
     /** Proven monotone under all candidates; used after confirmed pivot closure. */
     static BigDecimal tightenStop(BigDecimal previous,BigDecimal candidate) {
         return previous.max(candidate);
