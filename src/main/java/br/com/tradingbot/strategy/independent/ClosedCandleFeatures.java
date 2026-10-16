@@ -95,6 +95,32 @@ final class ClosedCandleFeatures {
                     && l2.price().compareTo(l1.price())>0,
                 l2.price(),h2.price());
     }
+    static Structure fallingStructure(List<MarketCandle> tape,int end,
+            IndependentSetupParameters p) {
+        var pivots=pivots(tape,end,p.pivotLeft(),p.pivotRight());
+        var highs=pivots.stream().filter(Pivot::high).toList();
+        var lows=pivots.stream().filter(x->!x.high()).toList();
+        if(highs.size()<2||lows.size()<2)
+            return new Structure(false,null,null);
+        var h1=highs.get(highs.size()-2);
+        var h2=highs.getLast();
+        var l1=lows.get(lows.size()-2);
+        var l2=lows.getLast();
+        return new Structure(h2.price().compareTo(h1.price())<0
+                    && l2.price().compareTo(l1.price())<0,
+                l2.price(),h2.price());
+    }
+    static boolean bearishStrong(MarketCandle c,BigDecimal threshold) {
+        return c.close().compareTo(c.open())<0
+                && ratio(body(c),span(c)).compareTo(threshold)>=0;
+    }
+    static boolean bearishShootingStar(MarketCandle c,BigDecimal wickBodyRatio) {
+        return c.close().compareTo(c.open())<0
+                && c.high().subtract(c.open().max(c.close()))
+                    .compareTo(body(c).multiply(wickBodyRatio))>=0
+                && c.close().subtract(c.low())
+                    .compareTo(body(c))<=0;
+    }
     static boolean bullishStrong(MarketCandle c,BigDecimal threshold) {
         return c.close().compareTo(c.open())>0
                 && ratio(body(c),span(c)).compareTo(threshold)>=0;
