@@ -23,7 +23,7 @@ import tools.jackson.databind.ObjectMapper;
 /**
  * Completely isolated walk-forward-ready replay for two LONG-only setups.
  * Research-only: neither order endpoints nor existing DecisionEngine are used.
- * Three independent paper portfolios; combined live arbitration is disabled.
+ * Four independent paper portfolios; combined live arbitration is disabled.
  */
 @Service
 public class IndependentResearchService {
@@ -48,7 +48,9 @@ public class IndependentResearchService {
         this.clock=Objects.requireNonNull(clock);
     }
     public record Event(String arm,long closeTime,String status,String reason,
-            IndependentSetupSignal signal) {}
+            IndependentSetupSignal signal, String higherTrend,
+            long higherCandleCloseTime, boolean higherTrendApproved,
+            boolean candidateBeforeHigherTrend) {}
     public record Report(long runId,String symbol,String interval,long firstOpen,
             long lastClose,int completedBars,String executionModel,
             Map<String,IndependentPaperPortfolio.Summary> portfolios,
@@ -84,12 +86,16 @@ public class IndependentResearchService {
                     "Latest stored " + request.entryInterval()
                             + " candle does not match asOf");
         var pullback=new TrendPullbackDetector(request.parameters());
+        var mixedPullback=new TrendPullbackDetector(request.parameters(),
+                TrendPullbackDetector.RetreatMode.MIXED_NET_DECLINE);
         var immediate=new RangeBreakoutDetector(request.parameters(),
                 RangeBreakoutDetector.Variant.IMMEDIATE);
         var retest=new RangeBreakoutDetector(request.parameters(),
                 RangeBreakoutDetector.Variant.RETEST);
         var accounts=new LinkedHashMap<String,IndependentPaperPortfolio>();
         accounts.put("TREND_PULLBACK",new IndependentPaperPortfolio("TREND_PULLBACK",request));
+        accounts.put("TREND_PULLBACK_MIXED",
+                new IndependentPaperPortfolio("TREND_PULLBACK_MIXED",request));
         accounts.put("RANGE_BREAKOUT",new IndependentPaperPortfolio("RANGE_BREAKOUT",request));
         accounts.put("RANGE_BREAKOUT_RETEST",
                 new IndependentPaperPortfolio("RANGE_BREAKOUT_RETEST",request));
@@ -114,11 +120,13 @@ public class IndependentResearchService {
                     && higher.priceAction().trend()==Trend.UP;
             var signals=List.of(
                     pullback.evaluate(history,request.priceTick()),
+                    mixedPullback.evaluate(history,request.priceTick()),
                     immediate.onClosed(history,request.priceTick()),
                     retest.onClosed(history,request.priceTick()));
             for(var original:signals) {
                 var signal=original;
-                if(!higherUp && signal.actionable()) {
+                boolean dailyCandidate=original.actionable();
+                if(!higherUp && dailyCandidate) {
                     var failures=new ArrayList<>(signal.rejectedFilters());
                     failures.add("HIGHER_TIMEFRAME_NOT_UP");
                     signal=new IndependentSetupSignal(signal.setup(),
@@ -130,10 +138,13 @@ public class IndependentResearchService {
                 var account=accounts.get(arm);
                 account.count(signal);
                 account.close(c,signal,history);
-                if(signal.status()!=IndependentSetupSignal.Status.WAIT
-                        ||!signal.rejectedFilters().isEmpty())
-                    events.add(new Event(arm,c.closeTime(),signal.status().name(),
-                            signal.reason(),signal));
+                // Every closed daily bar in every arm has a weekly diagnosis,
+                // including WAIT days with no other failed filters. The 1w
+                // observation was already validated as fully closed above.
+                events.add(new Event(arm,c.closeTime(),signal.status().name(),
+                        signal.reason(),signal,higher.priceAction().trend().name(),
+                        higher.recentCandles().getLast().closeTime(),
+                        higherUp,dailyCandidate));
             }
         }
         var summaries=new LinkedHashMap<String,IndependentPaperPortfolio.Summary>();
@@ -151,6 +162,8 @@ public class IndependentResearchService {
                 "PAPER_ONLY; T+1_OPEN; STOP_FIRST; PRIMARY_" + request.entryInterval()
                 + "; HIGHER_TREND_" + request.trendInterval() + "; ONLY_CLOSED_WEEKLY_BARS; "
                 + "FIXED_ASSUMED_FEES_SPREAD_SLIPPAGE_FUNDING; "
+                + "LEGACY_AND_MIXED_PULLBACK_INDEPENDENT; "
+                + "EXHAUSTIVE_BOX_AND_WEEKLY_AUDIT; "
                 + "SEPARATE_LONG_ONLY_ACCOUNTS; NO_REAL_ORDERS; NO_COMBINED_ARBITRATION",
                 Map.copyOf(summaries),List.copyOf(events),Map.copyOf(rejectionCounts));
     }
