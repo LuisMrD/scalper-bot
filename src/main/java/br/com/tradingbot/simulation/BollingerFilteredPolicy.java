@@ -22,6 +22,7 @@ final class BollingerFilteredPolicy {
     private static final BigDecimal HUNDRED = new BigDecimal("100");
 
     enum StopMode { STRUCTURAL, EXTREME_CANDLE }
+    enum VolumeMode { DIRECTIONAL_LEGACY, SEQUENCE_EFFORT_RESULT }
     record Verdict(boolean approved, BigDecimal stop, String rejection) {
         static Verdict reject(String why) { return new Verdict(false, null, why); }
     }
@@ -40,7 +41,28 @@ final class BollingerFilteredPolicy {
             BigDecimal targetDistancePrice, BigDecimal stopDistancePrice,
             BigDecimal netRewardPrice, BigDecimal totalRiskPrice,
             BigDecimal netRewardRisk, BigDecimal costToRiskPct,
-            BigDecimal extremeLow, BigDecimal extremeHigh) {}
+            BigDecimal extremeLow, BigDecimal extremeHigh,
+            VolumeMode volumeMode, BollingerSequenceVpa.Evidence sequenceEvidence) {
+        // Existing diagnostic creation/serialization tests retain compatibility.
+        Diagnostic(StopMode stopMode, boolean approved, String firstRejection,
+                java.util.List<String> failedChecks, String primaryTrend,
+                String primaryBreakout, boolean strongHigherTimeframeTrend,
+                String volumeLevel, String takerBalance, String effortResult,
+                long volumeCloseTime, BigDecimal signalClosePrice,
+                BigDecimal frozenMiddleTarget, BigDecimal stopPrice,
+                BigDecimal targetDistancePrice, BigDecimal stopDistancePrice,
+                BigDecimal netRewardPrice, BigDecimal totalRiskPrice,
+                BigDecimal netRewardRisk, BigDecimal costToRiskPct,
+                BigDecimal extremeLow, BigDecimal extremeHigh) {
+            this(stopMode, approved, firstRejection, failedChecks, primaryTrend,
+                    primaryBreakout, strongHigherTimeframeTrend, volumeLevel,
+                    takerBalance, effortResult, volumeCloseTime, signalClosePrice,
+                    frozenMiddleTarget, stopPrice, targetDistancePrice,
+                    stopDistancePrice, netRewardPrice, totalRiskPrice,
+                    netRewardRisk, costToRiskPct, extremeLow, extremeHigh,
+                    VolumeMode.DIRECTIONAL_LEGACY, null);
+        }
+    }
 
     Verdict evaluate(MultiTimeframeMarketContext market,
             BollingerReversalConfirmation.Confirmation confirmed,
@@ -55,6 +77,14 @@ final class BollingerFilteredPolicy {
     Diagnostic diagnose(MultiTimeframeMarketContext market,
             BollingerReversalConfirmation.Confirmation confirmed,
             BacktestRequest request, RiskPolicy policy, StopMode mode) {
+        return diagnose(market, confirmed, request, policy, mode,
+                VolumeMode.DIRECTIONAL_LEGACY);
+    }
+
+    Diagnostic diagnose(MultiTimeframeMarketContext market,
+            BollingerReversalConfirmation.Confirmation confirmed,
+            BacktestRequest request, RiskPolicy policy, StopMode mode,
+            VolumeMode volumeMode) {
         MarketContextSnapshot primary = market.timeframes().getFirst();
         MarketCandle bar = primary.recentCandles().getLast();
         boolean longSide = confirmed.trigger().side() == BollingerMeanReversion.Side.LONG;
@@ -88,10 +118,20 @@ final class BollingerFilteredPolicy {
                 : VolumeSnapshot.EffortResult.HIGH_VOLUME_UPPER_REJECTION;
         var continuation = longSide ? VolumeSnapshot.EffortResult.BEARISH_WIDE_SPREAD_HIGH_VOLUME
                 : VolumeSnapshot.EffortResult.BULLISH_WIDE_SPREAD_HIGH_VOLUME;
-        if (observation.effortResult() == continuation
-                || (observation.takerBalance() != taker
-                    && observation.effortResult() != rejection))
-            failed.add("VOLUME_NO_REVERSAL_EVIDENCE");
+        BollingerSequenceVpa.Evidence sequenceEvidence = null;
+        if (volumeMode == VolumeMode.DIRECTIONAL_LEGACY) {
+            if (observation.effortResult() == continuation
+                    || (observation.takerBalance() != taker
+                        && observation.effortResult() != rejection))
+                failed.add("VOLUME_NO_REVERSAL_EVIDENCE");
+        } else {
+            // The sequence observes only closed candles available at this signal.
+            // LOW / UNAVAILABLE volume and strong-trend vetoes still apply.
+            sequenceEvidence = new BollingerSequenceVpa().assess(
+                    primary.recentCandles(), confirmed, observation);
+            if (!sequenceEvidence.approved())
+                failed.add(sequenceEvidence.rejection());
+        }
 
         BigDecimal entry = bar.close();
         BigDecimal target = confirmed.trigger().middle();
@@ -161,6 +201,7 @@ final class BollingerFilteredPolicy {
                 observation.effortResult().name(), observation.closeTime(),
                 entry, target, stop, targetDistance, stopDistance,
                 netReward, risk, netRR, costToRiskPct,
-                confirmed.extremeLow(), confirmed.extremeHigh());
+                confirmed.extremeLow(), confirmed.extremeHigh(),
+                volumeMode, sequenceEvidence);
     }
 }
