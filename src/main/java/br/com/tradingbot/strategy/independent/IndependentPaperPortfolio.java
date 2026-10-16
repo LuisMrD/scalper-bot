@@ -58,6 +58,10 @@ final class IndependentPaperPortfolio {
     IndependentPaperPortfolio(String arm,IndependentResearchRequest r) {
         this.arm=arm;this.r=r;cash=r.capitalUsdt();peak=cash;
     }
+    /** Proven monotone under all candidates; used after confirmed pivot closure. */
+    static BigDecimal tightenStop(BigDecimal previous,BigDecimal candidate) {
+        return previous.max(candidate);
+    }
     private BigDecimal percent(BigDecimal n) { return n.divide(HUNDRED,MC); }
     private BigDecimal adverseRate() {
         return percent(r.slippagePerSidePct().add(
@@ -185,8 +189,8 @@ final class IndependentPaperPortfolio {
             if(!pivot.high() && pivot.confirmedAt()>=position.entryAt) {
                 BigDecimal candidate=floorStep(pivot.price().subtract(
                         r.priceTick().multiply(r.parameters().stopBufferTicks())),r.priceTick());
-                if(candidate.compareTo(position.stop)>0
-                        &&candidate.compareTo(candle.close())<0)position.stop=candidate;
+                if(candidate.compareTo(candle.close())<0)
+                    position.stop=tightenStop(position.stop,candidate);
             }
         }
     }
