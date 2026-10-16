@@ -103,6 +103,18 @@ class IndependentDiagnosticIterationTest {
     }
 
     @Test
+    void activeResearchContainsNoConsolidationArmsAndUsesOnlyWeeklyEmaSlope() {
+        var status=new IndependentResearchController(null).status();
+        assertEquals(1,status.get("setupCount"));
+        assertEquals(4,status.get("paperVariants"));
+        assertEquals("CLOSED_WEEKLY_EMA21_SLOPE",status.get("higherTrendRule"));
+        assertEquals(List.of("TREND_PULLBACK","TREND_PULLBACK_MIXED"),
+                status.get("activeSetups"));
+        assertEquals(false,status.get("ordersEnabled"));
+        assertEquals(false,status.get("combinedStrategyEnabled"));
+    }
+
+    @Test
     void invalidatedEventDoesNotCountTheSameUnderlyingFilterTwice() {
         var account=new IndependentPaperPortfolio("TREND_PULLBACK",
                 new IndependentResearchRequest("BTCUSDT",100,100,"5m","15m",
