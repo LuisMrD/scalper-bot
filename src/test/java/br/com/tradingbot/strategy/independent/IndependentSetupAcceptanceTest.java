@@ -128,12 +128,29 @@ class IndependentSetupAcceptanceTest {
         var s=breakOnce(1);
         assertNotNull(s.frozenBoxTop(),s.reason());
         assertNotNull(s.frozenBoxBase());
+        assertEquals(IndependentSetupSignal.Status.ALERT,s.status());
+        assertEquals("FROZEN_BOX_CANDIDATE_WAIT",s.reason());
         assertFalse(s.actionable());
     }
     @Test void B02_wickAbovePriorResistanceIsNotABreakout() {
         var s=breakOnce(2);
         assertFalse(s.actionable());
         assertTrue(s.rejectedFilters().contains("WICK_ONLY_BREAKOUT"));
+    }
+    @Test void B02_frozenBoxCannotBeReanchoredAfterWickFalseBreak() {
+        var detector=new RangeBreakoutDetector(params(),
+                RangeBreakoutDetector.Variant.IMMEDIATE);
+        var tape=box();
+        tape.add(breakout(2));
+        var wick=detector.onClosed(tape,TICK);
+        assertEquals("WICK_ONLY_BREAKOUT",wick.reason());
+        BigDecimal frozen=wick.frozenBoxTop();
+        // A subsequent close beyond the OLD top may qualify. The previous
+        // wick must never be included in the resistance level.
+        tape.add(bar(69,100.7,101.2,100.6,101.1,1800,1000));
+        var next=detector.onClosed(tape,TICK);
+        assertEquals(frozen,next.frozenBoxTop());
+        assertTrue(next.actionable(),next.reason());
     }
     @Test void B03_closeAboveBoxWithoutExtraVolumeIsBlocked() {
         var s=breakOnce(3);
