@@ -56,6 +56,12 @@ public class IndependentResearchService {
             Map<String,IndependentPaperPortfolio.Summary> portfolios,
             List<Event> events,Map<String,Integer> rejectionCounts) {}
 
+    /** Weekly trend must be fully closed before evaluating this side. */
+    static boolean weeklyAllows(Trend trend, IndependentSetupSignal.Side side) {
+        return side==IndependentSetupSignal.Side.SHORT
+                ?trend==Trend.DOWN:trend==Trend.UP;
+    }
+
     public Report backtest(IndependentResearchRequest request) {
         Objects.requireNonNull(request);
         if(!trading.symbols().contains(request.symbol()))
@@ -128,8 +134,6 @@ public class IndependentResearchService {
                 CompletedWeeklyTrend.requireCompletedWeeklyCandle(
                         higher.recentCandles().getLast(),c.closeTime());
             boolean higherClosed=higher.recentCandles().getLast().closeTime()<=c.closeTime();
-            boolean higherUp=higherClosed && higher.priceAction().trend()==Trend.UP;
-            boolean higherDown=higherClosed && higher.priceAction().trend()==Trend.DOWN;
             var signals=List.of(
                     pullback.evaluate(history,request.priceTick()),
                     mixedPullback.evaluate(history,request.priceTick()),
@@ -142,8 +146,8 @@ public class IndependentResearchService {
             for(var original:signals) {
                 var signal=original;
                 boolean dailyCandidate=original.actionable();
-                boolean weeklyApproved=signal.side()==IndependentSetupSignal.Side.SHORT
-                        ?higherDown:higherUp;
+                boolean weeklyApproved=higherClosed
+                        &&weeklyAllows(higher.priceAction().trend(),signal.side());
                 if(!weeklyApproved && dailyCandidate) {
                     String reason=signal.side()==IndependentSetupSignal.Side.SHORT
                             ?"HIGHER_TIMEFRAME_NOT_DOWN":"HIGHER_TIMEFRAME_NOT_UP";
