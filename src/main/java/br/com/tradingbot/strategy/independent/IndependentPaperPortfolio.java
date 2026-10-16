@@ -182,6 +182,12 @@ final class IndependentPaperPortfolio {
             exitNextOpen=true;exitReason="MAX_HOLDING";
         }
         updateDrawdown(candle.close());
+        // Trail only after user-configured favorable movement in initial R.
+        // A confirmed structural low may tighten but can NEVER widen the stop.
+        BigDecimal favorable=candle.close().subtract(position.entry);
+        BigDecimal needed=position.entry.subtract(position.initialStop)
+                .multiply(r.parameters().trailingActivationR());
+        if(favorable.compareTo(needed)<0)return;
         // Only pivots whose right confirmation is CLOSED may tighten stop.
         var pivots=pivots(history,history.size(),r.parameters().pivotLeft(),
                 r.parameters().pivotRight());
