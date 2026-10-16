@@ -21,9 +21,9 @@ import org.springframework.web.server.ResponseStatusException;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Completely isolated walk-forward-ready replay for two LONG-only setups.
+ * Completely isolated walk-forward-ready replay for two directional setups (LONG and SHORT in independent portfolios).
  * Research-only: neither order endpoints nor existing DecisionEngine are used.
- * Four independent paper portfolios; combined live arbitration is disabled.
+ * Eight independent paper portfolios; combined live arbitration is disabled.
  */
 @Service
 public class IndependentResearchService {
@@ -92,6 +92,14 @@ public class IndependentResearchService {
                 RangeBreakoutDetector.Variant.IMMEDIATE);
         var retest=new RangeBreakoutDetector(request.parameters(),
                 RangeBreakoutDetector.Variant.RETEST);
+        var shortStrict=new ShortTrendPullbackDetector(request.parameters(),
+                ShortTrendPullbackDetector.RetreatMode.ALL_BULLISH);
+        var shortMixed=new ShortTrendPullbackDetector(request.parameters(),
+                ShortTrendPullbackDetector.RetreatMode.MIXED_NET_RISE);
+        var shortBreak=new ShortRangeBreakoutDetector(request.parameters(),
+                ShortRangeBreakoutDetector.Variant.IMMEDIATE);
+        var shortRetest=new ShortRangeBreakoutDetector(request.parameters(),
+                ShortRangeBreakoutDetector.Variant.RETEST);
         var accounts=new LinkedHashMap<String,IndependentPaperPortfolio>();
         accounts.put("TREND_PULLBACK",new IndependentPaperPortfolio("TREND_PULLBACK",request));
         accounts.put("TREND_PULLBACK_MIXED",
@@ -99,6 +107,9 @@ public class IndependentResearchService {
         accounts.put("RANGE_BREAKOUT",new IndependentPaperPortfolio("RANGE_BREAKOUT",request));
         accounts.put("RANGE_BREAKOUT_RETEST",
                 new IndependentPaperPortfolio("RANGE_BREAKOUT_RETEST",request));
+        for(var shortArm:List.of("TREND_PULLBACK_SHORT","TREND_PULLBACK_MIXED_SHORT",
+                "RANGE_BREAKOUT_SHORT","RANGE_BREAKOUT_RETEST_SHORT"))
+            accounts.put(shortArm,new IndependentPaperPortfolio(shortArm,request));
         var events=new ArrayList<Event>();
         for(int i=request.contextCandles();i<tape.size();i++) {
             MarketCandle c=tape.get(i);
@@ -116,23 +127,32 @@ public class IndependentResearchService {
             if("1w".equals(request.trendInterval()))
                 CompletedWeeklyTrend.requireCompletedWeeklyCandle(
                         higher.recentCandles().getLast(),c.closeTime());
-            boolean higherUp=higher.recentCandles().getLast().closeTime()<=c.closeTime()
-                    && higher.priceAction().trend()==Trend.UP;
+            boolean higherClosed=higher.recentCandles().getLast().closeTime()<=c.closeTime();
+            boolean higherUp=higherClosed && higher.priceAction().trend()==Trend.UP;
+            boolean higherDown=higherClosed && higher.priceAction().trend()==Trend.DOWN;
             var signals=List.of(
                     pullback.evaluate(history,request.priceTick()),
                     mixedPullback.evaluate(history,request.priceTick()),
                     immediate.onClosed(history,request.priceTick()),
-                    retest.onClosed(history,request.priceTick()));
+                    retest.onClosed(history,request.priceTick()),
+                    shortStrict.evaluate(history,request.priceTick()),
+                    shortMixed.evaluate(history,request.priceTick()),
+                    shortBreak.onClosed(history,request.priceTick()),
+                    shortRetest.onClosed(history,request.priceTick()));
             for(var original:signals) {
                 var signal=original;
                 boolean dailyCandidate=original.actionable();
-                if(!higherUp && dailyCandidate) {
+                boolean weeklyApproved=signal.side()==IndependentSetupSignal.Side.SHORT
+                        ?higherDown:higherUp;
+                if(!weeklyApproved && dailyCandidate) {
+                    String reason=signal.side()==IndependentSetupSignal.Side.SHORT
+                            ?"HIGHER_TIMEFRAME_NOT_DOWN":"HIGHER_TIMEFRAME_NOT_UP";
                     var failures=new ArrayList<>(signal.rejectedFilters());
-                    failures.add("HIGHER_TIMEFRAME_NOT_UP");
+                    failures.add(reason);
                     signal=new IndependentSetupSignal(signal.setup(),
                             IndependentSetupSignal.Status.WAIT,c.closeTime(),null,
                             null,signal.frozenBoxTop(),signal.frozenBoxBase(),
-                            "HIGHER_TIMEFRAME_NOT_UP",signal.passedFilters(),failures);
+                            reason,signal.passedFilters(),failures);
                 }
                 String arm=signal.setup().name();
                 var account=accounts.get(arm);
@@ -144,7 +164,7 @@ public class IndependentResearchService {
                 events.add(new Event(arm,c.closeTime(),signal.status().name(),
                         signal.reason(),signal,higher.priceAction().trend().name(),
                         higher.recentCandles().getLast().closeTime(),
-                        higherUp,dailyCandidate));
+                        weeklyApproved,dailyCandidate));
             }
         }
         var summaries=new LinkedHashMap<String,IndependentPaperPortfolio.Summary>();
@@ -164,7 +184,9 @@ public class IndependentResearchService {
                 + "FIXED_ASSUMED_FEES_SPREAD_SLIPPAGE_FUNDING; "
                 + "LEGACY_AND_MIXED_PULLBACK_INDEPENDENT; "
                 + "EXHAUSTIVE_BOX_AND_WEEKLY_AUDIT; "
-                + "SEPARATE_LONG_ONLY_ACCOUNTS; NO_REAL_ORDERS; NO_COMBINED_ARBITRATION",
+                + "INDEPENDENT_LONG_SHORT_PAPER_ACCOUNTS; "
+                + "WEEKLY_UP_FOR_LONG_DOWN_FOR_SHORT; "
+                + "NO_REAL_ORDERS; NO_COMBINED_ARBITRATION",
                 Map.copyOf(summaries),List.copyOf(events),Map.copyOf(rejectionCounts));
     }
 
