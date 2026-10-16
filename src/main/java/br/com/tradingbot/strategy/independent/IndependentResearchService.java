@@ -1,6 +1,8 @@
 package br.com.tradingbot.strategy.independent;
 
 import br.com.tradingbot.config.TradingProperties;
+import br.com.tradingbot.analysis.context.MarketContextService;
+import br.com.tradingbot.analysis.brooks.PriceActionSnapshot.Trend;
 import br.com.tradingbot.market.model.CandleInterval;
 import br.com.tradingbot.market.model.MarketCandle;
 import br.com.tradingbot.market.service.MarketDataService;
@@ -26,18 +28,21 @@ import tools.jackson.databind.ObjectMapper;
 @Service
 public class IndependentResearchService {
     private final MarketDataService market;
+    private final MarketContextService contexts;
     private final TradingProperties trading;
     private final JdbcTemplate jdbc;
     private final ObjectMapper json = new ObjectMapper();
     private final Clock clock;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public IndependentResearchService(MarketDataService market,
-            TradingProperties trading,JdbcTemplate jdbc) {
-        this(market,trading,jdbc,Clock.systemUTC());
+            MarketContextService contexts,TradingProperties trading,JdbcTemplate jdbc) {
+        this(market,contexts,trading,jdbc,Clock.systemUTC());
     }
-    IndependentResearchService(MarketDataService market,TradingProperties trading,
-            JdbcTemplate jdbc,Clock clock) {
+    IndependentResearchService(MarketDataService market,MarketContextService contexts,
+            TradingProperties trading,JdbcTemplate jdbc,Clock clock) {
         this.market=Objects.requireNonNull(market);
+        this.contexts=Objects.requireNonNull(contexts);
         this.trading=Objects.requireNonNull(trading);
         this.jdbc=Objects.requireNonNull(jdbc);
         this.clock=Objects.requireNonNull(clock);
@@ -67,6 +72,10 @@ public class IndependentResearchService {
             throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
                     "Insufficient persisted closed 5m candles including warmup");
         ClosedCandleFeatures.check(tape);
+        var higherContext=contexts.prepareReplay(request.symbol(),
+                List.of("5m",request.trendInterval()),request.contextCandles(),
+                tape.get(request.contextCandles()).closeTime(),
+                tape.getLast().closeTime());
         if(tape.getLast().closeTime()!=request.asOf())
             throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
                     "Latest stored 5m candle does not match asOf");
@@ -88,11 +97,24 @@ public class IndependentResearchService {
             for(var account:accounts.values())account.begin(c);
             // The final bar cannot submit a signal without a NEXT opening fill.
             if(i==tape.size()-1)break;
+            var observed=higherContext.at(c.closeTime());
+            var higher=observed.timeframes().get(1);
+            boolean higherUp=higher.asOfCloseTime()<=c.closeTime()
+                    && higher.priceAction().trend()==Trend.UP;
             var signals=List.of(
                     pullback.evaluate(history,request.priceTick()),
                     immediate.onClosed(history,request.priceTick()),
                     retest.onClosed(history,request.priceTick()));
-            for(var signal:signals) {
+            for(var original:signals) {
+                var signal=original;
+                if(!higherUp && signal.actionable()) {
+                    var failures=new ArrayList<>(signal.rejectedFilters());
+                    failures.add("HIGHER_TIMEFRAME_NOT_UP");
+                    signal=new IndependentSetupSignal(signal.setup(),
+                            IndependentSetupSignal.Status.WAIT,c.closeTime(),null,
+                            null,signal.frozenBoxTop(),signal.frozenBoxBase(),
+                            "HIGHER_TIMEFRAME_NOT_UP",signal.passedFilters(),failures);
+                }
                 String arm=signal.setup().name();
                 var account=accounts.get(arm);
                 account.count(signal);
