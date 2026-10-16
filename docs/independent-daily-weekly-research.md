@@ -59,9 +59,43 @@ No corpo JSON `IndependentResearchRequest`:
 `POST .../walkforward` recebe `{"windows":[request1, request2, ...]}`; os estudos OOS nao podem sobrepor dias de operacao e precisam manter todos os custos/limiares congelados.
 
 ## Testes/regressao
-- `IndependentSetupAcceptanceTest`: A01–A08, B01–B07, E01–E05 continuam aplicaveis aos detectores isolados;
+- `IndependentSetupAcceptanceTest` e `IndependentDiagnosticIterationTest`: A01–A08, B01–B07, E01–E05 continuam aplicaveis aos detectores isolados;
 - `IndependentDailyWeeklyTest`: exige 1w para entrada 1d, rejeita semana incompleta/futura, valida 5m e 1d, cobra 3 funding hipoteticos por 1d e detecta OOS sobreposto em dias;
 - `test-independent-daily-weekly-plan.ps1`: garante startup antigo inalterado, opcao 1d/1w, sem ordens e script semanal alinhado a segunda-feira;
 - `mvn -B -ntp verify` no workflow CI.
 
 Nenhuma avaliacao OOS real foi executada neste PR, pois OHLCV reside no banco local do usuario.
+
+
+## Iteracao diagnostica: recuo misto, caixas e contexto semanal (PR #25)
+
+**EXTRAIDO DO VIDEO:** a explicacao de recuo em tendencia enfatiza contracao de volume, tamanho menor de candles, preservacao de fundo e confirmacao compradora; nao determina que **todos** os candles do recuo devam ser vermelhos. A decisao exata de permitir candles mistos e sua qualificacao numerica **nao foram especificadas pelo apresentador**.
+
+**PROPOSTA DE ENGENHARIA, sem substituir controle existente:**
+
+| Braço de paper trading | Regra de recuo | Stop e risco |
+|---|---|---|
+| `TREND_PULLBACK` (legado) | Todos os candles do recuo fecham abaixo da abertura | Inalterados |
+| `TREND_PULLBACK_MIXED` (novo) | Pelo menos 1 candle de baixa; fechamento final do recuo inferior a abertura do primeiro candle da sequencia; candles bullish de pausa sao permitidos | Mesmas regras de volume, corpos, EMA9/21, fundo estrutural, confirmacao de compradores, custos, trailing e risco do controle |
+| `RANGE_BREAKOUT` | Caixa congelada e breakout direto | Inalterados |
+| `RANGE_BREAKOUT_RETEST` | Caixa congelada, breakout valido e reteste posterior | Inalterados |
+
+A nova variante NAO compra apenas ao tocar a media nem aceita recuo netamente lateral ou ascendente. Nao e permitido arbitragem combinada nem operacoes reais. Agora sao **quatro carteiras independentes** (3 moedas × 6 janelas de 30 dias × 4 braços = **72** simulacoes). Permanecem o mesmo saldo/risco/custos por carteira.
+
+**Diagnostico de consolidação:** `BOX_INSUFFICIENT_PREBREAKOUT_HISTORY`, `BOX_NO_CONFIRMED_RISING_STRUCTURE`, `BOX_EMA21_NOT_RISING`, `BOX_ATR_UNAVAILABLE`, `BOX_WIDTH_TOO_WIDE`, `BOX_RANGE_NOT_CONTRACTING` e `BOX_VOLUME_NOT_DRYING` sao avaliados independentemente para a mesma caixa. Se varias regras falham, o CSV traz todas; sem relaxar ou alterar limites. Resistencias continuam congeladas ANTES do breakout; validacao por fechamento e volume preservada.
+
+**Diagnostico semanal por candle:** cada avaliacao de cada braço exporta `HigherTrend`, `HigherCloseTime`, `HigherTrendApproved` e `DailyCandidateBeforeHigherTrend`. Isso revela se um sinal diario seria elegivel sem o bloqueio semanal e evita atribuir toda rejeicao ao detector diario. O tempo da semana observada sempre precede ou coincide com fechamento diario; semana incompleta nao e usada.
+
+**Contagem de rejeicoes:** cada filtro em `rejectedFilters` e contado uma unica vez por candle/arm, sem incrementar outra vez so porque `status=INVALIDATED`. A avaliacao semanal nos CSVs inclui candles sem rejeicoes. Os arquivos `independent-aggregate`, `independent-windows`, `independent-trades`, `independent-diagnostics`, `independent-rejections` e `independent-config` mantem a mesma estrutura de exportacao, com coluna semanal nova em diagnostics.
+
+### Como repetir as mesmas janelas
+
+```powershell
+git fetch origin
+git switch feat/independent-trend-pullback-range-breakout-5m
+git pull --ff-only
+.\scripts\run-independent-daily-weekly.ps1 -AsOfDateUtc 2026-10-15 -PrintOnly
+.\scripts\run-independent-daily-weekly.ps1 -AsOfDateUtc 2026-10-15
+```
+
+Inicie o backend atualizado com `-IncludeDailyWeekly` antes da execucao. Os parametros de `scripts/config/independent-daily-weekly-research.json` sao apenas hipoteses explicitamente editaveis, nao regras do autor. **AINDA NAO DEFINIDOS**: limiares otimos, tempo suficiente de mercado, exit/alvo/parcial e mecanismo futuro de arbitragem; nenhuma inferencia de edge sem novas execucoes OOS.
