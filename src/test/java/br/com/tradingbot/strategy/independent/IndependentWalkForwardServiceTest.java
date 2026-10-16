@@ -19,7 +19,7 @@ class IndependentWalkForwardServiceTest {
                 n("1"),14,20,IndependentSetupParameters.DirectStopRule.BOX_BASE,n("1"));
     }
     private static IndependentResearchRequest request(long at,BigDecimal fee) {
-        return new IndependentResearchRequest("BTCUSDT",100,100,"15m",at,params(),
+        return new IndependentResearchRequest("BTCUSDT",100,100,"5m","15m",at,params(),
                 n("1000"),n("1"),n("3"),1,fee,
                 n("0.02"),n("0.02"),n("0.00"),n("0"),
                 n("0.01"),n("0.001"),n("0.001"),n("5"),n("50"),100);
