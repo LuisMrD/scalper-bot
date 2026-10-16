@@ -84,5 +84,8 @@ jobs:
       - name: Validate BTC $600 baseline mixed 12 x 900-hour study (offline)
         shell: pwsh
         run: ./scripts/tests/test-btc-15m-mixed-baseline-12x900h.ps1
+      - name: Validate BTC MIDAS $600 three-way 12 x 900-hour study (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-btc-15m-mixed-midas-12x900h.ps1
       - name: Validate and test (no real orders)
         run: mvn -B -ntp verify
