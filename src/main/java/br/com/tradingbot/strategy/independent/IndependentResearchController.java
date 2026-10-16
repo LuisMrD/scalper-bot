@@ -113,6 +113,40 @@ public final class IndependentResearchController {
         return service.backtestMidas900h(request);
     }
 
+    @GetMapping("/mixed-hybrid/status")
+    public Map<String,Object> mixedHybridStatus() {
+        return Map.ofEntries(
+                Map.entry("mode","PAPER_ONLY"),
+                Map.entry("ordersEnabled",false),
+                Map.entry("symbol","BTCUSDT"),
+                Map.entry("entryInterval","15m"),
+                Map.entry("trendInterval","1d"),
+                Map.entry("capitalUsdt",600),
+                Map.entry("barsPerWindow",3600),
+                Map.entry("insampleWindows",12),
+                Map.entry("oosWindows",1),
+                Map.entry("baseArms",2),
+                Map.entry("midasWarmupBars",1000),
+                Map.entry("exitPolicy","BASELINE"),
+                Map.entry("frozenSelectionCutoff","2026-10-15T23:59:59.999Z"),
+                Map.entry("policies",java.util.Arrays.stream(MidasHybridPolicy.values())
+                        .map(Enum::name).toList()));
+    }
+
+    /** Historical 450 days: reproducibility / diagnostic, NOT out-of-sample. */
+    @PostMapping("/backtest-midas-hybrid")
+    public IndependentResearchService.Report backtestMidasHybrid(
+            @RequestBody IndependentResearchRequest request) {
+        return service.backtestMidasHybrid900h(request);
+    }
+
+    /** Strict out-of-sample: first candle from 2026-10-16 UTC onward. */
+    @PostMapping("/backtest-midas-hybrid-oos")
+    public IndependentResearchService.Report backtestMidasHybridOos(
+            @RequestBody IndependentResearchRequest request) {
+        return service.backtestMidasHybridOos900h(request);
+    }
+
     @PostMapping("/backtest")
     public IndependentResearchService.Report backtest(
             @RequestBody IndependentResearchRequest request) {
