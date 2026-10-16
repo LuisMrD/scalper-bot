@@ -59,26 +59,30 @@ public class IndependentResearchService {
         if(!trading.symbols().contains(request.symbol()))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Symbol not configured");
+        var primaryInterval = CandleInterval.parse(request.entryInterval());
         if(request.asOf()>=clock.millis()
-                || request.asOf()%CandleInterval.M5.millis()
-                        !=CandleInterval.M5.millis()-1)
+                || request.asOf()%primaryInterval.millis()
+                        !=primaryInterval.millis()-1)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "asOf must be a fully closed historical UTC 5m bar");
+                    "asOf must be a fully closed UTC " + request.entryInterval() + " candle");
         int required=Math.addExact(request.contextCandles(),request.steps());
         var tape=new ArrayList<>(market.recentAtOrBefore(
-                request.symbol(),"5m",required,request.asOf()));
+                request.symbol(),request.entryInterval(),required,request.asOf()));
         Collections.reverse(tape);
         if(tape.size()!=required)
             throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
-                    "Insufficient persisted closed 5m candles including warmup");
+                    "Insufficient persisted closed " + request.entryInterval()
+                            + " candles including warmup");
         ClosedCandleFeatures.check(tape);
         var higherContext=contexts.prepareReplay(request.symbol(),
-                List.of("5m",request.trendInterval()),request.contextCandles(),
+                List.of(request.entryInterval(),request.trendInterval()),
+                request.contextCandles(),
                 tape.get(request.contextCandles()).closeTime(),
                 tape.getLast().closeTime());
         if(tape.getLast().closeTime()!=request.asOf())
             throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
-                    "Latest stored 5m candle does not match asOf");
+                    "Latest stored " + request.entryInterval()
+                            + " candle does not match asOf");
         var pullback=new TrendPullbackDetector(request.parameters());
         var immediate=new RangeBreakoutDetector(request.parameters(),
                 RangeBreakoutDetector.Variant.IMMEDIATE);
@@ -99,7 +103,10 @@ public class IndependentResearchService {
             if(i==tape.size()-1)break;
             var observed=higherContext.at(c.closeTime());
             var higher=observed.timeframes().get(1);
-            boolean higherUp=higher.asOfCloseTime()<=c.closeTime()
+            if("1w".equals(request.trendInterval()))
+                CompletedWeeklyTrend.requireCompletedWeeklyCandle(
+                        higher.recentCandles().getLast(),c.closeTime());
+            boolean higherUp=higher.recentCandles().getLast().closeTime()<=c.closeTime()
                     && higher.priceAction().trend()==Trend.UP;
             var signals=List.of(
                     pullback.evaluate(history,request.priceTick()),
@@ -135,9 +142,10 @@ public class IndependentResearchService {
         }
         long runId=persist(request,events);
         var first=tape.get(request.contextCandles());
-        return new Report(runId,request.symbol(),"5m",first.openTime(),
+        return new Report(runId,request.symbol(),request.entryInterval(),first.openTime(),
                 tape.getLast().closeTime(),request.steps(),
-                "PAPER_ONLY; T+1_OPEN; STOP_FIRST; HISTORICAL_5M; "
+                "PAPER_ONLY; T+1_OPEN; STOP_FIRST; PRIMARY_" + request.entryInterval()
+                + "; HIGHER_TREND_" + request.trendInterval() + "; ONLY_CLOSED_WEEKLY_BARS; "
                 + "FIXED_ASSUMED_FEES_SPREAD_SLIPPAGE_FUNDING; "
                 + "SEPARATE_LONG_ONLY_ACCOUNTS; NO_REAL_ORDERS; NO_COMBINED_ARBITRATION",
                 Map.copyOf(summaries),List.copyOf(events),Map.copyOf(rejectionCounts));
@@ -153,7 +161,7 @@ public class IndependentResearchService {
                 VALUES(?,?,?,?,?)
                 """,java.sql.Statement.RETURN_GENERATED_KEYS);
             statement.setString(1,request.symbol());
-            statement.setString(2,"5m");
+            statement.setString(2,request.entryInterval());
             statement.setLong(3,request.asOf());
             statement.setInt(4,request.steps());
             statement.setString(5,parameters);
