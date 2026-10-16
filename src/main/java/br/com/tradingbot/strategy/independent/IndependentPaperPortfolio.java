@@ -23,7 +23,8 @@ final class IndependentPaperPortfolio {
     record Trade(long signalCloseTime,long entryOpenTime,long exitOpenTime,
             BigDecimal entry,BigDecimal exit,BigDecimal initialStop,
             BigDecimal quantity,BigDecimal netPnlUsdt,
-            BigDecimal totalFeesUsdt,BigDecimal fundingUsdt,String reason) {}
+            BigDecimal totalFeesUsdt,BigDecimal fundingUsdt,String reason,
+            BigDecimal mfeR,BigDecimal maeR,BigDecimal netR) {}
     record Summary(String arm,BigDecimal initialCapital,BigDecimal finalMarkedEquity,
             BigDecimal realizedNetUsdt,BigDecimal totalFeesUsdt,
             BigDecimal totalFundingUsdt,int closedTrades,int wins,
@@ -33,6 +34,7 @@ final class IndependentPaperPortfolio {
     private final IndependentResearchRequest r;
     private final String arm;
     private final boolean shortSide;
+    private final StopResearchPolicy stopPolicy;
     private final List<Trade> trades=new ArrayList<>();
     private final Map<String,Integer> rejected=new HashMap<>();
     private BigDecimal cash,peak,worstDrawdown=BigDecimal.ZERO,fees=BigDecimal.ZERO,funding=BigDecimal.ZERO;
@@ -50,6 +52,7 @@ final class IndependentPaperPortfolio {
         final BigDecimal entry,initialStop,qty,entryFee,frozenBoxTop,frozenBoxBase;
         boolean alertedInsideBox;
         BigDecimal stop,fees,funding=BigDecimal.ZERO;
+        BigDecimal maxObservedPrice,minObservedPrice;
         int heldBars;
         Position(Pending p,long entered,BigDecimal price,BigDecimal qty,BigDecimal fee) {
             signalClose=p.signalClose;entryAt=entered;entry=price;
@@ -57,10 +60,18 @@ final class IndependentPaperPortfolio {
             frozenBoxTop=p.frozenBoxTop();
             frozenBoxBase=p.frozenBoxBase();
             entryFee=fee;fees=fee;
+            maxObservedPrice=price;minObservedPrice=price;
         }
     }
     IndependentPaperPortfolio(String arm,IndependentResearchRequest r) {
-        this.arm=arm;this.r=r;shortSide=arm.endsWith("_SHORT");
+        this(arm,r,StopResearchPolicy.BASELINE);
+    }
+    IndependentPaperPortfolio(String arm,IndependentResearchRequest r,
+            StopResearchPolicy policy) {
+        this.arm=arm;this.r=r;
+        this.stopPolicy=java.util.Objects.requireNonNull(policy);
+        // The separate stop study uses labels like TREND_PULLBACK_SHORT__ATR_050.
+        shortSide=arm.contains("_SHORT");
         cash=r.capitalUsdt();peak=cash;
     }
     /** Proven monotone under all candidates; used after confirmed pivot closure. */
@@ -148,6 +159,8 @@ final class IndependentPaperPortfolio {
         }
         if(position!=null) {
             position.heldBars++;
+            position.maxObservedPrice=position.maxObservedPrice.max(c.high());
+            position.minObservedPrice=position.minObservedPrice.min(c.low());
             // Unknown intrabar ordering is settled STOP FIRST.
             if(shortSide?c.high().compareTo(position.stop)>=0
                     :c.low().compareTo(position.stop)<=0) {
@@ -169,8 +182,19 @@ final class IndependentPaperPortfolio {
         cash=cash.add(realizedNow);
         realizedToday=realizedToday.add(tradeNet);
         fees=fees.add(exitFee);
+        BigDecimal initialR=p.entry.subtract(p.initialStop).abs();
+        BigDecimal favorable=shortSide
+                ?p.entry.subtract(p.minObservedPrice)
+                :p.maxObservedPrice.subtract(p.entry);
+        BigDecimal adverse=shortSide
+                ?p.maxObservedPrice.subtract(p.entry)
+                :p.entry.subtract(p.minObservedPrice);
+        BigDecimal capitalAtRisk=initialR.multiply(p.qty,MC);
         trades.add(new Trade(p.signalClose,p.entryAt,time,p.entry,fill,
-                p.initialStop,p.qty,tradeNet,p.fees.add(exitFee),p.funding,reason));
+                p.initialStop,p.qty,tradeNet,p.fees.add(exitFee),p.funding,reason,
+                initialR.signum()>0?favorable.divide(initialR,MC):BigDecimal.ZERO,
+                initialR.signum()>0?adverse.divide(initialR,MC):BigDecimal.ZERO,
+                capitalAtRisk.signum()>0?tradeNet.divide(capitalAtRisk,MC):BigDecimal.ZERO));
         position=null;
     }
     void close(MarketCandle candle,IndependentSetupSignal s,
@@ -179,10 +203,17 @@ final class IndependentPaperPortfolio {
             if(s!=null && s.actionable() && pending==null) {
                 if((s.side()==IndependentSetupSignal.Side.SHORT)!=shortSide)
                     throw new IllegalArgumentException("Signal/portfolio direction mismatch");
-                BigDecimal stop=shortSide
-                        ?s.structuralStop().divide(r.priceTick(),0,
-                            RoundingMode.CEILING).multiply(r.priceTick())
-                        :floorStep(s.structuralStop(),r.priceTick());
+                BigDecimal rawStop=s.structuralStop();
+                if(stopPolicy.initialAtrMultiplier().signum()>0) {
+                    BigDecimal currentAtr=atr(history,history.size(),r.parameters().atrPeriod());
+                    if(currentAtr==null||currentAtr.signum()<=0) {
+                        blockedEntries++;
+                        return;
+                    }
+                    BigDecimal margin=currentAtr.multiply(stopPolicy.initialAtrMultiplier(),MC);
+                    rawStop=shortSide?rawStop.add(margin):rawStop.subtract(margin);
+                }
+                BigDecimal stop=roundStop(rawStop);
                 boolean valid=shortSide?stop.compareTo(candle.close())>0
                         :stop.compareTo(candle.close())<0;
                 if(stop.signum()>0&&valid) {
@@ -232,6 +263,12 @@ final class IndependentPaperPortfolio {
             exitNextOpen=true;exitReason="MAX_HOLDING";
         }
         updateDrawdown(candle.close());
+        // All candidates are calculated AFTER the completed bar: effective
+        // only on the NEXT 15m bar, never on the candle used to calculate ATR.
+        if(stopPolicy.breakEven()||stopPolicy.atrTrailing()) {
+            applyExperimentalTrailing(candle,history);
+            return;
+        }
         // Trail only after user-configured favorable movement in initial R.
         // A confirmed structural low may tighten but can NEVER widen the stop.
         BigDecimal favorable=directionalPnl(position.entry,candle.close());
@@ -260,6 +297,58 @@ final class IndependentPaperPortfolio {
             }
         }
     }
+    private BigDecimal roundStop(BigDecimal raw) {
+        return shortSide?raw.divide(r.priceTick(),0,RoundingMode.CEILING)
+                .multiply(r.priceTick()):floorStep(raw,r.priceTick());
+    }
+
+    /**
+     * Exact simulated scratch level for the modeled adverse entry fill, future
+     * adverse exit fill, BOTH commissions and any funding already charged.
+     * The raw stop is rounded away from entry, not to a fictitious free exit.
+     */
+    private BigDecimal costAdjustedBreakEven(Position p) {
+        BigDecimal fee=percent(r.feePerSidePct());
+        BigDecimal costPerUnit=p.funding.divide(p.qty,MC);
+        BigDecimal exitAdverse=adverseRate();
+        BigDecimal numerator=shortSide
+                ?p.entry.multiply(BigDecimal.ONE.subtract(fee),MC).subtract(costPerUnit)
+                :p.entry.multiply(BigDecimal.ONE.add(fee),MC).add(costPerUnit);
+        BigDecimal denominator=shortSide
+                ?BigDecimal.ONE.add(exitAdverse).multiply(BigDecimal.ONE.add(fee),MC)
+                :BigDecimal.ONE.subtract(exitAdverse).multiply(BigDecimal.ONE.subtract(fee),MC);
+        if(denominator.signum()<=0)throw new IllegalArgumentException("Invalid fee/slippage");
+        return roundStop(numerator.divide(denominator,MC));
+    }
+    private void tightenAfterClose(BigDecimal candidate,BigDecimal lastClose) {
+        if(candidate.signum()<=0)return;
+        if(shortSide) {
+            if(candidate.compareTo(lastClose)>0)
+                position.stop=tightenShortStop(position.stop,candidate);
+        }else {
+            if(candidate.compareTo(lastClose)<0)
+                position.stop=tightenStop(position.stop,candidate);
+        }
+    }
+    private void applyExperimentalTrailing(MarketCandle candle,List<MarketCandle> history) {
+        BigDecimal risk=position.entry.subtract(position.initialStop).abs();
+        BigDecimal favorable=directionalPnl(position.entry,candle.close());
+        if(favorable.compareTo(risk.multiply(stopPolicy.activationR(),MC))<0)return;
+        if(stopPolicy.breakEven()) {
+            tightenAfterClose(costAdjustedBreakEven(position),candle.close());
+            return;
+        }
+        if(stopPolicy.atrTrailing()) {
+            BigDecimal value=atr(history,history.size(),r.parameters().atrPeriod());
+            if(value==null||value.signum()<=0)return;
+            BigDecimal delta=value.multiply(stopPolicy.trailingAtrMultiplier(),MC);
+            BigDecimal raw=shortSide
+                    ?position.minObservedPrice.add(delta)
+                    :position.maxObservedPrice.subtract(delta);
+            tightenAfterClose(roundStop(raw),candle.close());
+        }
+    }
+
     /** On the final completed bar, settle funding/trailing without emitting an unfillable signal. */
     void settleFinal(MarketCandle candle,List<MarketCandle> history) {
         close(candle,null,history);
