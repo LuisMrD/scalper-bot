@@ -21,7 +21,8 @@ public final class IndependentResearchController {
                 "combinedStrategyEnabled",false,
                 "entryTimeframes",java.util.List.of("5m","1d"),
                 "higherTrendForDaily","1w","setupCount",2,
-                "paperVariants",4,"userThresholdsRequired",true);
+                "paperVariants",8,"allowedDirections",java.util.List.of("LONG","SHORT"),
+                "userThresholdsRequired",true);
     }
     @PostMapping("/backtest")
     public IndependentResearchService.Report backtest(
