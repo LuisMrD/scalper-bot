@@ -1,0 +1,54 @@
+$ErrorActionPreference='Stop'
+$root=(Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
+$runner=Join-Path $root 'scripts/run-bollinger-daily-three-symbols.ps1'
+$startup=Join-Path $root 'scripts/start-backtest.ps1'
+$default=@(& $startup -PrintOnly)
+if($default -notcontains 'MARKET_DATA_INTERVALS=1m,5m,15m'){
+    throw 'Existing backtest startup defaults must be preserved'
+}
+$daily=@(& $startup -IncludeDaily -PrintOnly)
+if($daily -notcontains 'MARKET_DATA_INTERVALS=1m,5m,15m,1d'){
+    throw 'Opt-in daily market data unavailable'
+}
+$plan=@(& $runner -PrintOnly)
+foreach($line in @(
+    'RESEARCH=DAILY_30_CANDLES_6_INDEPENDENT_ARMS',
+    'HOURS_PER_WINDOW=720',
+    'WINDOWS=6',
+    'COMPLETE_DAILY_CANDLES_PER_WINDOW=30',
+    'TOTAL_INDEPENDENT_PORTFOLIOS=108',
+    'STOP_MODES=STRUCTURAL,ONE_TICK_BEYOND_EXTREME',
+    'MINIMUM_NET_REWARD_RISK=1.5',
+    'SIGNAL_DIAGNOSTICS=BOTH_STOPS_ALL_FILTERS',
+    'VPA_MODES=DIRECTIONAL_LEGACY,SEQUENCE_EFFORT_RESULT',
+    'CSV_OUTPUTS=WINDOWS,AGGREGATE,TRADES,DIAGNOSTICS',
+    'NO_LUNA=true','NO_ORDERS=true'
+)){
+    if($plan -notcontains $line){throw "Missing daily invariant: $line"}
+}
+$windows=@($plan|Where-Object {$_ -match '^WINDOW=\d+;'})
+if($windows.Count -ne 6){throw 'Expected six disjoint 30-day windows'}
+[long]$dayMs=86400000L
+[long]$windowMs=30L*$dayMs
+$previous=$null
+foreach($line in $windows){
+    $parts=@{}
+    foreach($piece in ($line -split ';')){
+        $kv=$piece -split '=',2
+        $parts[$kv[0]]=$kv[1]
+    }
+    [long]$ws=[long]$parts['WALL_START']
+    [long]$we=[long]$parts['WALL_END']
+    [long]$op=[long]$parts['FIRST_OPEN']
+    [long]$dc=[long]$parts['DAILY_CLOSE']
+    if($we-$ws+1 -ne $windowMs -or $op -lt $ws -or
+       $dc -gt $we -or $dc-$op+1 -ne 30L*$dayMs -or
+       $op%$dayMs -ne 0 -or $dc%$dayMs -ne $dayMs-1){
+        throw "Non-complete daily window: $line"
+    }
+    if($null -ne $previous -and $we+1 -ne $previous){
+        throw '300-hour wall-clock windows must be contiguous and disjoint'
+    }
+    $previous=$ws
+}
+Write-Host 'PASS: 3 symbols x 6 30-day windows x 6 independent portfolios; 30 complete daily candles each'

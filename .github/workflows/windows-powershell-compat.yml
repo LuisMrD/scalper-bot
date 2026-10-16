@@ -2,7 +2,7 @@ name: Windows PowerShell 5.1 script compatibility
 
 on:
   push:
-    branches: ['experiment/1m-vs-5m-trade-diagnostics']
+    branches: ['experiment/1m-vs-5m-trade-diagnostics', 'experiment/bollinger-filtered-daily-300h']
 
 permissions:
   contents: read
@@ -53,6 +53,9 @@ jobs:
       - name: Test retrospective candle and signal audits in Windows PowerShell 5.1
         shell: powershell
         run: .\scripts\tests\test-primary-timeframe-audit.ps1
+      - name: Validate Bollinger daily 30 candle plan under Windows PowerShell 5.1
+        shell: powershell
+        run: .\scripts\tests\test-bollinger-daily-plan.ps1
       - name: Verify BB20 strict close and frozen SMA mean-reversion reports under Windows 5.1
         shell: powershell
         run: .\scripts\tests\test-bollinger-export.ps1

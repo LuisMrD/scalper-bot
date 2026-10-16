@@ -6,11 +6,13 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Causal two-step Bollinger reversal on completely CLOSED 5m bars.
+ * Causal two-step Bollinger reversal on completely CLOSED 5m or 1d bars.
  *
  * 1) A strict close outside the outer band ARMS a candidate; never enters.
  * 2) One of three opposite-direction Price Action responses confirms it:
- *    hammer / shooting star, strong candle, break of prior confirmed highs/lows.
+ *    hammer/shooting star, a strong reversal candle, or a close past the
+ *    observed candidate extreme. A separate inside-band close and prior-candle
+ *    microstructure breakout are NOT required (filters 1 and 2 rolled back).
  * Entries may only be proposed at the confirming candle CLOSE, filled at T+1.
  *
  * Historical Testnet candles with no actual trades invalidate an active setup.
@@ -20,10 +22,9 @@ final class BollingerReversalConfirmation {
     private static final BigDecimal TWO = new BigDecimal("2");
     private static final BigDecimal SIX_TENTHS = new BigDecimal("0.6");
     private final BollingerMeanReversion bands = new BollingerMeanReversion();
-
     enum Pattern { HAMMER_OR_SHOOTING_STAR, STRONG_REVERSAL_CANDLE, CLOSE_BREAKS_PRIOR_EXTREME }
     record Confirmation(BollingerMeanReversion.Signal trigger, long confirmedAtCloseTime,
-                        Pattern pattern) {}
+                        Pattern pattern, BigDecimal extremeLow, BigDecimal extremeHigh) {}
     record Step(boolean armed, boolean expired, boolean invalidated,
                 Confirmation confirmed) {}
 
@@ -47,15 +48,15 @@ final class BollingerReversalConfirmation {
     }
 
     private void checkAndAdvance(MarketCandle current) {
-        if (!current.closed() || !"5m".equals(current.interval().code())) {
-            throw new IllegalArgumentException("Bollinger confirmation requires a closed 5m bar");
+        if (!current.closed() || !("5m".equals(current.interval().code()) || "1d".equals(current.interval().code()))) {
+            throw new IllegalArgumentException("Bollinger confirmation requires a closed 5m or 1d bar");
         }
         if (current.closeTime() <= lastProcessedClose) {
             throw new IllegalArgumentException("Bollinger bars must advance monotonically");
         }
         if (lastProcessedClose >= 0
                 && current.closeTime() != lastProcessedClose + current.interval().millis()) {
-            throw new IllegalArgumentException("Bollinger candidate contains a missing 5m bar");
+            throw new IllegalArgumentException("Bollinger candidate contains a missing bar");
         }
         lastProcessedClose = current.closeTime();
     }
@@ -99,13 +100,18 @@ final class BollingerReversalConfirmation {
                 ? completed5m.get(completed5m.size()-2) : null;
         if (previous == null || previous.closeTime() + current.interval().millis()
                 != current.closeTime()) {
-            throw new IllegalArgumentException("Missing previous 5m candle for Price Action");
+            throw new IllegalArgumentException("Missing previous candle for Price Action");
         }
-        var pattern = classify(current, previous, pending.side(), highBefore, lowBefore);
+        // Persist each observed extreme even when the candle fails to confirm.
+        // Classifier compares against PREVIOUS extremes, before adding current.
+        BigDecimal priorHigh = highBefore;
+        BigDecimal priorLow = lowBefore;
         highBefore = highBefore.max(current.high());
         lowBefore = lowBefore.min(current.low());
+        var pattern = classify(current, previous, pending.side(), priorHigh, priorLow);
         if (pattern == null) return new Step(false,false,false,null);
-        var confirmed = new Confirmation(pending, current.closeTime(), pattern);
+        var confirmed = new Confirmation(pending, current.closeTime(), pattern,
+                lowBefore, highBefore);
         cancel();
         return new Step(false,false,false,confirmed);
     }

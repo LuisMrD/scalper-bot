@@ -35,18 +35,23 @@ param(
     [string]$BreakEvenTriggerR = '1.0',
 
     [switch]$IncludeOneHour,
+    [switch]$IncludeDaily,
 
     [switch]$PrintOnly
 )
 
 $ErrorActionPreference = 'Stop'
 
+$intervals = @('1m','5m','15m')
+if ($IncludeOneHour) { $intervals += '1h' }
+if ($IncludeDaily) { $intervals += '1d' }
+
 # Spring Boot does NOT load .env automatically. All values below are explicit
 # session settings for a read-only/simulated local backtest.
 $settings = [ordered]@{
     SPRING_PROFILES_ACTIVE = 'backtest'
     TRADING_SYMBOLS = ($Symbols -join ',')
-    MARKET_DATA_INTERVALS = $(if($IncludeOneHour){'1m,5m,15m,1h'}else{'1m,5m,15m'})
+    MARKET_DATA_INTERVALS = ($intervals -join ',')
     TRADING_ORDERS_ENABLED = 'false'
     LUNA_ENABLED = 'false'
     MARKET_DATA_WS_ENABLED = 'false'

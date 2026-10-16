@@ -23,6 +23,16 @@ public final class RiskEngine {
 
     public RiskPreviewResult preview(RiskPreviewRequest request, MarketContextSnapshot context,
             RiskPolicy policy) {
+        return preview(request, context, policy, null);
+    }
+
+    /** Historical BB research only: explicit stop from a previously CLOSED extreme candle. */
+    public RiskPreviewResult preview(RiskPreviewRequest request, MarketContextSnapshot context,
+            RiskPolicy policy, BigDecimal stopOverride) {
+        if (stopOverride != null && (request.decision().setup()
+                != DecisionResult.Setup.BOLLINGER_MEAN_REVERSION
+                || request.position() != null || stopOverride.signum() <= 0))
+            throw new IllegalArgumentException("Stop override is exclusively for flat BB research");
         Objects.requireNonNull(request); Objects.requireNonNull(context); Objects.requireNonNull(policy);
         DecisionResult decision = request.decision();
         if (!decision.symbol().equals(context.symbol())
@@ -55,30 +65,41 @@ public final class RiskEngine {
                     && decision.entry() != DecisionResult.Entry.WAIT))
             return outcome(decision, context, Action.BLOCKED, Reason.INVALID_DECISION_OR_POSITION,
                     null, null, null, null, null, null, false);
-        return entry(request, context, policy);
+        return entry(request, context, policy, stopOverride);
     }
 
     private RiskPreviewResult entry(RiskPreviewRequest request, MarketContextSnapshot context,
-            RiskPolicy policy) {
+            RiskPolicy policy, BigDecimal stopOverride) {
         var decision = request.decision();
         boolean longSide = decision.entry() == DecisionResult.Entry.LONG;
         BigDecimal entry = context.recentCandles().getLast().close();
-        BigDecimal atrBuffer = context.marketLevels().atr().multiply(policy.structuralAtrBuffer(), MC);
-        List<PriceActionSnapshot.ConfirmedPivot> pivots = context.priceAction().confirmedPivots();
-        var type = longSide ? PriceActionSnapshot.PivotType.LOW : PriceActionSnapshot.PivotType.HIGH;
-        var confirmed = pivots.stream().filter(p -> p.type() == type
-                && p.confirmedAtCloseTime() <= context.asOfCloseTime()
-                && (longSide ? p.price().compareTo(entry) < 0 : p.price().compareTo(entry) > 0))
-                .max(Comparator.comparingLong(PriceActionSnapshot.ConfirmedPivot::confirmedAtCloseTime));
-        if (confirmed.isEmpty())
-            return outcome(decision, context, Action.BLOCKED, Reason.NO_CONFIRMED_STRUCTURAL_STOP,
-                    entry, null, null, null, null, null, false);
-        BigDecimal rawStop = longSide ? confirmed.get().price().subtract(atrBuffer)
-                : confirmed.get().price().add(atrBuffer);
-        if (rawStop.signum() <= 0)
-            return outcome(decision, context, Action.BLOCKED, Reason.NO_CONFIRMED_STRUCTURAL_STOP,
-                    entry, null, null, null, null, null, false);
-        BigDecimal stop = roundToStep(rawStop, request.priceTick(), longSide ? RoundingMode.FLOOR : RoundingMode.CEILING);
+        BigDecimal stop;
+        if (stopOverride != null) {
+            stop = stopOverride;
+            // Strict contract: the short-stop buffer is one Binance tick beyond
+            // the completed outside/confirmation extreme (rounded externally).
+            if (stop.divide(request.priceTick(), 0, RoundingMode.UNNECESSARY)
+                    .multiply(request.priceTick()).compareTo(stop) != 0)
+                throw new IllegalArgumentException("Stop must be on the price tick grid");
+        } else {
+            BigDecimal atrBuffer = context.marketLevels().atr().multiply(policy.structuralAtrBuffer(), MC);
+            List<PriceActionSnapshot.ConfirmedPivot> pivots = context.priceAction().confirmedPivots();
+            var type = longSide ? PriceActionSnapshot.PivotType.LOW : PriceActionSnapshot.PivotType.HIGH;
+            var confirmed = pivots.stream().filter(p -> p.type() == type
+                    && p.confirmedAtCloseTime() <= context.asOfCloseTime()
+                    && (longSide ? p.price().compareTo(entry) < 0 : p.price().compareTo(entry) > 0))
+                    .max(Comparator.comparingLong(PriceActionSnapshot.ConfirmedPivot::confirmedAtCloseTime));
+            if (confirmed.isEmpty())
+                return outcome(decision, context, Action.BLOCKED, Reason.NO_CONFIRMED_STRUCTURAL_STOP,
+                        entry, null, null, null, null, null, false);
+            BigDecimal rawStop = longSide ? confirmed.get().price().subtract(atrBuffer)
+                    : confirmed.get().price().add(atrBuffer);
+            if (rawStop.signum() <= 0)
+                return outcome(decision, context, Action.BLOCKED, Reason.NO_CONFIRMED_STRUCTURAL_STOP,
+                        entry, null, null, null, null, null, false);
+            stop = roundToStep(rawStop, request.priceTick(),
+                    longSide ? RoundingMode.FLOOR : RoundingMode.CEILING);
+        }
         if (stop.signum() <= 0 || (longSide ? stop.compareTo(entry) >= 0 : stop.compareTo(entry) <= 0))
             return outcome(decision, context, Action.BLOCKED, Reason.NO_CONFIRMED_STRUCTURAL_STOP,
                     entry, null, null, null, null, null, false);
