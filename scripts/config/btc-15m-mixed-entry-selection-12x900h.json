@@ -1,0 +1,71 @@
+{
+  "_notice": "PAPER ONLY IN-SAMPLE BTC: same frozen 15m/closed-1d hybrid LONG baseline/SHORT MIDAS retest, dynamic 60 holding, original protective stop/trailing, US$600/arm/window, 12x900h; 6 causal entry-policy arms per side (weekend NEXT OPEN UTC; stop distance from signal close to original structural stop, thresholds 0.45% & 0.50%). Never interpret filtered CSV subsets as independent backtests.",
+  "symbols": [
+    "BTCUSDT"
+  ],
+  "windows": 12,
+  "steps": 3600,
+  "contextCandles": 60,
+  "capitalUsdt": 600,
+  "riskPerTradePct": 0.5,
+  "dailyStopPct": 3,
+  "leverage": 1,
+  "feePerSidePct": 0.05,
+  "slippagePerSidePct": 0.02,
+  "spreadPct": 0.01,
+  "assumedFundingPer8hPct": 0,
+  "assumedMaintenanceMarginPct": 0.5,
+  "maxCostToInitialRiskPct": 50,
+  "maxHoldingCandles": 30,
+  "parameters": {
+    "pivotLeft": 2,
+    "pivotRight": 2,
+    "pullbackMinBars": 3,
+    "pullbackMaxBars": 5,
+    "emaTouchTolerancePct": 0.5,
+    "pullbackVolumeContractionMaxRatio": 0.85,
+    "pullbackBodyContractionMaxRatio": 0.85,
+    "bullishStrongBodyMinRatio": 0.65,
+    "rejectionWickToBodyMinRatio": 2,
+    "buyerVolumeGrowthMinRatio": 1.2,
+    "exceptionalSellingVolumeMinRatio": 2,
+    "consolidationBars": 10,
+    "boxWidthMaxAtr": 2,
+    "boxProgressiveRangeMaxRatio": 0.85,
+    "boxVolumeDryUpMaxRatio": 0.85,
+    "breakoutRelativeVolumeMinRatio": 1.2,
+    "retestMaxBars": 6,
+    "retestTolerancePct": 0.2,
+    "stopBufferTicks": 1,
+    "atrPeriod": 14,
+    "volumeLookbackBars": 20,
+    "directStopRule": "BOX_BASE",
+    "trailingActivationR": 1
+  },
+  "entryInterval": "15m",
+  "trendInterval": "1d",
+  "exitPolicy": "BASELINE",
+  "midasWarmupBars": 1000,
+  "hybridPolicies": [
+    "BASELINE",
+    "HYBRID_LONG_BASELINE_SHORT_MIDAS_RETEST"
+  ],
+  "selectionCutoffUtc": "2026-10-15T23:59:59.999Z",
+  "holdingPolicies": [
+    "BASELINE_30",
+    "HOLD_45",
+    "HOLD_60",
+    "DYNAMIC_TREND_60"
+  ],
+  "entrySelectionPolicies": [
+    "BASELINE",
+    "WEEKDAYS_ONLY",
+    "STOP_045_ONLY",
+    "COMBINED_045",
+    "STOP_050_ONLY",
+    "COMBINED_050"
+  ],
+  "weekendBasis": "NEXT_OPEN_UTC",
+  "stopDistanceDefinition": "SIGNAL_REFERENCE_TO_ORIGINAL_STRUCTURAL_STOP",
+  "selectedHoldingPolicy": "DYNAMIC_TREND_60"
+}

@@ -10,7 +10,8 @@ public enum CandleInterval {
     M30("30m", Duration.ofMinutes(30)), H1("1h", Duration.ofHours(1)),
     H2("2h", Duration.ofHours(2)), H4("4h", Duration.ofHours(4)),
     H6("6h", Duration.ofHours(6)), H8("8h", Duration.ofHours(8)),
-    H12("12h", Duration.ofHours(12)), D1("1d", Duration.ofDays(1));
+    H12("12h", Duration.ofHours(12)), D1("1d", Duration.ofDays(1)),
+    W1("1w", Duration.ofDays(7));
 
     private final String code;
     private final Duration duration;

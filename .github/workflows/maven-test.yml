@@ -63,5 +63,38 @@ jobs:
       - name: Smoke non-overlapping setups and source checks (mock HTTP only)
         shell: pwsh
         run: ./scripts/tests/test-multiwindow-setups.ps1
+      - name: Validate opt-in daily/weekly historical plan (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-independent-daily-weekly-plan.ps1
+      - name: Validate independent daily/weekly research export plan (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-independent-research-export-plan.ps1
+      - name: Validate frozen 12/24-window pullback historical plans (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-independent-extended-sample.ps1
+      - name: Validate 15m/1d six 600-hour paper research windows (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-independent-15m-daily-plan.ps1
+      - name: Validate BTC stop variants and 6 x 600h paper plan (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-btc-15m-stop-study.ps1
+      - name: Validate BTC mixed reversal exit paper comparison (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-btc-15m-mixed-reversal.ps1
+      - name: Validate BTC $600 baseline mixed 12 x 900-hour study (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-btc-15m-mixed-baseline-12x900h.ps1
+      - name: Validate BTC MIDAS $600 three-way 12 x 900-hour study (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-btc-15m-mixed-midas-12x900h.ps1
+      - name: Validate frozen BTC hybrid and strictly future MIDAS OOS windows (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-btc-15m-mixed-midas-hybrid.ps1
+      - name: Validate BTC dynamic holding 30/45/60 and structural continuation (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-btc-15m-mixed-dynamic-holding.ps1
+      - name: Validate BTC entry selection six variants (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-btc-15m-mixed-entry-selection.ps1
       - name: Validate and test (no real orders)
         run: mvn -B -ntp verify

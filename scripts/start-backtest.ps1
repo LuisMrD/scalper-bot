@@ -14,7 +14,7 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('BTCUSDT', 'ETHUSDT', 'SOLUSDT')]
+    [ValidateSet('BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'DOGEUSDT')]
     [string[]]$Symbols = @('BTCUSDT', 'ETHUSDT', 'SOLUSDT'),
 
     [ValidateRange(0, 100)]
@@ -34,6 +34,7 @@ param(
     [string]$SlippagePerSidePct = '0.02',
     [string]$BreakEvenTriggerR = '1.0',
 
+    [switch]$IncludeDailyWeekly,
     [switch]$PrintOnly
 )
 
@@ -57,6 +58,11 @@ $settings = [ordered]@{
     RISK_SLIPPAGE_PER_SIDE_PCT = $SlippagePerSidePct
     RISK_BREAK_EVEN_TRIGGER_R = $BreakEvenTriggerR
     JAVA_DECISION_REQUIRE_HIGHER_TF = $RequireHigherTf
+}
+
+# Opt-in daily/weekly research. Preserve the original 1m/5m/15m default.
+if ($IncludeDailyWeekly) {
+    $settings['MARKET_DATA_INTERVALS'] = '1m,5m,15m,1d,1w'
 }
 
 # 0 is supported as a backtest request override, but NOT as environment
