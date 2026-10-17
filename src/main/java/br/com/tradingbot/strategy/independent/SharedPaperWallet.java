@@ -18,6 +18,8 @@ final class SharedPaperWallet {
     private BigDecimal cash, dailyRealized = BigDecimal.ZERO;
     private BigDecimal peak, worstDrawdownPct = BigDecimal.ZERO, markedEquity;
     private long day = Long.MIN_VALUE;
+    private long openTime = Long.MIN_VALUE;
+    private boolean occupiedAtOpen, filledThisBar;
     private IndependentPaperPortfolio owner;
 
     SharedPaperWallet(BigDecimal capital) {
@@ -28,6 +30,13 @@ final class SharedPaperWallet {
         markedEquity = capital;
     }
     void beginDay(long openTime) {
+        // Snapshot occupancy BEFORE any exits/stops in this bar. A trade
+        // stopped inside the bar must not unlock a retroactive OPEN fill.
+        if (this.openTime != openTime) {
+            this.openTime = openTime;
+            occupiedAtOpen = owner != null;
+            filledThisBar = false;
+        }
         long nextDay = Math.floorDiv(openTime, DAY_MS);
         if (day != nextDay) {
             day = nextDay;
@@ -40,10 +49,12 @@ final class SharedPaperWallet {
     BigDecimal markedEquity() { return markedEquity; }
     BigDecimal initialCapital() { return initialCapital; }
     boolean occupied() { return owner != null; }
+    boolean entryBlocked() { return owner != null || occupiedAtOpen || filledThisBar; }
 
     void acquired(IndependentPaperPortfolio book, BigDecimal newCash) {
-        if (owner != null) throw new IllegalStateException("Position already exists in shared wallet");
-        owner = book;
+        if (entryBlocked()) throw new IllegalStateException("Shared open already consumed by a position");
+        owner = java.util.Objects.requireNonNull(book,"book");
+        filledThisBar = true;
         cash = newCash;
     }
     void funded(IndependentPaperPortfolio book, BigDecimal newCash) {
