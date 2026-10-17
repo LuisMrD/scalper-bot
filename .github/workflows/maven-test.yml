@@ -93,5 +93,8 @@ jobs:
       - name: Validate BTC dynamic holding 30/45/60 and structural continuation (offline)
         shell: pwsh
         run: ./scripts/tests/test-btc-15m-mixed-dynamic-holding.ps1
+      - name: Validate BTC entry selection six variants (offline)
+        shell: pwsh
+        run: ./scripts/tests/test-btc-15m-mixed-entry-selection.ps1
       - name: Validate and test (no real orders)
         run: mvn -B -ntp verify
