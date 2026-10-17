@@ -31,16 +31,14 @@ final class EntrySelectionFilter {
         // simulator fills at the immediately following bar open.
         long nextOpen=Math.addExact(signal.candleCloseTime(),1L);
         var day=Instant.ofEpochMilli(nextOpen).atZone(ZoneOffset.UTC).getDayOfWeek();
-        BigDecimal ref=signal.referencePrice();
-        BigDecimal stop=signal.structuralStop();
         // BASELINE deliberately doesn't gain any extra restrictions.
         if(policy==EntrySelectionPolicy.BASELINE)
             return new Assessment(true,"BASELINE_UNCHANGED",nextOpen,day.name(),
-                    validDistance(ref,stop),List.of());
+                    validDistance(signal),List.of());
         var failures=new ArrayList<String>();
         if(policy.weekdaysOnly() && (day==DayOfWeek.SATURDAY||day==DayOfWeek.SUNDAY))
             failures.add("ENTRY_UTC_WEEKEND");
-        BigDecimal distance=validDistance(ref,stop);
+        BigDecimal distance=validDistance(signal);
         if(policy.maxStopDistancePct()!=null) {
             if(distance==null)failures.add("ENTRY_INVALID_STOP_DISTANCE");
             else if(distance.compareTo(policy.maxStopDistancePct())>0)
@@ -54,8 +52,15 @@ final class EntrySelectionFilter {
                 nextOpen,day.name(),distance,List.copyOf(failures));
     }
 
-    private static BigDecimal validDistance(BigDecimal ref,BigDecimal stop) {
+    private static BigDecimal validDistance(IndependentSetupSignal signal) {
+        BigDecimal ref=signal.referencePrice();
+        BigDecimal stop=signal.structuralStop();
         if(ref==null||stop==null||ref.signum()<=0||stop.signum()<=0)
+            return null;
+        // Wrong-side stops are not a meaningful structural risk distance,
+        // even if the paper portfolio would subsequently block them anyway.
+        boolean shortSide=signal.side()==IndependentSetupSignal.Side.SHORT;
+        if(shortSide ?stop.compareTo(ref)<=0:stop.compareTo(ref)>=0)
             return null;
         return ref.subtract(stop).abs().multiply(BigDecimal.valueOf(100),MC)
                 .divide(ref,MC);
