@@ -168,7 +168,7 @@ final class IndependentPaperPortfolio {
         if(pending!=null && position==null) {
             Pending proposal=pending;
             pending=null;
-            if(sharedWallet!=null && sharedWallet.occupied()) {
+            if(sharedWallet!=null && sharedWallet.entryBlocked()) {
                 // One shared position; a second same-open entry is rejected.
                 blockedEntries++;
             } else {
