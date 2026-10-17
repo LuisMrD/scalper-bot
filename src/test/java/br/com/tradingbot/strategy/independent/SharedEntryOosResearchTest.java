@@ -108,6 +108,12 @@ class SharedEntryOosResearchTest {
         assertFalse(wallet.occupied());
         assertEquals(0,wallet.cash().compareTo(b("598")));
         assertEquals(0,wallet.dailyRealized().compareTo(b("-2")));
+        // Closing intrabar cannot allow another entry at the past bar open.
+        assertTrue(wallet.entryBlocked());
+        assertThrows(IllegalStateException.class,
+                ()->wallet.acquired(shortBook,b("597.80")));
+        wallet.beginDay(end("2026-10-16T12:15:00Z"));
+        assertFalse(wallet.entryBlocked());
         wallet.acquired(shortBook,b("597.80"));
         wallet.released(shortBook,b("596.50"),b("-3.50"));
         assertEquals(0,wallet.dailyRealized().compareTo(b("-3.5")));
