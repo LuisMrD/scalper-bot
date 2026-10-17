@@ -35,7 +35,10 @@ TESTNET exchangeInfo, never guessed.
 same closed 15m candle; each is checked against its direction-specific filter.
 If both remain pending, `LONG` is tried first on the next open (documented
 deterministic tie-break); `SHORT` is blocked if the long position opened.
-Failed LONG sizing/entry lets SHORT try. A portfolio does not hedge itself
+Failed LONG sizing/entry lets SHORT try. If ANY position was open at
+the start of the bar, a later intrabar stop or an exit on the open does NOT
+unlock a second fill retroactively at that same bar open; new entries wait
+until a subsequent signal and next open. A portfolio does not hedge itself
 or run two simultaneous positions.
 
 The weekend filter checks NEXT open UTC; the stop filter checks
