@@ -172,6 +172,34 @@ public final class IndependentResearchController {
         return service.backtestDynamicHolding900h(request);
     }
 
+    @GetMapping("/entry-selection/status")
+    public Map<String,Object> entrySelectionStatus() {
+        return Map.ofEntries(
+                Map.entry("mode","PAPER_ONLY"),
+                Map.entry("ordersEnabled",false),
+                Map.entry("symbol","BTCUSDT"),
+                Map.entry("entryInterval","15m"),
+                Map.entry("trendInterval","1d"),
+                Map.entry("capitalUsdt",600),
+                Map.entry("barsPerWindow",3600),
+                Map.entry("windows",12),
+                Map.entry("baseArms",2),
+                Map.entry("midasWarmupBars",1000),
+                Map.entry("hybridEntryPolicy","HYBRID_LONG_BASELINE_SHORT_MIDAS_RETEST"),
+                Map.entry("holdingPolicy","DYNAMIC_TREND_60"),
+                Map.entry("originalStop","BASELINE"),
+                Map.entry("stopDistanceDefinition","SIGNAL_REFERENCE_TO_ORIGINAL_STRUCTURAL_STOP"),
+                Map.entry("weekendBasis","NEXT_OPEN_UTC"),
+                Map.entry("policies",java.util.Arrays.stream(EntrySelectionPolicy.values())
+                        .map(Enum::name).toList()));
+    }
+
+    @PostMapping("/backtest-entry-selection")
+    public IndependentResearchService.Report backtestEntrySelection(
+            @RequestBody IndependentResearchRequest request) {
+        return service.backtestEntrySelection900h(request);
+    }
+
     @PostMapping("/backtest")
     public IndependentResearchService.Report backtest(
             @RequestBody IndependentResearchRequest request) {
