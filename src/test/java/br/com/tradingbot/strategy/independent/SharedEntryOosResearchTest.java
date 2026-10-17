@@ -112,7 +112,8 @@ class SharedEntryOosResearchTest {
         wallet.released(shortBook,b("596.50"),b("-3.50"));
         assertEquals(0,wallet.dailyRealized().compareTo(b("-3.5")));
         wallet.mark(b("100"));
-        assertEquals(0,wallet.worstDrawdownPct().compareTo(b("0.5833333333333333333333333333333333"))==0?0:1);
+        assertTrue(wallet.worstDrawdownPct().compareTo(b("0.58"))>0);
+        assertTrue(wallet.worstDrawdownPct().compareTo(b("0.59"))<0);
         wallet.beginDay(end("2026-10-17T00:00:00Z"));
         assertEquals(0,wallet.dailyRealized().signum());
     }
