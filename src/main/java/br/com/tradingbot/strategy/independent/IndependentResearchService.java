@@ -50,14 +50,24 @@ public class IndependentResearchService {
             IndependentSetupSignal signal, String higherTrend,
             long higherCandleCloseTime, boolean higherTrendApproved,
             boolean candidateBeforeHigherTrend,
-            Map<String,MidasEntryFilter.Assessment> midasAssessments) {
+            Map<String,MidasEntryFilter.Assessment> midasAssessments,
+            Map<String,EntrySelectionFilter.Assessment> entrySelectionAssessments) {
+        Event(String arm,long closeTime,String status,String reason,
+                IndependentSetupSignal signal,String higherTrend,
+                long higherCandleCloseTime,boolean higherTrendApproved,
+                boolean candidateBeforeHigherTrend,
+                Map<String,MidasEntryFilter.Assessment> midasAssessments) {
+            this(arm,closeTime,status,reason,signal,higherTrend,
+                    higherCandleCloseTime,higherTrendApproved,
+                    candidateBeforeHigherTrend,midasAssessments,Map.of());
+        }
         Event(String arm,long closeTime,String status,String reason,
                 IndependentSetupSignal signal,String higherTrend,
                 long higherCandleCloseTime,boolean higherTrendApproved,
                 boolean candidateBeforeHigherTrend) {
             this(arm,closeTime,status,reason,signal,higherTrend,
                     higherCandleCloseTime,higherTrendApproved,
-                    candidateBeforeHigherTrend,Map.of());
+                    candidateBeforeHigherTrend,Map.of(),Map.of());
         }
     }
     public record Report(long runId,String symbol,String interval,long firstOpen,
@@ -66,7 +76,7 @@ public class IndependentResearchService {
             List<Event> events,Map<String,Integer> rejectionCounts) {}
 
     public Report backtest(IndependentResearchRequest request) {
-        return replay(request,false,false,false,false,false,false,false);
+        return replay(request,false,false,false,false,false,false,false,false);
     }
     /** Separate BTC-only stop hypotheses. Never changes the default /backtest. */
     public Report backtestStops(IndependentResearchRequest request) {
@@ -75,7 +85,7 @@ public class IndependentResearchService {
                 || request.contextCandles()!=60)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Stop research requires BTCUSDT 15m/1d, 2400 bars, 60 warmup bars");
-        return replay(request,true,false,false,false,false,false,false);
+        return replay(request,true,false,false,false,false,false,false,false);
     }
     /** BTC-only side-by-side mixed LONG/SHORT reversal EXIT research. */
     public Report backtestReversal(IndependentResearchRequest request) {
@@ -84,7 +94,7 @@ public class IndependentResearchService {
                 || request.contextCandles()!=60)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Reversal exit research requires BTCUSDT 15m/1d, 2400 bars, 60 warmup");
-        return replay(request,false,true,false,false,false,false,false);
+        return replay(request,false,true,false,false,false,false,false,false);
     }
     /**
      * Frozen BTC-only study: 12 disjoint 900-hour windows, 15m with closed 1d
@@ -99,7 +109,7 @@ public class IndependentResearchService {
                 || request.capitalUsdt().compareTo(new java.math.BigDecimal("600"))!=0)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "BTC baseline study requires BTCUSDT 15m/1d, 3600 bars, 60 warmup, $600 capital");
-        return replay(request,false,false,true,false,false,false,false);
+        return replay(request,false,false,true,false,false,false,false,false);
     }
 
     /** BTC $600, 12x900h, mixed setups with BASELINE vs two optional
@@ -112,14 +122,14 @@ public class IndependentResearchService {
                 || request.capitalUsdt().compareTo(new java.math.BigDecimal("600"))!=0)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "MIDAS study requires BTCUSDT 15m/1d, 3600 bars, 60 signal context, $600 capital");
-        return replay(request,false,false,false,true,false,false,false);
+        return replay(request,false,false,false,true,false,false,false,false);
     }
 
     /** In-sample DIAGNOSTIC ONLY, preserving the original 12 x 900h
      * BTC comparison and adding one hybrid policy for each mixed direction. */
     public Report backtestMidasHybrid900h(IndependentResearchRequest request) {
         validateHybridRequest(request);
-        return replay(request,false,false,false,false,true,false,false);
+        return replay(request,false,false,false,false,true,false,false,false);
     }
 
     /**
@@ -135,7 +145,7 @@ public class IndependentResearchService {
         if(firstOpen<oosStart)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "OOS HYBRID requires every decision candle from 2026-10-16 UTC onward; earliest full 900h completed window closes on 2026-11-22 11:59:59.999Z");
-        return replay(request,false,false,false,false,true,true,false);
+        return replay(request,false,false,false,false,true,true,false,false);
     }
 
     private static void validateHybridRequest(IndependentResearchRequest request) {
@@ -153,12 +163,22 @@ public class IndependentResearchService {
      * compare 30/45/60 bar holds and conditional trend+structure to 60. */
     public Report backtestDynamicHolding900h(IndependentResearchRequest request) {
         validateHybridRequest(request);
-        return replay(request,false,false,false,false,false,false,true);
+        return replay(request,false,false,false,false,false,false,true,false);
+    }
+
+    /**
+     * In-sample-only A/B: unchanged MIDAS hybrid signals and dynamic 60-bar
+     * exits; compare independent weekday / stop-distance entry filters.
+     */
+    public Report backtestEntrySelection900h(IndependentResearchRequest request) {
+        validateHybridRequest(request);
+        return replay(request,false,false,false,false,false,false,false,true);
     }
 
     private Report replay(IndependentResearchRequest request,boolean compareStops,
             boolean compareReversal,boolean mixedBaselineOnly,boolean compareMidas,
-            boolean compareHybrid,boolean hybridOos,boolean compareHolding) {
+            boolean compareHybrid,boolean hybridOos,boolean compareHolding,
+            boolean compareSelection) {
         Objects.requireNonNull(request);
         if(!trading.symbols().contains(request.symbol()))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -169,7 +189,7 @@ public class IndependentResearchService {
                         !=primaryInterval.millis()-1)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "asOf must be a fully closed UTC " + request.entryInterval() + " candle");
-        int warmup=(compareMidas||compareHybrid||compareHolding)
+        int warmup=(compareMidas||compareHybrid||compareHolding||compareSelection)
                 ?MIDAS_WARMUP_BARS:request.contextCandles();
         int required=Math.addExact(warmup,request.steps());
         var tape=new ArrayList<>(market.recentAtOrBefore(
@@ -184,7 +204,7 @@ public class IndependentResearchService {
         try {
             ClosedCandleFeatures.check(tape);
         } catch(IllegalArgumentException ex) {
-            if(compareHybrid || compareMidas) {
+            if(compareHybrid || compareMidas || compareHolding || compareSelection) {
                 long expectedClose=request.asOf()-(long)(required-1)*primaryInterval.millis();
                 int firstGap=-1;
                 for(int idx=0;idx<tape.size();idx++) {
@@ -220,7 +240,7 @@ public class IndependentResearchService {
         var shortMixed=new ShortTrendPullbackDetector(request.parameters(),
                 ShortTrendPullbackDetector.RetreatMode.MIXED_NET_RISE);
         var accounts=new LinkedHashMap<String,IndependentPaperPortfolio>();
-        var arms=(compareReversal||mixedBaselineOnly||compareMidas||compareHybrid||compareHolding)
+        var arms=(compareReversal||mixedBaselineOnly||compareMidas||compareHybrid||compareHolding||compareSelection)
                 ?List.of("TREND_PULLBACK_MIXED","TREND_PULLBACK_MIXED_SHORT")
                 :List.of("TREND_PULLBACK","TREND_PULLBACK_MIXED",
                         "TREND_PULLBACK_SHORT","TREND_PULLBACK_MIXED_SHORT");
@@ -249,17 +269,23 @@ public class IndependentResearchService {
                     String label=arm+"__"+policy.name();
                     accounts.put(label,new IndependentPaperPortfolio(label,request,policy));
                 }
+            }else if(compareSelection) {
+                for(var policy:EntrySelectionPolicy.values()) {
+                    String label=arm+"__"+policy.name();
+                    accounts.put(label,new IndependentPaperPortfolio(label,request,
+                            HoldingExitPolicy.DYNAMIC_TREND_60));
+                }
             }else accounts.put(arm,new IndependentPaperPortfolio(arm,request));
         }
         var events=new ArrayList<Event>();
-        var midasLong=(compareMidas||compareHybrid||compareHolding)
+        var midasLong=(compareMidas||compareHybrid||compareHolding||compareSelection)
                 ?new AnchoredMidasCurve(false,request.parameters()):null;
-        var midasShort=(compareMidas||compareHybrid||compareHolding)
+        var midasShort=(compareMidas||compareHybrid||compareHolding||compareSelection)
                 ?new AnchoredMidasCurve(true,request.parameters()):null;
         var longPoints=new ArrayList<AnchoredMidasCurve.Point>();
         var shortPoints=new ArrayList<AnchoredMidasCurve.Point>();
         for(int i=0;i<tape.size();i++) {
-            if(compareMidas||compareHybrid||compareHolding) {
+            if(compareMidas||compareHybrid||compareHolding||compareSelection) {
                 // Feed each fully closed primary candle ONCE, from the 1,000
                 // bar warmup onward. No retroactive revisions to prior points.
                 try {
@@ -291,7 +317,7 @@ public class IndependentResearchService {
                     "1d".equals(request.trendInterval())
                         ?DailyEmaDirection.fromClosedDays(higher.recentCandles(),c.closeTime())
                         :WeeklyEmaDirection.fromClosedWeeks(higher.recentCandles(),c.closeTime());
-            var signals=(compareReversal||mixedBaselineOnly||compareMidas||compareHybrid||compareHolding)
+            var signals=(compareReversal||mixedBaselineOnly||compareMidas||compareHybrid||compareHolding||compareSelection)
                     ?List.of(mixedPullback.evaluate(history,request.priceTick()),
                             shortMixed.evaluate(history,request.priceTick()))
                     :List.of(pullback.evaluate(history,request.priceTick()),
@@ -314,6 +340,7 @@ public class IndependentResearchService {
                 }
                 String arm=signal.setup().name();
                 var midasAssessments=new LinkedHashMap<String,MidasEntryFilter.Assessment>();
+                var selectionAssessments=new LinkedHashMap<String,EntrySelectionFilter.Assessment>();
                 if(compareStops) {
                     for(var policy:StopResearchPolicy.values()) {
                         var account=accounts.get(arm+"__"+policy.name());
@@ -325,6 +352,46 @@ public class IndependentResearchService {
                         var account=accounts.get(arm+"__"+policy.name());
                         account.count(signal);
                         account.close(c,signal,history);
+                    }
+                }else if(compareSelection) {
+                    // Frozen hybrid entry first, then six independent
+                    // pre-entry gates. Each account follows its OWN position
+                    // sequence; never discard trades from a completed CSV.
+                    boolean isShort=signal.side()==IndependentSetupSignal.Side.SHORT;
+                    var entryGate=MidasHybridPolicy.HYBRID_LONG_BASELINE_SHORT_MIDAS_RETEST
+                            .entryPolicy(isShort);
+                    IndependentSetupSignal hybrid=signal;
+                    if(signal.actionable()) {
+                        var pts=isShort?shortPoints:longPoints;
+                        var assessment=MidasEntryFilter.assess(entryGate,isShort,
+                                tape,pts,i,request.parameters());
+                        midasAssessments.put("HYBRID_ENTRY",assessment);
+                        if(!assessment.allowed()) {
+                            var failures=new ArrayList<>(signal.rejectedFilters());
+                            failures.add(assessment.reason());
+                            hybrid=new IndependentSetupSignal(signal.setup(),
+                                    IndependentSetupSignal.Status.WAIT,c.closeTime(),
+                                    null,null,signal.frozenBoxTop(),signal.frozenBoxBase(),
+                                    assessment.reason(),signal.passedFilters(),failures);
+                        }
+                    }
+                    for(var policy:EntrySelectionPolicy.values()) {
+                        var account=accounts.get(arm+"__"+policy.name());
+                        IndependentSetupSignal screened=hybrid;
+                        if(hybrid.actionable()) {
+                            var result=EntrySelectionFilter.assess(policy,hybrid);
+                            selectionAssessments.put(policy.name(),result);
+                            if(!result.allowed()) {
+                                var rejected=new ArrayList<>(hybrid.rejectedFilters());
+                                rejected.addAll(result.rejectedReasons());
+                                screened=new IndependentSetupSignal(hybrid.setup(),
+                                        IndependentSetupSignal.Status.WAIT,c.closeTime(),
+                                        null,null,hybrid.frozenBoxTop(),hybrid.frozenBoxBase(),
+                                        result.reason(),hybrid.passedFilters(),rejected);
+                            }
+                        }
+                        account.count(screened);
+                        account.close(c,screened,history,direction);
                     }
                 }else if(compareHolding) {
                     // Exactly the user-selected HYBRID entry detector: LONG
@@ -413,7 +480,8 @@ public class IndependentResearchService {
                 events.add(new Event(arm,c.closeTime(),signal.status().name(),
                         signal.reason(),signal,direction.name(),
                         higher.recentCandles().getLast().closeTime(),
-                        weeklyApproved,dailyCandidate,Map.copyOf(midasAssessments)));
+                        weeklyApproved,dailyCandidate,Map.copyOf(midasAssessments),
+                        Map.copyOf(selectionAssessments)));
             }
         }
         var summaries=new LinkedHashMap<String,IndependentPaperPortfolio.Summary>();
@@ -425,7 +493,8 @@ public class IndependentResearchService {
                     rejectionCounts.merge(item.getKey()+":"+reason,count,Integer::sum));
         }
         long runId=persist(request,events,compareStops,compareReversal,
-                mixedBaselineOnly,compareMidas,compareHybrid,hybridOos,compareHolding);
+                mixedBaselineOnly,compareMidas,compareHybrid,hybridOos,
+                compareHolding,compareSelection);
         var first=tape.get(warmup);
         return new Report(runId,request.symbol(),request.entryInterval(),first.openTime(),
                 tape.getLast().closeTime(),request.steps(),
@@ -461,6 +530,12 @@ public class IndependentResearchService {
                     +" HYBRID_LONG_BASELINE_SHORT_MIDAS_RETEST;"
                     +" UNCHANGED_PROTECTIVE_STRUCTURAL_STOP; DAILY_EMA21_AND_15M_EMA9_21_AND_CONFIRMED_SWING;"
                     +" 30_45_60_DYNAMIC60; HISTORICAL_INSAMPLE_ONLY; NO_REAL_ORDERS"
+                    :"")
+                + (compareSelection?"; BTC_MIXED_ENTRY_SELECTION_900H; 6_ENTRY_POLICIES;"
+                    +" SAME_HYBRID_LONG_BASELINE_SHORT_MIDAS_RETEST;"
+                    +" DYNAMIC_TREND_60_ALL_BOOKS; ORIGINAL_STRUCTURAL_STOP;"
+                    +" UTC_NEXT_OPEN_WEEKEND; SIGNAL_STOP_DISTANCE_045_050;"
+                    +" HISTORICAL_INSAMPLE_ONLY; NO_REAL_ORDERS"
                     :""),
 
                 Map.copyOf(summaries),List.copyOf(events),Map.copyOf(rejectionCounts));
@@ -469,7 +544,7 @@ public class IndependentResearchService {
     private long persist(IndependentResearchRequest request,List<Event> events,
             boolean compareStops,boolean compareReversal,boolean mixedBaselineOnly,
             boolean compareMidas,boolean compareHybrid,boolean hybridOos,
-            boolean compareHolding) {
+            boolean compareHolding,boolean compareSelection) {
         var holder=new GeneratedKeyHolder();
         String parameters=compareStops
                 ?json.writeValueAsString(Map.of(
@@ -501,6 +576,15 @@ public class IndependentResearchService {
                         "policies",List.of(HoldingExitPolicy.values()),
                         "hybridEntryPolicy","HYBRID_LONG_BASELINE_SHORT_MIDAS_RETEST",
                         "originalMaxHoldingCandles",30))
+                :compareSelection?json.writeValueAsString(Map.of(
+                        "request",request,
+                        "researchType","BTC_MIDAS_HYBRID_ENTRY_SELECTION_INSAMPLE",
+                        "primaryWarmupBars",MIDAS_WARMUP_BARS,
+                        "policies",List.of(EntrySelectionPolicy.values()),
+                        "holdingPolicy","DYNAMIC_TREND_60",
+                        "hybridEntryPolicy","HYBRID_LONG_BASELINE_SHORT_MIDAS_RETEST",
+                        "weekendTimezone","UTC",
+                        "stopDistanceDefinition","ABS(SIGNAL_REFERENCE-STRUCTURAL_STOP)/SIGNAL_REFERENCE*100"))
                 :json.writeValueAsString(request);
         jdbc.update(con-> {
             var statement=con.prepareStatement("""
