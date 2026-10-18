@@ -37,6 +37,29 @@ class SharedEntryOosResearchTest {
                 "Spring bean has a second Clock constructor; the production one must be @Autowired");
     }
 
+    @Test void historicalHoldoutExcludesAllPreviouslyOptimized2025To2026Data() {
+        var market=mock(MarketDataService.class);
+        var contexts=mock(MarketContextService.class);
+        var trading=mock(TradingProperties.class);
+        var service=new IndependentSharedOosService(market,contexts,trading,
+                Clock.fixed(Instant.parse("2026-10-18T00:00:00Z"),ZoneOffset.UTC));
+        var last2024=request(end("2024-12-31T23:59:59.999Z"));
+        service.validateHistoricalHoldoutPeriod(last2024);
+        for(var badClose:new String[]{
+                "2025-07-23T23:59:59.999Z",
+                "2026-10-15T23:59:59.999Z",
+                "2023-01-01T00:14:59.999Z"}) {
+            assertEquals(400,assertThrows(ResponseStatusException.class,
+                    ()->service.backtestHistoricalHoldout(
+                            request(end(badClose)))).getStatusCode().value());
+        }
+        assertEquals(400,assertThrows(ResponseStatusException.class,
+                ()->service.backtestInsample(last2024)).getStatusCode().value());
+        assertEquals(400,assertThrows(ResponseStatusException.class,
+                ()->service.backtest(last2024)).getStatusCode().value());
+        verifyNoInteractions(market,contexts,trading);
+    }
+
     @Test void historicalRouteAcceptsOnlyTheOriginalTwelveInSampleWindows() {
         var service=new IndependentSharedOosService(
                 mock(MarketDataService.class),mock(MarketContextService.class),
