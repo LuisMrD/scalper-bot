@@ -1,5 +1,34 @@
 # Forex OTC EUR/USD research — FIRST safe migration from Binance
 
+## Quote-gap fix (2026-10-18)
+
+The Exness import successfully downloaded quotes but previously rejected a
+one-hour gap **2024-03-28 23:00 UTC → 2024-03-29 00:00 UTC**
+(three missing 15-minute opens). Such missing quote periods cannot be
+filled with fabricated price candles. The reader now tolerates bounded
+short (at most 4h) gaps and presumed weekend/extended holiday closures
+while recording real timestamps. Unexplained longer weekday gaps still
+fail validation.
+
+During paper replay each interruption resets 15-minute price-action
+structure and EMA warmup; signals require another 80 uninterrupted
+15-minute bars. If an open position crosses an unobserved *midweek*
+quote interval, the backtest fails rather than making up a stop path.
+A true weekend position is marked/processed at the actual reopening
+quotes, with financing/swap still unmodelled.
+
+Reports include `quoteGapCount`, `missingQuoteBars` and
+`skippedWarmupBars`. On Fridays the runner automatically clips the
+requested backtest end to the last genuinely observed M15 candle and
+prints that adjustment (rather than inventing 23:45 quotes).
+
+These safeguards make a historical research run possible despite ordinary
+sparse provider observations, but missing intrabar quotes still limit
+what can be asserted about execution. Consult these audit fields before
+interpreting any profitability.
+
+---
+
 ## Update: Exness is now the default history source (October 2026)
 
 The original Dukascopy historical M1 endpoint returned **HTTP 403** from
