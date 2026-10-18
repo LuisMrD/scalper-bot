@@ -24,6 +24,14 @@ class ForexCsvResearchTest {
                 b("600"),b("0.5"),b("3"),10,b("3.5"),b("0.2"),
                 b("1"),b("1000"),b("1000"),60,false);
     }
+    @Test void dukascopyProductionConstructorMustBeMarkedForSpringInjection()
+            throws Exception {
+        var ctor=DukascopyForexDownloader.class.getConstructor(String.class);
+        assertNotNull(ctor.getAnnotation(
+                org.springframework.beans.factory.annotation.Autowired.class),
+                "Multiple constructors exist: explicitly select the production one for Spring");
+    }
+
     @Test void cashAndQuotesAreNotMixedWithBinanceMarket() {
         List<ForexBar> tape=new ArrayList<>();
         for(int i=0;i<300;i++)tape.add(bar(START+i*900_000L));
