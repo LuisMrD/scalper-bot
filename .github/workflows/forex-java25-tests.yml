@@ -23,3 +23,17 @@ jobs:
           cache: maven
       - name: Compile and run unit tests without broker or DB connections
         run: mvn -B -ntp clean test
+      - name: Validate single-command PowerShell syntax and dry-run
+        shell: pwsh
+        run: |
+          $files = @('scripts/run-forex-eurusd-auto.ps1', 'scripts/setup-forex-research-db.ps1')
+          foreach ($file in $files) {
+            $tokens = $null
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$tokens, [ref]$errors)
+            if ($errors.Count -ne 0) {
+              throw "$file has syntax errors: $($errors[0].Message)"
+            }
+          }
+          ./scripts/run-forex-eurusd-auto.ps1 -PrintOnly
+
