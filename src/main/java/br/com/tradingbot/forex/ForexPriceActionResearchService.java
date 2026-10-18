@@ -224,6 +224,18 @@ public final class ForexPriceActionResearchService {
             this.units=units;this.entryFee=fee;
         }
     }
+    private static Trade finish(Position position,long at,BigDecimal rawAsk,
+            Request r,String reason) {
+        BigDecimal exit=rawAsk.add(slippage(r),MC);
+        BigDecimal exitFee=usdFee(position.units,r);
+        BigDecimal net=position.entry.subtract(exit,MC)
+                .multiply(position.units,MC)
+                .subtract(position.entryFee,MC).subtract(exitFee,MC);
+        return new Trade(position.entryAt,at,position.entry,exit,
+                position.initialStop,position.units,net,
+                position.entryFee.add(exitFee,MC),reason);
+    }
+
     public Report backtest(Request r) {
         List<ForexBar> bars=feed.closed15m(r.pair());
         if(r.tickVolumeMidasProxy()&&bars.stream().anyMatch(
@@ -245,6 +257,7 @@ public final class ForexPriceActionResearchService {
         BigDecimal dateLastClose=null;
         Position position=null;
         Signal pending=null;
+        boolean exitAtNextOpen=false;
         var trades=new ArrayList<Trade>();
         long first=r.startOpenUtc(),last=r.lastOpenUtc();
         for(int i=0;i<bars.size();i++) {
@@ -260,7 +273,20 @@ public final class ForexPriceActionResearchService {
             if(bar.openTime()>last)break;
             long barDay=Math.floorDiv(bar.openTime(),86_400_000L);
             if(barDay!=day) {day=barDay;dailyPnl=BigDecimal.ZERO;}
-            // Previous-bar decisions fill on THIS bar OPEN, never a past open.
+            // A MAX_HOLD exit decided at the last CLOSE executes only NOW at
+            // the next OPEN. Never retroactively trade a known candle close.
+            if(exitAtNextOpen&&position!=null) {
+                Trade t=finish(position,bar.openTime(),bar.askOpen(),r,"MAX_HOLD_NEXT_OPEN");
+                cash=cash.add(t.netUsd().add(position.entryFee,MC),MC);
+                fees=fees.add(t.feesUsd().subtract(position.entryFee,MC),MC);
+                dailyPnl=dailyPnl.add(t.netUsd(),MC);
+                if(t.netUsd().signum()>0) {tradesWon++;winners=winners.add(t.netUsd(),MC);}
+                else losers=losers.add(t.netUsd().abs(),MC);
+                trades.add(t);
+                position=null;
+            }
+            exitAtNextOpen=false;
+            // Previous-bar entries also fill only on THIS bar OPEN.
             if(pending!=null &&position==null) {
                 BigDecimal fill=bar.bidOpen().subtract(slippage(r),MC);
                 BigDecimal stop=pending.stop();
@@ -289,25 +315,18 @@ public final class ForexPriceActionResearchService {
             if(position!=null) {
                 position.barsHeld++;
                 boolean stopHit=bar.askHigh().compareTo(position.stop)>=0;
-                boolean expiry=position.barsHeld>=r.maxHoldingBars()
-                        ||bar.openTime()==last;
-                if(stopHit||expiry) {
-                    BigDecimal exit=stopHit?position.stop.max(bar.askOpen()):bar.askClose();
-                    exit=exit.add(slippage(r),MC);
-                    BigDecimal fee=usdFee(position.units,r);
-                    BigDecimal pnl=position.entry.subtract(exit,MC)
-                            .multiply(position.units,MC)
-                            .subtract(position.entryFee,MC).subtract(fee,MC);
-                    cash=cash.add(pnl.add(position.entryFee,MC),MC);
-                    fees=fees.add(fee,MC);
-                    dailyPnl=dailyPnl.add(pnl,MC);
-                    if(pnl.signum()>0){tradesWon++;winners=winners.add(pnl,MC);}
-                    else losers=losers.add(pnl.abs(),MC);
-                    trades.add(new Trade(position.entryAt,bar.openTime(),
-                            position.entry,exit,position.initialStop,
-                            position.units,pnl,position.entryFee.add(fee,MC),
-                            stopHit?"STOP":"MAX_HOLD_OR_END"));
+                if(stopHit) {
+                    Trade t=finish(position,bar.openTime(),
+                            position.stop.max(bar.askOpen()),r,"STOP");
+                    cash=cash.add(t.netUsd().add(position.entryFee,MC),MC);
+                    fees=fees.add(t.feesUsd().subtract(position.entryFee,MC),MC);
+                    dailyPnl=dailyPnl.add(t.netUsd(),MC);
+                    if(t.netUsd().signum()>0) {tradesWon++;winners=winners.add(t.netUsd(),MC);}
+                    else losers=losers.add(t.netUsd().abs(),MC);
+                    trades.add(t);
                     position=null;
+                } else if(position.barsHeld>=r.maxHoldingBars()) {
+                    exitAtNextOpen=true;
                 }
             }
             BigDecimal marked=cash;
@@ -316,8 +335,9 @@ public final class ForexPriceActionResearchService {
                         .multiply(position.units,MC),MC)
                         .subtract(usdFee(position.units,r),MC);
                 // A causally confirmed swing high can tighten the SHORT stop.
-                if(swings.highCurrent!=null &&swings.highCurrent.compareTo(
-                        position.stop)<0)
+                if(swings.highCurrent!=null
+                        &&swings.highCurrent.compareTo(position.stop)<0
+                        &&swings.highCurrent.compareTo(bar.askClose())>0)
                     position.stop=swings.highCurrent;
             }
             peak=peak.max(marked);
@@ -338,13 +358,23 @@ public final class ForexPriceActionResearchService {
                 }
             }
         }
+        // An open final-bar position is marked at ASK; it is not a fictitious
+        // realized close. Unpaid exit commission is reserved in marked equity.
+        BigDecimal finalMarked=cash;
+        if(position!=null) {
+            ForexBar lastBar=bars.stream()
+                    .filter(b->b.openTime()==last).findFirst().orElseThrow();
+            finalMarked=finalMarked.add(position.entry.subtract(
+                    lastBar.askClose(),MC).multiply(position.units,MC),MC)
+                    .subtract(usdFee(position.units,r),MC);
+        }
         return new Report(r.pair(),"FOREX_OTC_SPOT",
                 r.tickVolumeMidasProxy()?"FOREX_PA_V1_TICK_VOLUME_MIDAS_PROXY_TREND":
                         "FOREX_PA_V1_SHORT_PRICE_ONLY",
                 "CSV_BROKER_QUOTES","TICK_VOLUME_IS_NOT_TRADE_VOLUME_OR_TAKER_VOLUME",
                 "SELL_BID_BUY_ASK_WITH_EXPLICIT_SLIPPAGE",first,last,
                 (int)bars.stream().filter(b->b.openTime()>=first&&b.openTime()<=last).count(),
-                signals,blocked,tradesWon,r.capitalUsd(),cash,
+                signals,blocked,tradesWon,r.capitalUsd(),finalMarked,
                 cash.subtract(r.capitalUsd(),MC),fees,winners,losers,
                 worstDrawdown,position!=null,List.copyOf(trades),
                 "Research only. Forex spot trading is OTC; broker prices differ. "
