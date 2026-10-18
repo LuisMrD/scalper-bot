@@ -37,6 +37,56 @@ class SharedEntryOosResearchTest {
                 "Spring bean has a second Clock constructor; the production one must be @Autowired");
     }
 
+    @Test void shortOnlyHoldoutsHaveFrozenDisjointWindowsAndDoNotReadNewData() {
+        var market=mock(MarketDataService.class);
+        var contexts=mock(MarketContextService.class);
+        var trading=mock(TradingProperties.class);
+        var clock=Clock.fixed(Instant.parse("2026-10-18T00:00:00Z"),ZoneOffset.UTC);
+        var service=new IndependentSharedOosService(market,contexts,trading,clock);
+        long duration=(long)IndependentSharedOosService.STEPS
+                *IndependentSharedOosService.BAR_MILLIS;
+        long[] ends={
+                IndependentSharedOosService.SHORT_HOLDOUT_2020_21_END,
+                IndependentSharedOosService.SHORT_HOLDOUT_2021_22_END
+        };
+        for (long latest : ends) {
+            IndependentSharedOosService.validateShortHoldoutPeriod(
+                    request(latest),latest,clock);
+            IndependentSharedOosService.validateShortHoldoutPeriod(
+                    request(latest-11L*duration),latest,clock);
+            for(long invalid:new long[]{
+                    latest-12L*duration,latest-900_000L,latest+duration,
+                    end("2023-12-31T23:59:59.999Z")}) {
+                assertEquals(400,assertThrows(ResponseStatusException.class,
+                        ()->IndependentSharedOosService.validateShortHoldoutPeriod(
+                                request(invalid),latest,clock)).getStatusCode().value());
+            }
+        }
+        assertEquals(400,assertThrows(ResponseStatusException.class,
+                ()->service.backtestShortHoldout2020_21(
+                        request(IndependentSharedOosService.SHORT_HOLDOUT_2021_22_END)))
+                .getStatusCode().value());
+        assertEquals(400,assertThrows(ResponseStatusException.class,
+                ()->service.backtestShortHoldout2021_22(
+                        request(IndependentSharedOosService.SHORT_HOLDOUT_2020_21_END)))
+                .getStatusCode().value());
+        verifyNoInteractions(market,contexts,trading);
+    }
+
+    @Test void shortOnlyPortfolioCannotAdmitLongSignals() {
+        var book=new SharedEntryPaperPortfolio(SharedEntryBookPolicy.CANDIDATE_A,
+                request(IndependentSharedOosService.SHORT_HOLDOUT_2021_22_END),true);
+        assertTrue(book.shortOnly());
+        var longSignal=new IndependentSetupSignal(
+                IndependentSetupSignal.Setup.TREND_PULLBACK_MIXED,
+                IndependentSetupSignal.Status.CONFIRMED,
+                end("2022-12-31T23:59:59.999Z"),
+                b("100"),b("99.5"),null,null,
+                "CONFIRMED",java.util.List.of(),java.util.List.of());
+        assertThrows(IllegalArgumentException.class,
+                ()->book.close(null,longSignal,java.util.List.of(),null));
+    }
+
     @Test void historicalHoldoutExcludesAllPreviouslyOptimized2025To2026Data() {
         var market=mock(MarketDataService.class);
         var contexts=mock(MarketContextService.class);
