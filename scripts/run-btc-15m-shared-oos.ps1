@@ -150,7 +150,7 @@ $events = [Collections.Generic.List[object]]::new()
 foreach ($w in $Windows..1) {
     [long]$asOf = $AsOfEpochMs - ($w - 1L) * $steps * $barMs
     [long]$start = $asOf - $steps * $barMs + 1L
-    if (-not $InSample -and $start -lt $oosStart) {
+    if (-not $InSample -and -not $HistoricalHoldout -and $start -lt $oosStart) {
         throw "Window $w crosses frozen OOS cutoff"
     }
     if ($InSample -and $asOf -gt $selectionClose) {
