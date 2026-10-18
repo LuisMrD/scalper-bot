@@ -38,8 +38,8 @@ param(
     [switch]$NoCsv
 )
 $ErrorActionPreference = 'Stop'
-$selectedModes = [int]$InSample.IsPresent +
-    [int]$HistoricalHoldout.IsPresent +
+$selectedModes = [int]($InSample.IsPresent) +
+    [int]($HistoricalHoldout.IsPresent) +
     [int](-not [string]::IsNullOrEmpty($ShortOnlyCohort))
 if ($selectedModes -gt 1) {
     throw 'Choose only one of -InSample, -HistoricalHoldout or -ShortOnlyCohort'
