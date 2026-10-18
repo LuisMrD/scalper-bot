@@ -38,6 +38,14 @@ public final class IndependentSharedOosController {
     /**
      * Deliberately separate route: the twelve historical windows are NOT OOS.
      */
+    /**
+     * Fixed 2023-2024 historical holdout: never relabel as prospective OOS.
+     */
+    @PostMapping("/backtest-historical-holdout")
+    public IndependentSharedOosService.Report backtestHistoricalHoldout(
+            @RequestBody IndependentResearchRequest request) {
+        return service.backtestHistoricalHoldout(request);
+    }
     @PostMapping("/backtest-insample")
     public IndependentSharedOosService.Report backtestInsample(
             @RequestBody IndependentResearchRequest request) {
