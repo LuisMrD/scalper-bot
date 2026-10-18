@@ -29,6 +29,14 @@ class SharedEntryOosResearchTest {
     }
     private long end(String iso) { return Instant.parse(iso).toEpochMilli(); }
 
+    @Test void springConstructorInjectionMustStayExplicit() throws Exception {
+        var constructor=IndependentSharedOosService.class.getConstructor(
+                MarketDataService.class,MarketContextService.class,TradingProperties.class);
+        assertNotNull(constructor.getAnnotation(
+                org.springframework.beans.factory.annotation.Autowired.class),
+                "Spring bean has a second Clock constructor; the production one must be @Autowired");
+    }
+
     @Test void threeFrozenPoliciesHaveAsymmetricSides() {
         assertEquals(EntrySelectionPolicy.BASELINE,
                 SharedEntryBookPolicy.CONTROL.longGate());
