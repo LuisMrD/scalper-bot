@@ -26,6 +26,9 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public final class IndependentSharedOosService {
     static final long OOS_START = Instant.parse("2026-10-16T00:00:00Z").toEpochMilli();
+    static final long IN_SAMPLE_LAST_CLOSE =
+            Instant.parse("2026-10-15T23:59:59.999Z").toEpochMilli();
+    static final int IN_SAMPLE_WINDOWS = 12;
     static final int STEPS = 3600;
     static final int WARMUP = 1000;
     static final long BAR_MILLIS = 900_000L;
@@ -127,9 +130,40 @@ public final class IndependentSharedOosService {
                     +"Earlier 2025-2026 windows are in-sample.");
     }
 
+    /**
+     * Strictly prospective evaluation: historical windows cannot enter this route.
+     */
     public Report backtest(IndependentResearchRequest r) {
+        return replay(r,false);
+    }
+
+    /**
+     * Historical diagnostic against the EXACT 12 previously studied windows.
+     * Never claim prospective results; selection hypotheses were already
+     * informed by these candles. Each window restarts with its own cash.
+     */
+    public Report backtestInsample(IndependentResearchRequest r) {
+        return replay(r,true);
+    }
+
+    void validateInsamplePeriod(IndependentResearchRequest r) {
+        if(r.asOf()%BAR_MILLIS!=BAR_MILLIS-1L || r.asOf()>=clock.millis())
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "asOf must be a finished UTC 15m candle");
+        long offset=IN_SAMPLE_LAST_CLOSE-r.asOf();
+        long windowMillis=Math.multiplyExact((long)STEPS,BAR_MILLIS);
+        if(offset<0 || offset%windowMillis!=0
+                || offset/windowMillis >= IN_SAMPLE_WINDOWS)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Historical shared test accepts only the 12 frozen, disjoint "
+                    +"900h in-sample windows ending at/before "
+                    +"2026-10-15T23:59:59.999Z. No OOS result can use this route.");
+    }
+
+    private Report replay(IndependentResearchRequest r,boolean insample) {
         validateFrozen(r);
-        validatePeriod(r);
+        if(insample)validateInsamplePeriod(r);
+        else validatePeriod(r);
         if(!trading.symbols().contains(r.symbol()))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Symbol not configured");
         int required=WARMUP+STEPS;
@@ -237,8 +271,11 @@ public final class IndependentSharedOosService {
             summaries.put(book.policy().name(),book.summary(tape.getLast()));
         return new Report(r.symbol(),"15m",tape.get(WARMUP).openTime(),
                 tape.getLast().closeTime(),STEPS,
-                "PAPER_ONLY; STRICT_PROSPECTIVE_OOS; THREE_FROZEN_SHARED_WALLETS;"
-                +" ONE_POSITION_TOTAL; LONG_FILL_FIRST_ON_TIES; NEXT_OPEN_STOP_FIRST;"
+                (insample
+                        ?"PAPER_ONLY; HISTORICAL_INSAMPLE_ONLY; TWELVE_FROZEN_WINDOWS;"
+                        :"PAPER_ONLY; STRICT_PROSPECTIVE_OOS;")
+                +" THREE_FROZEN_SHARED_WALLETS; ONE_POSITION_TOTAL;"
+                +" LONG_FILL_FIRST_ON_TIES; NEXT_OPEN_STOP_FIRST;"
                 +" BASELINE_LONG_MIDAS_RETEST_SHORT; DYNAMIC_TREND_60;"
                 +" CLOSED_DAILY_EMA21; WEEKEND_NEXT_OPEN_UTC;"
                 +" STRUCTURAL_STOP_UNCHANGED; 1000_CAUSAL_MIDAS_WARMUP;"
