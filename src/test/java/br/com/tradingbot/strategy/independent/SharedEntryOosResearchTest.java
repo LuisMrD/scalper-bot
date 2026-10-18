@@ -37,6 +37,29 @@ class SharedEntryOosResearchTest {
                 "Spring bean has a second Clock constructor; the production one must be @Autowired");
     }
 
+    @Test void historicalRouteAcceptsOnlyTheOriginalTwelveInSampleWindows() {
+        var service=new IndependentSharedOosService(
+                mock(MarketDataService.class),mock(MarketContextService.class),
+                mock(TradingProperties.class),
+                Clock.fixed(Instant.parse("2026-10-18T00:00:00Z"),ZoneOffset.UTC));
+        var last=end("2026-10-15T23:59:59.999Z");
+        var duration=IndependentSharedOosService.STEPS
+                * IndependentSharedOosService.BAR_MILLIS;
+        service.validateInsamplePeriod(request(last));
+        service.validateInsamplePeriod(request(last - 11L*duration));
+        for (long invalid : new long[]{
+                last - 12L*duration, // a 13th earlier window
+                last + duration, // prospective window
+                last - 900_000L}) { // misaligned single-bar historical end
+            assertEquals(400,assertThrows(ResponseStatusException.class,
+                    ()->service.validateInsamplePeriod(request(invalid)))
+                    .getStatusCode().value());
+        }
+        // Same last historical window MUST fail on the genuine OOS route.
+        assertEquals(400,assertThrows(ResponseStatusException.class,
+                ()->service.validatePeriod(request(last))).getStatusCode().value());
+    }
+
     @Test void threeFrozenPoliciesHaveAsymmetricSides() {
         assertEquals(EntrySelectionPolicy.BASELINE,
                 SharedEntryBookPolicy.CONTROL.longGate());
