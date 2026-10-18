@@ -59,7 +59,8 @@ public final class DukascopyForexDownloader {
                     if(bids.isEmpty()||asks.isEmpty())
                         throw new IllegalArgumentException("Unpaired BID/ASK on "+day);
                     daysWithQuotes++;
-                    var bmap=index(bids),amap=index(asks);
+                    var bmap=index(bids);
+                    var amap=index(asks);
                     for(int m=0;m<1440;m+=15) {
                         Minute b=aggregate(bmap,m),a=aggregate(amap,m);
                         if(b==null&&a==null)continue;
