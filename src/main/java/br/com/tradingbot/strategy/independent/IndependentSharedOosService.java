@@ -359,8 +359,12 @@ public final class IndependentSharedOosService {
                             +" 12_DISJOINT_WINDOWS; NO_LONG_SIGNALS_OR_TRADES;";
                 })
                 +" THREE_FROZEN_SHARED_WALLETS; ONE_POSITION_TOTAL;"
-                +" LONG_FILL_FIRST_ON_TIES; NEXT_OPEN_STOP_FIRST;"
-                +" BASELINE_LONG_MIDAS_RETEST_SHORT; DYNAMIC_TREND_60;"
+                +(shortOnly?"; NO_LONG_DETECTOR_OR_BOOK"
+                          :"; LONG_FILL_FIRST_ON_TIES")
+                +"; NEXT_OPEN_STOP_FIRST;"
+                +(shortOnly?"; MIDAS_RETEST_SHORT_ONLY"
+                          :"; BASELINE_LONG_MIDAS_RETEST_SHORT")
+                +"; DYNAMIC_TREND_60;"
                 +" CLOSED_DAILY_EMA21; WEEKEND_NEXT_OPEN_UTC;"
                 +" STRUCTURAL_STOP_UNCHANGED; 1000_CAUSAL_MIDAS_WARMUP;"
                 +" FIXED_ASSUMED_FUNDING_0; NO_REAL_ORDERS",
