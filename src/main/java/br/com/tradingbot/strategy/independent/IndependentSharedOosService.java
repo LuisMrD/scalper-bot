@@ -301,12 +301,12 @@ public final class IndependentSharedOosService {
             summaries.put(book.policy().name(),book.summary(tape.getLast()));
         return new Report(r.symbol(),"15m",tape.get(WARMUP).openTime(),
                 tape.getLast().closeTime(),STEPS,
-                switch(mode) {
+                (switch(mode) {
                     case INSAMPLE -> "PAPER_ONLY; HISTORICAL_INSAMPLE_ONLY; TWELVE_FROZEN_WINDOWS;";
                     case HISTORICAL_HOLDOUT -> "PAPER_ONLY; PRE_FROZEN_HISTORICAL_HOLDOUT;"
                             +" 2023_2024_ONLY; NOT_PROSPECTIVE;";
                     case PROSPECTIVE_OOS -> "PAPER_ONLY; STRICT_PROSPECTIVE_OOS;";
-                }
+                })
                 +" THREE_FROZEN_SHARED_WALLETS; ONE_POSITION_TOTAL;"
                 +" LONG_FILL_FIRST_ON_TIES; NEXT_OPEN_STOP_FIRST;"
                 +" BASELINE_LONG_MIDAS_RETEST_SHORT; DYNAMIC_TREND_60;"
