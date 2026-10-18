@@ -9,6 +9,8 @@
   after 2026-11-22 12:00 UTC. -InSample deliberately replays only the
   twelve known historical windows and labels them HISTORICAL_INSAMPLE_ONLY.
   -HistoricalHoldout is a separate 2023-2024 data study, never prospective.
+  -ShortOnlyCohort 2020_2021 or 2021_2022 disables the LONG engine entirely
+  and replays two new fixed 12-window historical SHORT-only cohorts.
   Production public market-data requires -Source production and
   -ConfirmIsolatedDatabase and a dedicated research-only MySQL database.
 .EXAMPLE
@@ -29,19 +31,21 @@ param(
     [ValidateRange(30,1800)][int]$TimeoutSec = 900,
     [switch]$InSample,
     [switch]$HistoricalHoldout,
+    [ValidateSet('2020_2021','2021_2022')][string]$ShortOnlyCohort,
     [ValidateSet('testnet','production')][string]$Source = 'testnet',
     [switch]$ConfirmIsolatedDatabase,
     [switch]$PrintOnly,
     [switch]$NoCsv
 )
 $ErrorActionPreference = 'Stop'
-if ($InSample -and $HistoricalHoldout) {
-    throw 'Choose at most one: -InSample or -HistoricalHoldout'
+if ([int][bool]$InSample + [int][bool]$HistoricalHoldout +
+    [int][bool](-not [string]::IsNullOrEmpty($ShortOnlyCohort)) -gt 1) {
+    throw 'Choose only one of -InSample, -HistoricalHoldout or -ShortOnlyCohort'
 }
 if ($Source -eq 'production' -and -not $ConfirmIsolatedDatabase) {
     throw 'Production research requires -ConfirmIsolatedDatabase and a separate RESEARCH_DB_URL.'
 }
-if ($HistoricalHoldout -and $Source -ne 'production') {
+if (($HistoricalHoldout -or $ShortOnlyCohort) -and $Source -ne 'production') {
     throw 'Historical 2023-2024 BTCUSD-M requires production historical candles in an isolated database.'
 }
 $BaseUrl = $BaseUrl.TrimEnd('/')
@@ -56,11 +60,20 @@ $steps = [long]3600
 $oosStart = [DateTimeOffset]::Parse('2026-10-16T00:00:00+00:00').ToUnixTimeMilliseconds()
 $selectionClose = [DateTimeOffset]::Parse('2026-10-15T23:59:59.999+00:00').ToUnixTimeMilliseconds()
 $windowMs = $steps * $barMs
+$shortCohortEnd = if ($ShortOnlyCohort -eq '2020_2021') {
+    [DateTimeOffset]::Parse('2021-09-30T23:59:59.999+00:00').ToUnixTimeMilliseconds()
+} elseif ($ShortOnlyCohort -eq '2021_2022') {
+    [DateTimeOffset]::Parse('2022-12-31T23:59:59.999+00:00').ToUnixTimeMilliseconds()
+} else { [long]0 }
 $sampleLabel = if ($InSample) { 'HISTORICAL_INSAMPLE_ONLY' }
     elseif ($HistoricalHoldout) { 'PRE_FROZEN_HISTORICAL_HOLDOUT' }
+    elseif ($ShortOnlyCohort -eq '2020_2021') { 'SHORT_ONLY_HOLDOUT_2020_21' }
+    elseif ($ShortOnlyCohort -eq '2021_2022') { 'SHORT_ONLY_HOLDOUT_2021_22' }
     else { 'STRICT_PROSPECTIVE_OOS' }
 $researchRoute = if ($InSample) { 'backtest-insample' }
     elseif ($HistoricalHoldout) { 'backtest-historical-holdout' }
+    elseif ($ShortOnlyCohort -eq '2020_2021') { 'backtest-short-holdout-2020-21' }
+    elseif ($ShortOnlyCohort -eq '2021_2022') { 'backtest-short-holdout-2021-22' }
     else { 'backtest' }
 $plans = @('CONTROL:LONG=BASELINE,SHORT=BASELINE',
            'CANDIDATE_A:LONG=WEEKDAYS_ONLY,SHORT=COMBINED_045',
@@ -74,6 +87,10 @@ if ($PrintOnly) {
     Write-Output 'FROZEN_CUTOFF_UTC=2026-10-15T23:59:59.999Z'
     Write-Output 'FIRST_COMPLETE_OOS_END_UTC=2026-11-22T11:59:59.999Z'
     Write-Output 'INSAMPLE_LAST_AS_OF_EPOCH_MS=1792108799999'
+    if ($ShortOnlyCohort) {
+        Write-Output "SHORT_ONLY=true; COHORT=$ShortOnlyCohort"
+        Write-Output "COHORT_LAST_AS_OF_EPOCH_MS=$shortCohortEnd"
+    }
     Write-Output "AS_OF_EPOCH_MS=$(if($AsOfEpochMs -eq 0){'<latest stored closed 15m>'}else{$AsOfEpochMs})"
     Write-Output "WINDOWS=$Windows; WINDOW_BARS=$steps"
     $plans | ForEach-Object { Write-Output $_ }
@@ -115,6 +132,15 @@ if ($InSample) {
         [math]::Floor($offset / $windowMs) + $Windows -gt 12) {
         throw 'Historical holdout requires an aligned subset of the 12 frozen 900h windows ending 2024-12-31T23:59:59.999Z.'
     }
+} elseif ($ShortOnlyCohort) {
+    [long]$shortOffset = $shortCohortEnd - $AsOfEpochMs
+    [long]$earliestHoldout = [DateTimeOffset]::Parse(
+        '2020-01-01T00:00:00+00:00').ToUnixTimeMilliseconds()
+    if ($shortOffset -lt 0 -or $shortOffset % $windowMs -ne 0 -or
+        [math]::Floor($shortOffset / $windowMs) + $Windows -gt 12 -or
+        $firstOpen -lt $earliestHoldout) {
+        throw 'SHORT_ONLY accepts only a subset of the 12 fixed nonoverlapping 900h windows ending on the selected 2021/2022 cohort boundary.'
+    }
 } elseif ($firstOpen -lt $oosStart) {
     throw "Not genuine OOS: earliest requested open $firstOpen precedes 2026-10-16T00:00Z. No data can be relabeled as OOS."
 }
@@ -150,7 +176,7 @@ $events = [Collections.Generic.List[object]]::new()
 foreach ($w in $Windows..1) {
     [long]$asOf = $AsOfEpochMs - ($w - 1L) * $steps * $barMs
     [long]$start = $asOf - $steps * $barMs + 1L
-    if (-not $InSample -and -not $HistoricalHoldout -and $start -lt $oosStart) {
+    if (-not $InSample -and -not $HistoricalHoldout -and -not $ShortOnlyCohort -and $start -lt $oosStart) {
         throw "Window $w crosses frozen OOS cutoff"
     }
     if ($InSample -and $asOf -gt $selectionClose) {
@@ -158,6 +184,11 @@ foreach ($w in $Windows..1) {
     }
     if ($HistoricalHoldout -and ($start -lt $holdoutStart -or $asOf -gt $holdoutEnd)) {
         throw "Window $w exceeds frozen 2023-24 holdout bounds"
+    }
+    if ($ShortOnlyCohort) {
+        if ($asOf -gt $shortCohortEnd -or $start -lt $earliestHoldout) {
+            throw "Window ${w} is outside frozen SHORT-only cohort"
+        }
     }
     $body = [ordered]@{
         symbol = 'BTCUSDT'; steps = 3600; contextCandles = 60
@@ -196,6 +227,10 @@ foreach ($w in $Windows..1) {
         if ($null -eq $slot) { throw "Missing independently re-simulated $policy" }
         $p = $slot.Value
         $completedTrades = @($p.trades | Where-Object { $null -ne $_ })
+        if ($ShortOnlyCohort -and @($completedTrades |
+                Where-Object { $_.side -cne 'SHORT' }).Count -gt 0) {
+            throw "LONG trade detected in SHORT-only cohort window ${w}, policy $policy"
+        }
         $grossProfit = [decimal]0; $grossLoss = [decimal]0
         foreach ($item in $completedTrades) {
             $net = [decimal]$item.trade.netPnlUsdt
@@ -232,6 +267,9 @@ foreach ($w in $Windows..1) {
         })
     }
     foreach ($e in @($report.events)) {
+        if ($ShortOnlyCohort -and $e.side -cne 'SHORT') {
+            throw "LONG signal detected in SHORT-only cohort window ${w}"
+        }
         $events.Add([pscustomobject]@{
             Window = $w; CandleCloseTime = $e.candleCloseTime
             Side = $e.side; SetupStatus = $e.setupStatus
@@ -254,7 +292,10 @@ if (-not $NoCsv) {
     $trades | Export-Csv (Join-Path $out "shared-trades-$stem.csv") -NoTypeInformation -Encoding UTF8
     $events | Export-Csv (Join-Path $out "shared-events-$stem.csv") -NoTypeInformation -Encoding UTF8
     ([ordered]@{asOfEpochMs=$AsOfEpochMs;windows=$Windows;sampleType=$sampleLabel;cutoffUtc='2026-10-15T23:59:59.999Z';
-        wallet='SHARED'; source=$Source; priority='LONG_FIRST'; funding='ASSUMED_0_NOT_HISTORICAL';
+        wallet='SHARED'; direction=if($ShortOnlyCohort){'SHORT_ONLY'}else{'LONG_AND_SHORT'};
+        shortOnlyCohort=$ShortOnlyCohort; source=$Source;
+        priority=if($ShortOnlyCohort){'NOT_APPLICABLE'}else{'LONG_FIRST'};
+        funding='ASSUMED_0_NOT_HISTORICAL';
         policies=$plans; originalConfig=$config} |
         ConvertTo-Json -Depth 24) | Set-Content (Join-Path $out "shared-config-$stem.json") -Encoding UTF8
     Write-Host "Exported: $out\*$stem*"
