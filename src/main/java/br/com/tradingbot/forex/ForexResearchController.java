@@ -29,7 +29,7 @@ public final class ForexResearchController {
                 "priceSource","CSV_BID_ASK",
                 "volume","TICK_VOLUME_OPTIONAL_NOT_TAKER_VOLUME",
                 "strategies",java.util.List.of("FOREX_PA_V1_LONG_WEEKDAYS_AND_SHORT_PRICE_ACTION",
-                        "FOREX_PA_V1_TICK_VOLUME_MIDAS_PROXY_TREND_EXPERIMENTAL"));
+                        "FOREX_PA_V1_TICK_VOLUME_MIDAS_PROXY_TREND"));
     }
     public record DukascopyImportRequest(String pair,java.time.LocalDate fromUtc,
             java.time.LocalDate untilUtc) {}
