@@ -43,6 +43,7 @@ final class IndependentPaperPortfolio {
             boolean openPosition,List<Trade> trades,
             Map<String,Integer> rejectionCounts) {}
     private final IndependentResearchRequest r;
+    private final SharedPaperWallet sharedWallet;
     private final String arm;
     private final boolean shortSide;
     private final StopResearchPolicy stopPolicy;
@@ -94,7 +95,17 @@ final class IndependentPaperPortfolio {
     IndependentPaperPortfolio(String arm,IndependentResearchRequest r,
             StopResearchPolicy policy,ReversalExitPolicy reversalPolicy,
             HoldingExitPolicy holdingPolicy) {
+        this(arm,r,policy,reversalPolicy,holdingPolicy,null);
+    }
+    IndependentPaperPortfolio(String arm,IndependentResearchRequest r,
+            HoldingExitPolicy holdingPolicy,SharedPaperWallet wallet) {
+        this(arm,r,StopResearchPolicy.BASELINE,ReversalExitPolicy.BASELINE,holdingPolicy,wallet);
+    }
+    private IndependentPaperPortfolio(String arm,IndependentResearchRequest r,
+            StopResearchPolicy policy,ReversalExitPolicy reversalPolicy,
+            HoldingExitPolicy holdingPolicy,SharedPaperWallet wallet) {
         this.arm=arm;this.r=r;
+        this.sharedWallet=wallet;
         this.holdingExitPolicy=java.util.Objects.requireNonNull(holdingPolicy);
         this.stopPolicy=java.util.Objects.requireNonNull(policy);
         this.reversalExitPolicy=java.util.Objects.requireNonNull(reversalPolicy);
@@ -147,11 +158,20 @@ final class IndependentPaperPortfolio {
     void begin(MarketCandle c) {
         long day=c.openTime()/ONE_DAY;
         if(currentDay!=day){currentDay=day;realizedToday=BigDecimal.ZERO;}
+        if(sharedWallet!=null) {
+            sharedWallet.beginDay(c.openTime());
+            cash=sharedWallet.cash();
+            realizedToday=sharedWallet.dailyRealized();
+        }
         if(exitNextOpen && position!=null)closeAt(c.open(),c.openTime(),exitReason);
         exitNextOpen=false;
         if(pending!=null && position==null) {
             Pending proposal=pending;
             pending=null;
+            if(sharedWallet!=null && sharedWallet.entryBlocked()) {
+                // One shared position; a second same-open entry is rejected.
+                blockedEntries++;
+            } else {
             BigDecimal fill=shortSide?sell(c.open()):buy(c.open());
             BigDecimal stop=proposal.stop;
             BigDecimal distance=shortSide?stop.subtract(fill):fill.subtract(stop);
@@ -191,7 +211,9 @@ final class IndependentPaperPortfolio {
                     cash=cash.subtract(fee);
                     fees=fees.add(fee);
                     position=new Position(proposal,c.openTime(),fill,qty,fee);
+                    if(sharedWallet!=null) sharedWallet.acquired(this,cash);
                 }
+            }
             }
         }
         if(position!=null) {
@@ -233,6 +255,7 @@ final class IndependentPaperPortfolio {
                 initialR.signum()>0?adverse.divide(initialR,MC):BigDecimal.ZERO,
                 capitalAtRisk.signum()>0?tradeNet.divide(capitalAtRisk,MC):BigDecimal.ZERO));
         position=null;
+        if(sharedWallet!=null) sharedWallet.released(this,cash,realizedToday);
     }
     void close(MarketCandle candle,IndependentSetupSignal s,
             List<MarketCandle> history) {
@@ -245,6 +268,10 @@ final class IndependentPaperPortfolio {
      */
     void close(MarketCandle candle,IndependentSetupSignal s,
             List<MarketCandle> history,WeeklyEmaDirection.Direction completedDaily) {
+        if(sharedWallet!=null) {
+            cash=sharedWallet.cash();
+            realizedToday=sharedWallet.dailyRealized();
+        }
         if(position==null) {
             if(s!=null && s.actionable() && pending==null) {
                 if((s.side()==IndependentSetupSignal.Side.SHORT)!=shortSide)
@@ -280,6 +307,7 @@ final class IndependentPaperPortfolio {
                     .multiply(BigDecimal.valueOf(fundingPeriods));
             if(shortSide)charged=charged.negate();
             cash=cash.subtract(charged);
+            if(sharedWallet!=null) sharedWallet.funded(this,cash);
             funding=funding.add(charged);
             position.funding=position.funding.add(charged);
         }
@@ -446,6 +474,10 @@ final class IndependentPaperPortfolio {
         if (candle.interval().millis() >= EIGHT_HOURS)
             return Math.toIntExact(candle.interval().millis()/EIGHT_HOURS);
         return candle.closeTime()%EIGHT_HOURS==EIGHT_HOURS-1 ? 1 : 0;
+    }
+    BigDecimal unrealized(BigDecimal lastPrice) {
+        return position==null?BigDecimal.ZERO:
+                directionalPnl(position.entry,lastPrice).multiply(position.qty,MC);
     }
     private void updateDrawdown(BigDecimal lastPrice) {
         BigDecimal marked=cash;
