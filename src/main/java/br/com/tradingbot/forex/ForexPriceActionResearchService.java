@@ -62,7 +62,7 @@ public final class ForexPriceActionResearchService {
                 throw new IllegalArgumentException("maxHoldingBars must be 1..200");
         }
     }
-    public record Trade(long entryUtc,long exitUtc,BigDecimal entryBid,
+    public record Trade(String side,long entryUtc,long exitUtc,BigDecimal entryBid,
             BigDecimal exitAsk,BigDecimal stopAtEntry,
             BigDecimal baseCurrencyUnits,BigDecimal netUsd,
             BigDecimal feesUsd,String reason) {}
@@ -118,7 +118,7 @@ public final class ForexPriceActionResearchService {
     }
     private static final class PivotHistory {
         private BigDecimal highPrevious,highCurrent,lowPrevious,lowCurrent;
-        private int lastHigh=-1;
+        private int lastHigh=-1,lastLow=-1;
         void observe(List<ForexBar> bars,int i) {
             int p=i-2;
             if(confirmedPivot(bars,p,i,true)) {
@@ -129,7 +129,14 @@ public final class ForexPriceActionResearchService {
             if(confirmedPivot(bars,p,i,false)) {
                 lowPrevious=lowCurrent;
                 lowCurrent=bars.get(p).bidLow();
+                lastLow=p;
             }
+        }
+        boolean rising() {
+            return highPrevious!=null&&highCurrent!=null
+                    &&lowPrevious!=null&&lowCurrent!=null
+                    &&highCurrent.compareTo(highPrevious)>0
+                    &&lowCurrent.compareTo(lowPrevious)>0;
         }
         boolean falling() {
             return highPrevious!=null&&highCurrent!=null
@@ -138,11 +145,11 @@ public final class ForexPriceActionResearchService {
                     &&lowCurrent.compareTo(lowPrevious)<0;
         }
     }
-    private static boolean dailyDown(List<BigDecimal> finishedDays) {
+    private static boolean dailyAligned(List<BigDecimal> finishedDays,boolean isLong) {
         if(finishedDays.size()<23)return false;
         var now=ema(finishedDays,finishedDays.size(),21);
         var previous=ema(finishedDays,finishedDays.size()-1,21);
-        return now.compareTo(previous)<0;
+        return isLong?now.compareTo(previous)>0:now.compareTo(previous)<0;
     }
     private static BigDecimal midasTickProxy(List<ForexBar> bars,int anchor,int index) {
         if(anchor<0)return null;
@@ -159,7 +166,7 @@ public final class ForexPriceActionResearchService {
         }
         return weight.signum()>0?numerator.divide(weight,MC):null;
     }
-    private record Signal(BigDecimal stop) {}
+    private record Signal(boolean isLong,BigDecimal stop) {}
     private static Signal shortSignal(List<ForexBar> bars,int i,
             List<BigDecimal> closes,PivotHistory structure,
             boolean dailyDown,Request r) {
@@ -211,27 +218,91 @@ public final class ForexPriceActionResearchService {
             BigDecimal stop=bounceHigh.max(current.askHigh())
                     .add(PIP.multiply(r.stopBufferPips(),MC),MC);
             if(stop.compareTo(current.bidClose())<=0)continue;
-            return new Signal(stop);
+            return new Signal(false,stop);
         }
         return null;
     }
+    /**
+     * LONG counterpart to FOREX_PA_V1 short: confirmed rising pivots, EMA
+     * alignment, shrinking bearish 3..5-candle pullback, bullish close above
+     * previous bar high, structural support stop at BID pullback low.
+     * LONG_WEEKDAYS_ONLY: Forex holidays/sessions are not auto-inferred.
+     */
+    private static Signal longSignal(List<ForexBar> bars,int i,
+            List<BigDecimal> closes,PivotHistory structure,
+            boolean dailyUp,Request r) {
+        if(!dailyUp || !structure.rising() || i<80)return null;
+        BigDecimal ema9=ema(closes,closes.size(),9),
+                ema21=ema(closes,closes.size(),21),
+                prev21=ema(closes,closes.size()-1,21);
+        if(ema9==null||ema21==null||prev21==null
+                ||ema9.compareTo(ema21)<=0 ||ema21.compareTo(prev21)<=0)return null;
+        ForexBar current=bars.get(i),previous=bars.get(i-1);
+        BigDecimal body=current.bidClose().subtract(current.bidOpen());
+        BigDecimal span=current.bidHigh().subtract(current.bidLow());
+        if(body.signum()<=0||span.signum()<=0
+                ||body.divide(span,MC).compareTo(new BigDecimal("0.55"))<0
+                ||current.bidClose().compareTo(previous.bidHigh())<=0)return null;
+        if(r.tickVolumeMidasProxy()) {
+            var curve=midasTickProxy(bars,structure.lastLow,i);
+            if(curve==null ||current.bidClose().compareTo(curve)<=0)return null;
+        }
+        BigDecimal tolerance=PIP.multiply(new BigDecimal("6"));
+        for(int k=3;k<=5;k++) {
+            int from=i-k;
+            if(from-k<0)continue;
+            if(bars.get(i-1).bidClose().compareTo(bars.get(from).bidOpen())>=0)
+                continue;
+            BigDecimal pullbackLow=bars.get(from).bidLow();
+            BigDecimal recentBodies=BigDecimal.ZERO,olderBodies=BigDecimal.ZERO;
+            for(int j=from;j<i;j++) {
+                ForexBar bar=bars.get(j);
+                pullbackLow=pullbackLow.min(bar.bidLow());
+                recentBodies=recentBodies.add(bar.bidClose()
+                        .subtract(bar.bidOpen()).abs(),MC);
+            }
+            for(int j=from-k;j<from;j++) {
+                ForexBar bar=bars.get(j);
+                olderBodies=olderBodies.add(bar.bidClose()
+                        .subtract(bar.bidOpen()).abs(),MC);
+            }
+            if(olderBodies.signum()<=0 ||recentBodies.compareTo(
+                    olderBodies.multiply(new BigDecimal("0.85"),MC))>=0)continue;
+            BigDecimal lower=ema9.min(ema21).subtract(tolerance),
+                    upper=ema9.max(ema21).add(tolerance);
+            if(pullbackLow.compareTo(lower)<0 ||pullbackLow.compareTo(upper)>0)
+                continue;
+            BigDecimal stop=pullbackLow.min(current.bidLow())
+                    .subtract(PIP.multiply(r.stopBufferPips(),MC),MC);
+            if(stop.signum()>0 &&stop.compareTo(current.askClose())<0)
+                return new Signal(true,stop);
+        }
+        return null;
+    }
+
     private static final class Position {
         long entryAt;
         BigDecimal entry,stop,initialStop,units,entryFee;
         int barsHeld;
-        Position(long at,BigDecimal entry,BigDecimal stop,BigDecimal units,BigDecimal fee) {
+        boolean isLong;
+        Position(long at,BigDecimal entry,BigDecimal stop,BigDecimal units,
+                BigDecimal fee,boolean isLong) {
             entryAt=at;this.entry=entry;this.stop=stop;initialStop=stop;
+            this.isLong=isLong;
             this.units=units;this.entryFee=fee;
         }
     }
-    private static Trade finish(Position position,long at,BigDecimal rawAsk,
+    private static Trade finish(Position position,long at,BigDecimal rawPrice,
             Request r,String reason) {
-        BigDecimal exit=rawAsk.add(slippage(r),MC);
+        BigDecimal exit=position.isLong?rawPrice.subtract(slippage(r),MC)
+                :rawPrice.add(slippage(r),MC);
         BigDecimal exitFee=usdFee(position.units,r);
-        BigDecimal net=position.entry.subtract(exit,MC)
-                .multiply(position.units,MC)
+        BigDecimal diff=position.isLong?exit.subtract(position.entry,MC)
+                :position.entry.subtract(exit,MC);
+        BigDecimal net=diff.multiply(position.units,MC)
                 .subtract(position.entryFee,MC).subtract(exitFee,MC);
-        return new Trade(position.entryAt,at,position.entry,exit,
+        return new Trade(position.isLong?"LONG":"SHORT",
+                position.entryAt,at,position.entry,exit,
                 position.initialStop,position.units,net,
                 position.entryFee.add(exitFee,MC),reason);
     }
