@@ -52,6 +52,23 @@ if ($holdoutPreview -notcontains 'EVIDENCE=PRE_FROZEN_HISTORICAL_HOLDOUT' -or
     $holdoutPreview -notcontains 'SOURCE=production') {
     throw 'The historical holdout preview did not preserve the separate pre-frozen label'
 }
+# SHORT_ONLY validation must remain disjoint from the already studied
+# 2023-2024 period and prospectively locked post-2026 data.
+foreach ($cohort in @(
+        @{ Name='2020_2021'; End=1633046399999; Label='SHORT_ONLY_HOLDOUT_2020_21' },
+        @{ Name='2021_2022'; End=1672531199999; Label='SHORT_ONLY_HOLDOUT_2021_22' })) {
+    $preview = @(& $target -ShortOnlyCohort $cohort.Name -Source production `
+        -ConfirmIsolatedDatabase -AsOfEpochMs $cohort.End -Windows 12 -PrintOnly)
+    if ($preview -notcontains "EVIDENCE=$($cohort.Label)" -or
+        $preview -notcontains "COHORT_LAST_AS_OF_EPOCH_MS=$($cohort.End)" -or
+        $preview -notcontains "SHORT_ONLY=true; COHORT=$($cohort.Name)") {
+        throw "SHORT_ONLY cohort $($cohort.Name) has changed from frozen design"
+    }
+}
+$source=[System.IO.File]::ReadAllText($target)
+if (-not $source.Contains('if (-not $InSample -and -not $HistoricalHoldout -and -not $ShortOnlyCohort -and $start -lt $oosStart) {')) {
+    throw 'Regression: SHORT-only historical period is still blocked by prospective cutoff'
+}
 $startPreview = @(& (Join-Path (Split-Path -Parent $PSScriptRoot) 'start-btc-historical-research.ps1') -PrintOnly)
 if ($startPreview -notcontains 'SOURCE=PRODUCTION_PUBLIC_READ_ONLY') {
     throw 'Research bootstrap preview did not require read-only historical production source'
