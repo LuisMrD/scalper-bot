@@ -23,55 +23,70 @@ final class SharedEntryPaperPortfolio {
 
     private final SharedEntryBookPolicy policy;
     private final SharedPaperWallet wallet;
+    private final boolean shortOnly;
     private final IndependentPaperPortfolio longBook;
     private final IndependentPaperPortfolio shortBook;
 
     SharedEntryPaperPortfolio(SharedEntryBookPolicy policy, IndependentResearchRequest request) {
+        this(policy,request,false);
+    }
+
+    SharedEntryPaperPortfolio(SharedEntryBookPolicy policy, IndependentResearchRequest request,
+            boolean shortOnly) {
         this.policy = policy;
+        this.shortOnly = shortOnly;
         wallet = new SharedPaperWallet(request.capitalUsdt());
-        longBook = new IndependentPaperPortfolio("TREND_PULLBACK_MIXED__" + policy.name(),
+        longBook = shortOnly ? null : new IndependentPaperPortfolio(
+                "TREND_PULLBACK_MIXED__" + policy.name(),
                 request, HoldingExitPolicy.DYNAMIC_TREND_60, wallet);
         shortBook = new IndependentPaperPortfolio("TREND_PULLBACK_MIXED_SHORT__" + policy.name(),
                 request, HoldingExitPolicy.DYNAMIC_TREND_60, wallet);
     }
+    boolean shortOnly() { return shortOnly; }
     SharedEntryBookPolicy policy() { return policy; }
     void begin(MarketCandle candle) {
         wallet.beginDay(candle.openTime());
         // Explicit deterministic arbitration for simultaneous next-open fills.
-        longBook.begin(candle);
+        if(!shortOnly)longBook.begin(candle);
         shortBook.begin(candle);
     }
     void close(MarketCandle candle, IndependentSetupSignal signal,
             List<MarketCandle> history, WeeklyEmaDirection.Direction higher) {
+        if(shortOnly && signal.side() != IndependentSetupSignal.Side.SHORT)
+            throw new IllegalArgumentException("LONG signals forbidden for SHORT_ONLY");
         var book = signal.side() == IndependentSetupSignal.Side.SHORT ? shortBook : longBook;
         book.count(signal);
         book.close(candle, signal, history, higher);
     }
     void settleFinal(MarketCandle candle, List<MarketCandle> history) {
-        longBook.settleFinal(candle, history);
+        if(!shortOnly)longBook.settleFinal(candle, history);
         shortBook.settleFinal(candle, history);
         wallet.mark(candle.close());
     }
     void mark(MarketCandle candle) { wallet.mark(candle.close()); }
     Summary summary(MarketCandle last) {
         wallet.mark(last.close());
-        var longs=longBook.summary(last);
+        var longs=shortOnly?null:longBook.summary(last);
         var shorts=shortBook.summary(last);
         var all = new ArrayList<SideTrade>();
-        for (var trade : longs.trades()) all.add(new SideTrade("LONG",trade));
+        if(!shortOnly)for (var trade : longs.trades())
+            all.add(new SideTrade("LONG",trade));
         for (var trade : shorts.trades()) all.add(new SideTrade("SHORT",trade));
         all.sort(Comparator.comparingLong((SideTrade item) -> item.trade().entryOpenTime())
                 .thenComparing(SideTrade::side));
         var rejection = new LinkedHashMap<String,Integer>();
-        longs.rejectionCounts().forEach((reason,count)->rejection.put("LONG:"+reason,count));
+        if(!shortOnly)longs.rejectionCounts()
+                .forEach((reason,count)->rejection.put("LONG:"+reason,count));
         shorts.rejectionCounts().forEach((reason,count)->rejection.put("SHORT:"+reason,count));
         return new Summary(policy.name(),wallet.initialCapital(),wallet.markedEquity(),
                 wallet.cash().subtract(wallet.initialCapital()),
-                longs.totalFeesUsdt().add(shorts.totalFeesUsdt()),
-                longs.totalFundingUsdt().add(shorts.totalFundingUsdt()),
+                (shortOnly?BigDecimal.ZERO:longs.totalFeesUsdt())
+                    .add(shorts.totalFeesUsdt()),
+                (shortOnly?BigDecimal.ZERO:longs.totalFundingUsdt())
+                    .add(shorts.totalFundingUsdt()),
                 all.size(),(int)all.stream().filter(t->t.trade().netPnlUsdt().signum()>0).count(),
-                longs.acceptedSignals()+shorts.acceptedSignals(),
-                longs.blockedEntries()+shorts.blockedEntries(),
+                (shortOnly?0:longs.acceptedSignals())+shorts.acceptedSignals(),
+                (shortOnly?0:longs.blockedEntries())+shorts.blockedEntries(),
                 wallet.worstDrawdownPct(),wallet.occupied(),
                 List.copyOf(all),Map.copyOf(rejection));
     }
