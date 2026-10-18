@@ -155,6 +155,23 @@ try {
             ResultFile=(Join-Path $results "$stem.json")
         } | Format-List
         Write-Host 'COMPLETE: see results folder for JSON/CSV.' -ForegroundColor Green
+    }catch{
+        Write-Host "`n========== FOREX ERROR ==========" -ForegroundColor Red
+        Write-Host $_.Exception.Message -ForegroundColor Red
+        foreach($logFile in @($stdout,$stderr)) {
+            Write-Host "`n--- $logFile (last 100 lines) ---" -ForegroundColor Yellow
+            if(Test-Path -LiteralPath $logFile) {
+                try {
+                    Get-Content -LiteralPath $logFile -Tail 100 -ErrorAction Stop |
+                        ForEach-Object { Write-Host $_ }
+                }catch{
+                    Write-Host "Could not read log yet: $($_.Exception.Message)"
+                }
+            }else{
+                Write-Host 'Log file not created'
+            }
+        }
+        throw
     }finally{
         if(-not $server.HasExited) {
             & taskkill.exe /PID $server.Id /T /F | Out-Null
