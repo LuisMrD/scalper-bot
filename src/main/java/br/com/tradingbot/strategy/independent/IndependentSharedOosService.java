@@ -33,6 +33,14 @@ public final class IndependentSharedOosService {
             Instant.parse("2023-01-01T00:00:00Z").toEpochMilli();
     static final long HISTORICAL_HOLDOUT_END =
             Instant.parse("2024-12-31T23:59:59.999Z").toEpochMilli();
+    // Two FIXED, disjoint twelve-window SHORT-only cohorts. These precede
+    // the already examined 2023-2024 holdout and 2025-2026 selection period.
+    static final long SHORT_HOLDOUT_2020_21_END =
+            Instant.parse("2021-09-30T23:59:59.999Z").toEpochMilli();
+    static final long SHORT_HOLDOUT_2021_22_END =
+            Instant.parse("2022-12-31T23:59:59.999Z").toEpochMilli();
+    static final long SHORT_HOLDOUT_EARLIEST =
+            Instant.parse("2020-01-01T00:00:00Z").toEpochMilli();
     static final int STEPS = 3600;
     static final int WARMUP = 1000;
     static final long BAR_MILLIS = 900_000L;
@@ -160,6 +168,29 @@ public final class IndependentSharedOosService {
         return replay(r,StudyMode.HISTORICAL_HOLDOUT);
     }
 
+    /** The three ORIGINAL short policies; LONG is not instantiated. */
+    public Report backtestShortHoldout2020_21(IndependentResearchRequest r) {
+        return replay(r,StudyMode.SHORT_ONLY_2020_21);
+    }
+    public Report backtestShortHoldout2021_22(IndependentResearchRequest r) {
+        return replay(r,StudyMode.SHORT_ONLY_2021_22);
+    }
+
+    static void validateShortHoldoutPeriod(IndependentResearchRequest r,long cohortEnd,
+            Clock clock) {
+        if(r.asOf()%BAR_MILLIS!=BAR_MILLIS-1L || r.asOf()>=clock.millis())
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Short holdout requires a completed UTC 15m candle");
+        long windowMs=Math.multiplyExact((long)STEPS,BAR_MILLIS);
+        long offset=cohortEnd-r.asOf();
+        if(offset<0 || offset%windowMs!=0 || offset/windowMs>=12
+                || firstOpen(r.asOf())<SHORT_HOLDOUT_EARLIEST)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "SHORT_ONLY requires exactly one of twelve fixed disjoint "
+                    +"900h windows anchored on the declared 2021 or 2022 cohort. "
+                    +"Cherry-picked offsets and 2023-2026 windows are forbidden.");
+    }
+
     void validateHistoricalHoldoutPeriod(IndependentResearchRequest r) {
         if(r.asOf()%BAR_MILLIS!=BAR_MILLIS-1L || r.asOf()>=clock.millis())
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -190,7 +221,10 @@ public final class IndependentSharedOosService {
                     +"2026-10-15T23:59:59.999Z. No OOS result can use this route.");
     }
 
-    private enum StudyMode { INSAMPLE, HISTORICAL_HOLDOUT, PROSPECTIVE_OOS }
+    private enum StudyMode {
+        INSAMPLE, HISTORICAL_HOLDOUT, PROSPECTIVE_OOS,
+        SHORT_ONLY_2020_21, SHORT_ONLY_2021_22
+    }
 
     private Report replay(IndependentResearchRequest r,StudyMode mode) {
         validateFrozen(r);
@@ -198,7 +232,13 @@ public final class IndependentSharedOosService {
             case INSAMPLE -> validateInsamplePeriod(r);
             case HISTORICAL_HOLDOUT -> validateHistoricalHoldoutPeriod(r);
             case PROSPECTIVE_OOS -> validatePeriod(r);
+            case SHORT_ONLY_2020_21 ->
+                    validateShortHoldoutPeriod(r,SHORT_HOLDOUT_2020_21_END,clock);
+            case SHORT_ONLY_2021_22 ->
+                    validateShortHoldoutPeriod(r,SHORT_HOLDOUT_2021_22_END,clock);
         }
+        boolean shortOnly=mode==StudyMode.SHORT_ONLY_2020_21
+                ||mode==StudyMode.SHORT_ONLY_2021_22;
         if(!trading.symbols().contains(r.symbol()))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Symbol not configured");
         int required=WARMUP+STEPS;
@@ -221,20 +261,20 @@ public final class IndependentSharedOosService {
         var higherContext=contexts.prepareReplay(r.symbol(),
                 List.of("15m","1d"),r.contextCandles(),
                 tape.get(WARMUP).closeTime(),tape.getLast().closeTime());
-        var longDetector=new TrendPullbackDetector(r.parameters(),
+        var longDetector=shortOnly?null:new TrendPullbackDetector(r.parameters(),
                 TrendPullbackDetector.RetreatMode.MIXED_NET_DECLINE);
         var shortDetector=new ShortTrendPullbackDetector(r.parameters(),
                 ShortTrendPullbackDetector.RetreatMode.MIXED_NET_RISE);
-        var longMidas=new AnchoredMidasCurve(false,r.parameters());
+        var longMidas=shortOnly?null:new AnchoredMidasCurve(false,r.parameters());
         var shortMidas=new AnchoredMidasCurve(true,r.parameters());
-        var longPoints=new ArrayList<AnchoredMidasCurve.Point>(required);
+        var longPoints=shortOnly?null:new ArrayList<AnchoredMidasCurve.Point>(required);
         var shortPoints=new ArrayList<AnchoredMidasCurve.Point>(required);
         var books=new LinkedHashMap<String,SharedEntryPaperPortfolio>();
         for(var policy:SharedEntryBookPolicy.values())
-            books.put(policy.name(),new SharedEntryPaperPortfolio(policy,r));
+            books.put(policy.name(),new SharedEntryPaperPortfolio(policy,r,shortOnly));
         var events=new ArrayList<Event>(2*(STEPS-1));
         for(int i=0;i<tape.size();i++) {
-            longPoints.add(longMidas.observe(tape,i));
+            if(!shortOnly)longPoints.add(longMidas.observe(tape,i));
             shortPoints.add(shortMidas.observe(tape,i));
             if(i<WARMUP)continue;
             MarketCandle candle=tape.get(i);
@@ -250,8 +290,10 @@ public final class IndependentSharedOosService {
             if(higher.recentCandles().getLast().closeTime()>candle.closeTime())
                 throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
                         "Lookahead detected in closed 1d trend");
-            var signals=List.of(longDetector.evaluate(history,r.priceTick()),
-                    shortDetector.evaluate(history,r.priceTick()));
+            var signals=shortOnly
+                    ?List.of(shortDetector.evaluate(history,r.priceTick()))
+                    :List.of(longDetector.evaluate(history,r.priceTick()),
+                            shortDetector.evaluate(history,r.priceTick()));
             for(var original:signals) {
                 var signal=original;
                 boolean approved=WeeklyEmaDirection.allows(direction,signal.side());
@@ -311,6 +353,10 @@ public final class IndependentSharedOosService {
                     case HISTORICAL_HOLDOUT -> "PAPER_ONLY; PRE_FROZEN_HISTORICAL_HOLDOUT;"
                             +" 2023_2024_ONLY; NOT_PROSPECTIVE;";
                     case PROSPECTIVE_OOS -> "PAPER_ONLY; STRICT_PROSPECTIVE_OOS;";
+                    case SHORT_ONLY_2020_21 -> "PAPER_ONLY; SHORT_ONLY_HOLDOUT_2020_21;"
+                            +" 12_DISJOINT_WINDOWS; NO_LONG_SIGNALS_OR_TRADES;";
+                    case SHORT_ONLY_2021_22 -> "PAPER_ONLY; SHORT_ONLY_HOLDOUT_2021_22;"
+                            +" 12_DISJOINT_WINDOWS; NO_LONG_SIGNALS_OR_TRADES;";
                 })
                 +" THREE_FROZEN_SHARED_WALLETS; ONE_POSITION_TOTAL;"
                 +" LONG_FILL_FIRST_ON_TIES; NEXT_OPEN_STOP_FIRST;"
