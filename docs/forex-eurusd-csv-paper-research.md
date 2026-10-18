@@ -1,5 +1,87 @@
 # Forex OTC EUR/USD research — FIRST safe migration from Binance
 
+## ONE-COMMAND EXECUTION — free public Dukascopy, LONG + SHORT
+
+**Preferred workflow:** no brokerage account, API key, manual CSV export, Python
+or CSV conversion needed. Java 25 / Maven / the existing local Docker MySQL
+are enough. Dukascopy's public historical BID and ASK M1 candle files use
+zero-based months and LZMA compression, decoded with XZ for Java 1.12.
+Only complete 15-minute buckets (15 actual BID and ASK M1 candles) are used.
+
+Run in Windows PowerShell:
+
+~~~powershell
+cd C:\Projetos\scalper-bot
+git fetch origin
+git switch feat/forex-eurusd-csv-research
+git pull --ff-only
+.\scripts\run-forex-eurusd-auto.ps1
+~~~
+
+The command automatically:
+
+1. Creates or reuses a separate local MySQL schema named
+   \`trading_bot_forex\`, without deleting other databases.
+2. Runs \`mvn clean test\`, launches the paper-only server on 127.0.0.1:8095,
+   and waits for \`/api/v1/research/forex/status\`.
+3. Downloads genuine Dukascopy EURUSD BID/ASK 1-minute quotes from
+   **2024-03-01 through 2024-05-31** (includes the prior 45-day warmup).
+4. Resamples to closed M15 quotes; rejects missing/unpaired BID/ASK or
+   incomplete 15-minute buckets instead of fabricating prices/volume.
+5. Paper-simulates LONG and SHORT with one USD 600 wallet and at most one
+   position at a time over **2024-04-15 through 2024-05-31**.
+6. Exports \`results/FOREX-EURUSD-LONG-SHORT-*.json\` and
+   \`results/FOREX-EURUSD-LONG-SHORT-*-trades.csv\`.
+7. Stops the backend it launched and leaves MySQL/data intact.
+
+If another process owns port 8095, it stops without contacting that
+server. Download or parsing failures fail closed; check
+\`logs/forex-*.out.log\` and \`logs/forex-*.err.log\`.
+The initial download can take several minutes; public API availability
+and Dukascopy request limits are not guaranteed.
+
+Review inputs without touching Docker/Maven/network:
+
+~~~powershell
+.\scripts\run-forex-eurusd-auto.ps1 -PrintOnly
+~~~
+
+Change only backtest dates and explicit research assumptions, for example:
+
+~~~powershell
+.\scripts\run-forex-eurusd-auto.ps1 -StartUtc '2024-06-17' -UntilUtc '2024-07-31'
+~~~
+
+This selects a 45-day earlier warmup; each run supports up to 54 days of
+trading time and no more than 100 days of imported data. Fees, min units,
+slippage and leverage in the script are **assumptions**, not broker terms.
+
+### Latest LONG and SHORT research mapping
+
+- LONG: confirmed rising swing pivots, EMA9/21 ascending, daily EMA21
+  ascending on completed day quotes, 3–5 bar contracting downward pullback,
+  bullish closed confirmation, structural stop under the bid swing.
+  Entry restricted to weekdays; no BTC 0.45% stop-distance restriction.
+- SHORT: symmetric confirmed falling pivots, EMA9/21 descending, completed
+  daily EMA21 descending, 3–5 bar contracting upward pullback, bearish
+  closed confirmation, structural stop above ask swing.
+- Same wallet, USD risk-based size, intrabar stop-first and next-open
+  scheduled trend-loss exits from held bar 30 to maximum 60. Position entries
+  use ASK for LONG and BID for SHORT; exits reverse these quote sides.
+- No Forex taker-buy/sell volume. The source BID/ASK candle files may include
+  an internal provider volume field but it is **not tick count**; tick-volume
+  proxy MIDAS is disabled by default and is NOT retrospectively substituted
+  into the latest crypto Price Action + Volume filters.
+
+IMPORTANT: This is a **new adaptation of the prior LONG hypothesis**, not
+bit-for-bit reuse of the Binance LONG detector or confirmed profitable
+Forex logic. Funding / overnight swap and the real broker's rollover session
+are not yet modelled. Results are provisional research only.
+
+---
+
+
+
 **Scope:** spot EURUSD quotes, real bid/ask price history from a future broker or
 independent historical vendor, paper-only backtesting in Java 25 / Spring Boot.
 The crypto/Binance modules stay intact but their data sync and execution are
