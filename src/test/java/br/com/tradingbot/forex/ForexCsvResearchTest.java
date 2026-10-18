@@ -34,7 +34,7 @@ class ForexCsvResearchTest {
         var research=new ForexPriceActionResearchService(feed);
         var output=research.backtest(request(START,START+299L*900_000L));
         assertEquals("FOREX_OTC_SPOT",output.market());
-        assertEquals("FOREX_PA_V1_SHORT_PRICE_ONLY",output.strategy());
+        assertEquals("FOREX_PA_V1_LONG_WEEKDAYS_AND_SHORT_PRICE_ACTION",output.strategy());
         assertEquals(300,output.candles());
         assertEquals(0,output.trades().size()); // no fabricated 23-day daily trend
         assertEquals(0,output.realizedUsd().compareTo(b("0")));
