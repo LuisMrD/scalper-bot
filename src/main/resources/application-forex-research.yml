@@ -1,0 +1,20 @@
+# Forex spot OTC research: no order API, no Binance market sync.
+# Existing Spring components remain registered for compatibility but are idle.
+# Isolate MySQL from the Binance testnet and Binance Futures research schemas.
+spring:
+  datasource:
+    url: ${FOREX_DB_URL:jdbc:mysql://127.0.0.1:3307/trading_bot_forex?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true}
+    username: ${FOREX_DB_USERNAME:trading}
+    password: ${FOREX_DB_PASSWORD:trading_local_only}
+trading:
+  execution:
+    mode: BACKTEST
+    orders-enabled: false
+market-data:
+  websocket-enabled: false
+  bootstrap-enabled: false
+integrations:
+  openai:
+    enabled: false
+forex:
+  csv-directory: ${FOREX_CSV_DIR:data/forex}
