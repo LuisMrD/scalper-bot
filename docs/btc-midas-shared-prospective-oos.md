@@ -71,8 +71,9 @@ if that period was seen, select a genuinely untouched dataset and implement
 a separate frozen-bound evaluation rather than pretending it is new.
 
 The new \`POST /api/v1/research/independent-setups/shared-oos/backtest-historical-holdout\`
-rejects any 900h replay not entirely in **2023-01-01 through
-2024-12-31 UTC**. It is tagged \`PRE_FROZEN_HISTORICAL_HOLDOUT\`, NEVER
+accepts only the **12 locked, disjoint 900h windows ending
+2024-12-31T23:59:59.999Z** (all inside 2023-2024 UTC). Arbitrarily
+shifted or cherry-picked date ranges are forbidden. It is tagged \`PRE_FROZEN_HISTORICAL_HOLDOUT\`, NEVER
 \`STRICT_PROSPECTIVE_OOS\`. Three frozen shared cash books execute chronologically
 from closed candles, each with USD 600 reset per window.
 
