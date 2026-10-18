@@ -29,6 +29,10 @@ public final class IndependentSharedOosService {
     static final long IN_SAMPLE_LAST_CLOSE =
             Instant.parse("2026-10-15T23:59:59.999Z").toEpochMilli();
     static final int IN_SAMPLE_WINDOWS = 12;
+    static final long HISTORICAL_HOLDOUT_START =
+            Instant.parse("2023-01-01T00:00:00Z").toEpochMilli();
+    static final long HISTORICAL_HOLDOUT_END =
+            Instant.parse("2024-12-31T23:59:59.999Z").toEpochMilli();
     static final int STEPS = 3600;
     static final int WARMUP = 1000;
     static final long BAR_MILLIS = 900_000L;
@@ -134,7 +138,7 @@ public final class IndependentSharedOosService {
      * Strictly prospective evaluation: historical windows cannot enter this route.
      */
     public Report backtest(IndependentResearchRequest r) {
-        return replay(r,false);
+        return replay(r,StudyMode.PROSPECTIVE_OOS);
     }
 
     /**
@@ -143,7 +147,28 @@ public final class IndependentSharedOosService {
      * informed by these candles. Each window restarts with its own cash.
      */
     public Report backtestInsample(IndependentResearchRequest r) {
-        return replay(r,true);
+        return replay(r,StudyMode.INSAMPLE);
+    }
+
+    /**
+     * PRE-FROZEN historical holdout. A complete window MUST lie within
+     * calendar years 2023-2024 (outside the July 2025 - October 2026
+     * selection cohort). Only new data never used for parameter selection
+     * provide a credible historical OOS test.
+     */
+    public Report backtestHistoricalHoldout(IndependentResearchRequest r) {
+        return replay(r,StudyMode.HISTORICAL_HOLDOUT);
+    }
+
+    void validateHistoricalHoldoutPeriod(IndependentResearchRequest r) {
+        if(r.asOf()%BAR_MILLIS!=BAR_MILLIS-1L || r.asOf()>=clock.millis())
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Historical holdout asOf must be a completed UTC 15m close");
+        if(firstOpen(r.asOf())<HISTORICAL_HOLDOUT_START || r.asOf()>HISTORICAL_HOLDOUT_END)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Historical holdout requires each 900h window entirely "
+                    +"inside 2023-01-01 through 2024-12-31 UTC. "
+                    +"Selection/training windows from 2025-2026 are forbidden.");
     }
 
     void validateInsamplePeriod(IndependentResearchRequest r) {
@@ -160,10 +185,15 @@ public final class IndependentSharedOosService {
                     +"2026-10-15T23:59:59.999Z. No OOS result can use this route.");
     }
 
-    private Report replay(IndependentResearchRequest r,boolean insample) {
+    private enum StudyMode { INSAMPLE, HISTORICAL_HOLDOUT, PROSPECTIVE_OOS }
+
+    private Report replay(IndependentResearchRequest r,StudyMode mode) {
         validateFrozen(r);
-        if(insample)validateInsamplePeriod(r);
-        else validatePeriod(r);
+        switch(mode) {
+            case INSAMPLE -> validateInsamplePeriod(r);
+            case HISTORICAL_HOLDOUT -> validateHistoricalHoldoutPeriod(r);
+            case PROSPECTIVE_OOS -> validatePeriod(r);
+        }
         if(!trading.symbols().contains(r.symbol()))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Symbol not configured");
         int required=WARMUP+STEPS;
@@ -177,12 +207,12 @@ public final class IndependentSharedOosService {
             ClosedCandleFeatures.check(tape);
         }catch(IllegalArgumentException e) {
             throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
-                    "Non-contiguous / unclosed 15m OOS tape: "+e.getMessage(),e);
+                    "Non-contiguous / unclosed 15m research tape: "+e.getMessage(),e);
         }
         if(tape.getLast().closeTime()!=r.asOf()
                 || tape.get(WARMUP).openTime()!=firstOpen(r.asOf()))
             throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
-                    "The OOS tape does not cover the requested exact period");
+                    "Research tape does not cover the requested exact period");
         var higherContext=contexts.prepareReplay(r.symbol(),
                 List.of("15m","1d"),r.contextCandles(),
                 tape.get(WARMUP).closeTime(),tape.getLast().closeTime());
@@ -271,9 +301,12 @@ public final class IndependentSharedOosService {
             summaries.put(book.policy().name(),book.summary(tape.getLast()));
         return new Report(r.symbol(),"15m",tape.get(WARMUP).openTime(),
                 tape.getLast().closeTime(),STEPS,
-                (insample
-                        ?"PAPER_ONLY; HISTORICAL_INSAMPLE_ONLY; TWELVE_FROZEN_WINDOWS;"
-                        :"PAPER_ONLY; STRICT_PROSPECTIVE_OOS;")
+                switch(mode) {
+                    case INSAMPLE -> "PAPER_ONLY; HISTORICAL_INSAMPLE_ONLY; TWELVE_FROZEN_WINDOWS;";
+                    case HISTORICAL_HOLDOUT -> "PAPER_ONLY; PRE_FROZEN_HISTORICAL_HOLDOUT;"
+                            +" 2023_2024_ONLY; NOT_PROSPECTIVE;";
+                    case PROSPECTIVE_OOS -> "PAPER_ONLY; STRICT_PROSPECTIVE_OOS;";
+                }
                 +" THREE_FROZEN_SHARED_WALLETS; ONE_POSITION_TOTAL;"
                 +" LONG_FILL_FIRST_ON_TIES; NEXT_OPEN_STOP_FIRST;"
                 +" BASELINE_LONG_MIDAS_RETEST_SHORT; DYNAMIC_TREND_60;"
