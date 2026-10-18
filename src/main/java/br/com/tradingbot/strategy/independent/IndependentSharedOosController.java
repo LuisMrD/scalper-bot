@@ -41,6 +41,20 @@ public final class IndependentSharedOosController {
     /**
      * Fixed 2023-2024 historical holdout: never relabel as prospective OOS.
      */
+    /**
+     * Exclusively SHORT: frozen separate 2020-21 and 2021-22 cohorts.
+     * LONG detector and book are disabled, not merely filtered after fills.
+     */
+    @PostMapping("/backtest-short-holdout-2020-21")
+    public IndependentSharedOosService.Report backtestShort2020_21(
+            @RequestBody IndependentResearchRequest request) {
+        return service.backtestShortHoldout2020_21(request);
+    }
+    @PostMapping("/backtest-short-holdout-2021-22")
+    public IndependentSharedOosService.Report backtestShort2021_22(
+            @RequestBody IndependentResearchRequest request) {
+        return service.backtestShortHoldout2021_22(request);
+    }
     @PostMapping("/backtest-historical-holdout")
     public IndependentSharedOosService.Report backtestHistoricalHoldout(
             @RequestBody IndependentResearchRequest request) {
