@@ -16,7 +16,7 @@ import java.util.Set;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-/** No network, no guessing missing candles, no arbitrary API-supplied file path. */
+/** No network, no invented candles, no arbitrary API-supplied file path. */
 @Component
 public final class CsvForexHistoricalFeed implements ForexHistoricalFeed {
     static final Set<String> USD_QUOTE_PAIRS=Set.of("EURUSD","GBPUSD","AUDUSD","NZDUSD");
@@ -78,18 +78,27 @@ public final class CsvForexHistoricalFeed implements ForexHistoricalFeed {
     private static void validateNext(ForexBar before,ForexBar after) {
         long gap=after.openTime()-before.openTime();
         if(gap==ForexBar.FIFTEEN_MINUTES)return;
+        // Valid files may omit entire quiet/closed OTC quote periods. This is
+        // NOT permission to create prices: retain the real timestamps and
+        // require the paper engine to treat each gap as a segment boundary.
+        if(gap<=0 ||gap%ForexBar.FIFTEEN_MINUTES!=0)
+            throw new IllegalArgumentException("Duplicate or misaligned Forex bar gap "
+                    +before.openTime()+" -> "+after.openTime());
         var firstDay=Instant.ofEpochMilli(before.openTime())
                 .atZone(ZoneOffset.UTC).getDayOfWeek();
         var secondDay=Instant.ofEpochMilli(after.openTime())
                 .atZone(ZoneOffset.UTC).getDayOfWeek();
-        // A weekend may be a Sun evening OR Mon morning reopen depending
-        // on the broker and DST. Midweek missing bars are never accepted.
-        boolean weekend=firstDay==DayOfWeek.FRIDAY
+        boolean shortQuoteGap=gap<=4L*3600_000L;
+        // Extended closure can start Thursday on holidays and reopen
+        // Sunday/Monday. This is a calendar *allowance*, not proof of closure.
+        boolean probableWeeklyClosure=(firstDay==DayOfWeek.FRIDAY
+                ||firstDay==DayOfWeek.THURSDAY)
                 &&(secondDay==DayOfWeek.SUNDAY||secondDay==DayOfWeek.MONDAY)
-                &&gap>=24L*3600_000L &&gap<=72L*3600_000L;
-        if(!weekend)
-            throw new IllegalArgumentException("Non-weekend missing/overlapping 15m bars "
+                &&gap>=24L*3600_000L &&gap<=120L*3600_000L;
+        if(!shortQuoteGap && !probableWeeklyClosure)
+            throw new IllegalArgumentException("Unexplained long quote-data gap "
                     +before.openTime()+" -> "+after.openTime()
-                    +"; provide a complete broker export, never interpolate");
+                    +"; gaps over 4h outside weekend/holiday reopening "
+                    +"cannot be used for a trustworthy backtest");
     }
 }
