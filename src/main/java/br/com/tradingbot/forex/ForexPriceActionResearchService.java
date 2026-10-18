@@ -62,8 +62,8 @@ public final class ForexPriceActionResearchService {
                 throw new IllegalArgumentException("maxHoldingBars must be 1..200");
         }
     }
-    public record Trade(String side,long entryUtc,long exitUtc,BigDecimal entryBid,
-            BigDecimal exitAsk,BigDecimal stopAtEntry,
+    public record Trade(String side,long entryUtc,long exitUtc,BigDecimal entryPrice,
+            BigDecimal exitPrice,BigDecimal stopAtEntry,
             BigDecimal baseCurrencyUnits,BigDecimal netUsd,
             BigDecimal feesUsd,String reason) {}
     public record Report(String pair,String market,String strategy,
