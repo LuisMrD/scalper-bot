@@ -156,6 +156,21 @@ try {
             throw 'Incomplete historical quote import'
         }
         Write-Host "Imported $($download.bars15m) historical M15 candles."
+        # Forex ends Friday before 23:45 UTC in many broker datasets.
+        # Never demand a candle the source does not provide or invent one.
+        if($null -eq $download.lastBarOpenEpochMs) {
+            throw 'Importer did not report last actual Forex candle'
+        }
+        [long]$actualLastOpen=$download.lastBarOpenEpochMs
+        if($actualLastOpen -lt [long]$request.startOpenUtc) {
+            throw 'The imported quotes do not cover the requested trading period'
+        }
+        if($actualLastOpen -lt [long]$request.lastOpenUtc) {
+            Write-Host ("No quote at requested final open: UTC {0}; last observed is UTC {1}. Backtest ends at the REAL final quote." -f
+                ([DateTimeOffset]::FromUnixTimeMilliseconds([long]$request.lastOpenUtc).UtcDateTime.ToString('u')),
+                ([DateTimeOffset]::FromUnixTimeMilliseconds($actualLastOpen).UtcDateTime.ToString('u'))) -ForegroundColor Yellow
+            $request.lastOpenUtc=$actualLastOpen
+        }
         $payload=$request | ConvertTo-Json -Depth 8 -Compress
         $report=Invoke-RestMethod -Method Post -Uri "$url/api/v1/research/forex/backtest" -Body ([Text.Encoding]::UTF8.GetBytes($payload)) -ContentType 'application/json; charset=utf-8' -TimeoutSec 900
         if($report.market -cne 'FOREX_OTC_SPOT' -or $report.pair -cne $Pair) {
