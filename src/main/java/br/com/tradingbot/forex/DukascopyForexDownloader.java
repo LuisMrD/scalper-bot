@@ -28,6 +28,7 @@ public final class DukascopyForexDownloader {
             String source,String warning) {}
     record Minute(int minute,BigDecimal open,BigDecimal high,BigDecimal low,BigDecimal close) {}
 
+    @org.springframework.beans.factory.annotation.Autowired
     public DukascopyForexDownloader(@Value("${forex.csv-directory:data/forex}") String root) {
         this(Path.of(root),HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(12)).build());
     }
