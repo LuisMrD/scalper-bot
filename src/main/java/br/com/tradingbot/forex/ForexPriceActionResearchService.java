@@ -347,6 +347,7 @@ public final class ForexPriceActionResearchService {
         long first=r.startOpenUtc(),last=r.lastOpenUtc();
         for(int i=0;i<bars.size();i++) {
             ForexBar bar=bars.get(i);
+            if(bar.openTime()>last)break;
             if(i>0) {
                 ForexBar previous=bars.get(i-1);
                 long gap=bar.openTime()-previous.openTime();
@@ -385,7 +386,7 @@ public final class ForexPriceActionResearchService {
                 dailyCloses.add(dateLastClose);
             currentDate=date;dateLastClose=bar.bidClose();
             history.add(bar.bidClose());
-            swings.observe(bars,i);
+            if(consecutiveBars>=5)swings.observe(bars,i);
             if(bar.openTime()<first)continue;
             if(bar.openTime()>last)break;
             long barDay=Math.floorDiv(bar.openTime(),86_400_000L);
