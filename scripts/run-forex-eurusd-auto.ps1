@@ -97,10 +97,17 @@ try {
     $stdout=Join-Path $root "logs\forex-$stamp.out.log"
     $stderr=Join-Path $root "logs\forex-$stamp.err.log"
     $listener=New-Object System.Net.Sockets.TcpClient
+    $portOccupied=$false
     try {
         $listener.Connect('127.0.0.1',$ServerPort)
-        throw "Port $ServerPort already occupied. Stop the other server."
-    }catch[System.Net.Sockets.SocketException] {}finally{ $listener.Dispose() }
+        $portOccupied=$listener.Connected
+    }catch {
+        # PowerShell wraps the SocketException in a MethodInvocationException.
+        if($_.Exception.InnerException -isnot [System.Net.Sockets.SocketException]) {
+            throw
+        }
+    }finally{ $listener.Dispose() }
+    if($portOccupied) { throw "Port $ServerPort already occupied. Stop the other server." }
 
     Write-Host 'Starting paper-only Forex Spring Boot...' -ForegroundColor Cyan
     $server=Start-Process -FilePath 'cmd.exe' -ArgumentList '/d','/c','mvn -q spring-boot:run' -WorkingDirectory $root -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr -WindowStyle Hidden
