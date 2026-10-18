@@ -60,6 +60,35 @@ numbers as prospective evidence. Additional non-overlapping 900h windows
 can be requested later, when complete market data exist. No future candles
 are fabricated. Data gaps/unclosed bars return HTTP 422.
 
+## Re-run the ORIGINAL historical window cohort immediately
+
+The `-InSample` switch is an explicitly labeled **historical diagnostic**,
+NOT a prospective performance estimate. It invokes the same chronological
+shared-wallet engine, with separate route
+`POST /api/v1/research/independent-setups/shared-oos/backtest-insample`.
+That route accepts **ONLY** the twelve original disjoint 900h periods ending
+in the last 15m close at `2026-10-15T23:59:59.999Z`. It rejects arbitrary
+windows, changed frozen model parameters and prospective dates. Capital
+resets to US$600 for each policy at each window.
+
+~~~powershell
+cd C:\Projetos\scalper-bot
+git switch feat/btc-midas-shared-oos-validation
+git pull --ff-only
+mvn clean test
+# Terminal 1 (keep open):
+.\scripts\start-backtest.ps1 -IncludeDailyWeekly -Symbols BTCUSDT -CapitalUsdt 600 -MaxCostToInitialRiskPct 50
+
+# Terminal 2:
+.\scripts\tests\test-btc-15m-shared-oos-syntax.ps1
+.\scripts\run-btc-15m-shared-oos.ps1 -InSample -AsOfEpochMs 1792108799999 -Windows 12
+~~~
+
+Outputs carry `HISTORICAL_INSAMPLE_ONLY` in their filenames and execution
+model; they are never combined with real OOS results. Compare candidate
+profits and drawdowns against the re-run **shared-wallet CONTROL**, not
+the sum of old independent LONG/SHORT accounts.
+
 ## API
 
 - `GET /api/v1/research/independent-setups/shared-oos/status`: locked policy
