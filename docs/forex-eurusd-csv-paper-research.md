@@ -1,6 +1,37 @@
 # Forex OTC EUR/USD research — FIRST safe migration from Binance
 
-## ONE-COMMAND EXECUTION — free public Dukascopy, LONG + SHORT
+## Update: Exness is now the default history source (October 2026)
+
+The original Dukascopy historical M1 endpoint returned **HTTP 403** from
+the developer's Windows machine, so the one-command script no longer depends
+on that origin. It now uses the Exness **Standard-account** public monthly
+EURUSD tick archives, containing both actual BID and ASK, to produce M15 bars.
+
+- Public historical source: https://www.exness.com/tick-history/
+- Documented archive path:
+  `https://ticks.ex2archive.com/ticks/EURUSD/2024/03/Exness_EURUSD_2024_03.zip`
+- No API key, demo credentials, Python or manual CSV input is required.
+- Source is **indicative OTC quotes**, not consolidated Forex prices.
+- On failure, the script does **not** replace the last validated CSV.
+- It does **not** manufacture volume, spread or synthetic minute prices.
+- To explicitly use the old provider (which may return 403):
+  `./scripts/run-forex-eurusd-auto.ps1 -DataProvider Dukascopy`.
+
+Run:
+~~~powershell
+cd C:\Projetos\scalper-bot
+git switch feat/forex-eurusd-csv-research
+git pull --ff-only
+.\scripts\run-forex-eurusd-auto.ps1
+~~~
+
+This still runs **one shared USD paper wallet** with LONG + SHORT, not live
+trades. It assumes fixed research commission and slippage and ignores
+overnight FX swaps; do not treat profits as a production forecast.
+
+---
+
+## ONE-COMMAND EXECUTION — free public Exness, LONG + SHORT
 
 **Preferred workflow:** no brokerage account, API key, manual CSV export, Python
 or CSV conversion needed. Java 25 / Maven / the existing local Docker MySQL
