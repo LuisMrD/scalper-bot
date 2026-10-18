@@ -28,7 +28,7 @@ try {
         # Reuse a compatible local MySQL 8.4 container instead of recreating it.
         # Never remove it, prune its volumes, or alter the original trading_bot DB.
         $imageName = (& docker inspect --format '{{.Config.Image}}' $containerName)
-        if ($LASTEXITCODE -ne 0 -or $imageName -notmatch '(^|/)mysql:8\\.4($|[.-])') {
+        if ($LASTEXITCODE -ne 0 -or $imageName -notmatch '(^|/)mysql:8\.4($|[.-])') {
             throw "Existing $containerName is not the expected MySQL 8.4 container. Inspect it manually; no data were removed."
         }
         $ports = @(& docker port $containerName '3306/tcp')
