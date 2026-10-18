@@ -24,7 +24,8 @@ public final class DukascopyForexDownloader {
     private final HttpClient client;
 
     public record DownloadReport(String pair,LocalDate fromUtc,LocalDate untilUtc,
-            int daysRequested,int daysWithQuotes,int bars15m,String csvPath,
+            int daysRequested,int daysWithQuotes,int bars15m,
+            int partiallyQuoted15mBuckets,String csvPath,
             String source,String warning) {}
     record Minute(int minute,BigDecimal open,BigDecimal high,BigDecimal low,BigDecimal close) {}
 
@@ -48,7 +49,7 @@ public final class DukascopyForexDownloader {
             Files.createDirectories(root);
             Path target=root.resolve(pair+"-15m.csv");
             Path tmp=Files.createTempFile(root,pair+"-15m-",".tmp");
-            int days=0,daysWithQuotes=0,bars=0;
+            int days=0,daysWithQuotes=0,bars=0,partialBuckets=0;
             try(var writer=Files.newBufferedWriter(tmp,StandardCharsets.UTF_8)) {
                 writer.write("open_time_utc,bid_open,bid_high,bid_low,bid_close,"
                         +"ask_open,ask_high,ask_low,ask_close,tick_volume\n");
@@ -67,6 +68,11 @@ public final class DukascopyForexDownloader {
                         if(b==null&&a==null)continue;
                         if(b==null||a==null)
                             throw new IllegalArgumentException("Unpaired M15 quotes on "+day+" minute "+m);
+                        // A quiet FX minute may have NO quote update: this is not
+                        // a corrupt full 15m bar. Aggregate only OBSERVED M1 OHLC
+                        // and expose that fact in the import audit metadata.
+                        if(countObserved(bmap,m)<15 || countObserved(amap,m)<15)
+                            partialBuckets++;
                         long open=day.atStartOfDay(ZoneOffset.UTC).toInstant()
                                 .toEpochMilli()+m*60_000L;
                         ForexBar bar=new ForexBar(open,
@@ -98,8 +104,9 @@ public final class DukascopyForexDownloader {
                 Files.move(tmp,target,StandardCopyOption.REPLACE_EXISTING);
             }
             return new DownloadReport(pair,start,end,days,daysWithQuotes,bars,
-                    target.toString(),"DUKASCOPY_PUBLIC_BID_ASK_M1",
-                    "No trade/taker/tick volume manufactured; missing M1 makes import fail");
+                    partialBuckets,target.toString(),"DUKASCOPY_PUBLIC_BID_ASK_M1",
+                    "Partial M15 buckets aggregate observed M1 only. Full M15 data "
+                    +"gaps still fail continuity checks; no minute price or volume fabricated.");
         }catch(IOException e) {
             throw new IllegalStateException("FX import file I/O failed",e);
         }
@@ -170,20 +177,27 @@ public final class DukascopyForexDownloader {
         }
         return result;
     }
-    private static Minute aggregate(Map<Integer,Minute> source,int start) {
-        boolean any=false;
-        for(int m=start;m<start+15;m++)any |= source.containsKey(m);
-        if(!any)return null;
-        Minute first=source.get(start),last=source.get(start+14);
-        if(first==null||last==null)
-            throw new IllegalArgumentException("Partial M15 minute bucket "+start);
-        BigDecimal high=first.high(),low=first.low();
+    static int countObserved(Map<Integer,Minute> source,int start) {
+        int n=0;
+        for(int m=start;m<start+15;m++)
+            if(source.containsKey(m))n++;
+        return n;
+    }
+    static Minute aggregate(Map<Integer,Minute> source,int start) {
+        // FX markets are event-driven, not an exchange with one candle in
+        // every M1 slot. Preserve the FIRST and LAST actually observed quotes
+        // and observed extremes; never forward-fill missing minutes.
+        Minute first=null,last=null;
+        BigDecimal high=null,low=null;
         for(int m=start;m<start+15;m++) {
             Minute b=source.get(m);
-            if(b==null)throw new IllegalArgumentException("Missing minute "+m+" in M15 bucket");
-            high=high.max(b.high());
-            low=low.min(b.low());
+            if(b==null)continue;
+            if(first==null)first=b;
+            last=b;
+            high=high==null?b.high():high.max(b.high());
+            low=low==null?b.low():low.min(b.low());
         }
+        if(first==null)return null;
         return new Minute(start,first.open(),high,low,last.close());
     }
 }
