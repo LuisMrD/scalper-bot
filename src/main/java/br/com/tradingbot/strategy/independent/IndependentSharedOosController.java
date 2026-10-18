@@ -35,6 +35,14 @@ public final class IndependentSharedOosController {
                 Map.entry("policies",java.util.Arrays.stream(SharedEntryBookPolicy.values())
                         .map(Enum::name).toList()));
     }
+    /**
+     * Deliberately separate route: the twelve historical windows are NOT OOS.
+     */
+    @PostMapping("/backtest-insample")
+    public IndependentSharedOosService.Report backtestInsample(
+            @RequestBody IndependentResearchRequest request) {
+        return service.backtestInsample(request);
+    }
     @PostMapping("/backtest")
     public IndependentSharedOosService.Report backtest(
             @RequestBody IndependentResearchRequest request) {
