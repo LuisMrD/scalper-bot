@@ -164,11 +164,16 @@ public final class IndependentSharedOosService {
         if(r.asOf()%BAR_MILLIS!=BAR_MILLIS-1L || r.asOf()>=clock.millis())
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Historical holdout asOf must be a completed UTC 15m close");
-        if(firstOpen(r.asOf())<HISTORICAL_HOLDOUT_START || r.asOf()>HISTORICAL_HOLDOUT_END)
+        long windowMillis=Math.multiplyExact((long)STEPS,BAR_MILLIS);
+        long offset=HISTORICAL_HOLDOUT_END-r.asOf();
+        if(offset<0 || offset%windowMillis!=0
+                || offset/windowMillis>=IN_SAMPLE_WINDOWS
+                || firstOpen(r.asOf())<HISTORICAL_HOLDOUT_START)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Historical holdout requires each 900h window entirely "
-                    +"inside 2023-01-01 through 2024-12-31 UTC. "
-                    +"Selection/training windows from 2025-2026 are forbidden.");
+                    "Historical holdout accepts only the 12 frozen disjoint "
+                    +"900h windows anchored at 2024-12-31T23:59:59.999Z. "
+                    +"Arbitrary selection windows and previously inspected "
+                    +"2025-2026 data are forbidden.");
     }
 
     void validateInsamplePeriod(IndependentResearchRequest r) {
