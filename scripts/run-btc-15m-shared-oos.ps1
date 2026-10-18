@@ -38,8 +38,10 @@ param(
     [switch]$NoCsv
 )
 $ErrorActionPreference = 'Stop'
-if ([int][bool]$InSample + [int][bool]$HistoricalHoldout +
-    [int][bool](-not [string]::IsNullOrEmpty($ShortOnlyCohort)) -gt 1) {
+$selectedModes = [int]$InSample.IsPresent +
+    [int]$HistoricalHoldout.IsPresent +
+    [int](-not [string]::IsNullOrEmpty($ShortOnlyCohort))
+if ($selectedModes -gt 1) {
     throw 'Choose only one of -InSample, -HistoricalHoldout or -ShortOnlyCohort'
 }
 if ($Source -eq 'production' -and -not $ConfirmIsolatedDatabase) {
