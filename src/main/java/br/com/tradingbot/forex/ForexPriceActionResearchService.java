@@ -73,7 +73,8 @@ public final class ForexPriceActionResearchService {
             BigDecimal finalMarkedEquityUsd,BigDecimal realizedUsd,
             BigDecimal feesUsd,BigDecimal winningTradesNetUsd,
             BigDecimal losingTradesNetAbsUsd,BigDecimal worstDrawdownPct,
-            boolean openAtEnd,List<Trade> trades,String limitations) {}
+            boolean openAtEnd,int quoteGapCount,long missingQuoteBars,
+            int skippedWarmupBars,List<Trade> trades,String limitations) {}
 
     private static void positive(BigDecimal v,String name) {
         Objects.requireNonNull(v,name);
@@ -330,8 +331,11 @@ public final class ForexPriceActionResearchService {
                 winners=BigDecimal.ZERO,losers=BigDecimal.ZERO,
                 dailyPnl=BigDecimal.ZERO;
         int tradesWon=0,signals=0,blocked=0;
+        int quoteGapCount=0,skippedWarmupBars=0;
+        long missingQuoteBars=0;
         long day=Long.MIN_VALUE;
         var history=new ArrayList<BigDecimal>();
+        int consecutiveBars=0;
         var dailyCloses=new ArrayList<BigDecimal>();
         var swings=new PivotHistory();
         LocalDate currentDate=null;
@@ -343,6 +347,38 @@ public final class ForexPriceActionResearchService {
         long first=r.startOpenUtc(),last=r.lastOpenUtc();
         for(int i=0;i<bars.size();i++) {
             ForexBar bar=bars.get(i);
+            if(i>0) {
+                ForexBar previous=bars.get(i-1);
+                long gap=bar.openTime()-previous.openTime();
+                if(gap!=ForexBar.FIFTEEN_MINUTES) {
+                    quoteGapCount++;
+                    missingQuoteBars+=gap/ForexBar.FIFTEEN_MINUTES-1;
+                    // During active trading, a midweek quote blackout might
+                    // hide a stop. Fail CLOSED, never assume profitable fill.
+                    boolean possibleWeeklyClosure=gap>=24L*3600_000L
+                            &&java.util.Set.of(java.time.DayOfWeek.SUNDAY,
+                                    java.time.DayOfWeek.MONDAY).contains(
+                                        Instant.ofEpochMilli(bar.openTime())
+                                            .atZone(ZoneOffset.UTC).getDayOfWeek());
+                    if(position!=null &&!possibleWeeklyClosure
+                            &&bar.openTime()>=first &&previous.openTime()<=last)
+                        throw new IllegalArgumentException(
+                                "Cannot validate an open trade across unknown "
+                                +"midweek missing Forex quotes "
+                                +Instant.ofEpochMilli(previous.openTime())
+                                +" -> "+Instant.ofEpochMilli(bar.openTime())
+                                +"; do not fabricate stop path");
+                    // Signals after any outage MUST rewarm on contiguous bars;
+                    // do not compare pivots or moving-average samples across
+                    // missing intraday time. Existing weekend positions, if any,
+                    // are marked/managed with the FIRST actual reopening quote.
+                    history.clear();
+                    swings=new PivotHistory();
+                    pending=null;
+                    consecutiveBars=0;
+                }
+            }
+            consecutiveBars++;
             LocalDate date=Instant.ofEpochMilli(bar.openTime()).atZone(
                     ZoneOffset.UTC).toLocalDate();
             if(currentDate!=null&&!date.equals(currentDate))
@@ -448,6 +484,10 @@ public final class ForexPriceActionResearchService {
             // Signal generated only after the close; next bar fill is optional
             // and is suppressed if an old position is still open.
             if(position==null &&i+1<bars.size()) {
+                if(consecutiveBars<80) {
+                    skippedWarmupBars++;
+                    continue;
+                }
                 var next=bars.get(i+1);
                 if(next.openTime()==bar.openTime()+ForexBar.FIFTEEN_MINUTES
                         &&next.weekday()<=5) {
@@ -481,8 +521,11 @@ public final class ForexPriceActionResearchService {
                 (int)bars.stream().filter(b->b.openTime()>=first&&b.openTime()<=last).count(),
                 signals,blocked,tradesWon,r.capitalUsd(),finalMarked,
                 cash.subtract(r.capitalUsd(),MC),fees,winners,losers,
-                worstDrawdown,position!=null,List.copyOf(trades),
-                "Research only. Forex spot trading is OTC; broker prices differ. "
+                worstDrawdown,position!=null,quoteGapCount,missingQuoteBars,
+                skippedWarmupBars,List.copyOf(trades),
+                "Real quote gaps are preserved, never forward-filled. "
+                +"Open midweek positions across unobserved quotes cause a hard error. "
+                +"Research only. Forex spot trading is OTC; broker prices differ. "
                 +"No historical swap/rollover, partial-fill, margin call, "
                 +"stop execution microstructure or quote-latency model. "
                 +"Daily session uses UTC calendar and differs from 17:00 New York rollover. "
