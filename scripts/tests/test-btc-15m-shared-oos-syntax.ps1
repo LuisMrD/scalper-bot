@@ -22,7 +22,7 @@ Write-Host 'OK: shared OOS PowerShell runner parses without errors.'
 # Regression: the per-window prospective cutoff must NOT reject historical
 # holdout. The previous bug only surfaced during the LIVE window loop.
 $source=[System.IO.File]::ReadAllText($target)
-$protected='if (-not $InSample -and -not $HistoricalHoldout -and $start -lt $oosStart) {'
+$protected='if (-not $InSample -and -not $HistoricalHoldout -and -not $ShortOnlyCohort -and $start -lt $oosStart) {'
 if (-not $source.Contains($protected)) {
     throw 'Regression: 2023-2024 historical holdout would be rejected as prospective OOS'
 }
@@ -73,5 +73,5 @@ $startPreview = @(& (Join-Path (Split-Path -Parent $PSScriptRoot) 'start-btc-his
 if ($startPreview -notcontains 'SOURCE=PRODUCTION_PUBLIC_READ_ONLY') {
     throw 'Research bootstrap preview did not require read-only historical production source'
 }
-Write-Host 'OK: all three research modes and isolated database startup preview are labeled correctly.'
+Write-Host 'OK: original studies and both frozen SHORT-only cohorts are labeled correctly.'
 
