@@ -60,6 +60,86 @@ numbers as prospective evidence. Additional non-overlapping 900h windows
 can be requested later, when complete market data exist. No future candles
 are fabricated. Data gaps/unclosed bars return HTTP 422.
 
+## Independent historical holdout: 2023-2024 (run now)
+
+This is a **different** evaluation from both the previously inspected 2025-26
+in-sample 12 windows and the prospective post-2026-10-15 windows. Candidate A,
+B and CONTROL remain FROZEN. The historical test only counts as independent
+if 2023-24 did **not** influence any prior indicator, regime, filter,
+parameter or candidate-selection decision. Check the research history first;
+if that period was seen, select a genuinely untouched dataset and implement
+a separate frozen-bound evaluation rather than pretending it is new.
+
+The new \`POST /api/v1/research/independent-setups/shared-oos/backtest-historical-holdout\`
+rejects any 900h replay not entirely in **2023-01-01 through
+2024-12-31 UTC**. It is tagged \`PRE_FROZEN_HISTORICAL_HOLDOUT\`, NEVER
+\`STRICT_PROSPECTIVE_OOS\`. Three frozen shared cash books execute chronologically
+from closed candles, each with USD 600 reset per window.
+
+Research candles must be public Binance USD-M Futures PRODUCTION (not testnet),
+stored in a completely different MySQL schema from current testnet candles:
+\`trading_bot_research\`. Research starts with trading orders and AI off.
+A historical replay does not request orders or use future candles.
+
+### Terminal 1: create separate database, start the Spring app
+
+Stop the existing testnet Spring process on port 8080 first, but leave the
+Docker MySQL container running. On Windows PowerShell:
+
+~~~powershell
+cd C:\Projetos\scalper-bot
+git switch feat/btc-midas-shared-oos-validation
+git pull --ff-only
+.\scripts\setup-btc-historical-research-db.ps1
+mvn clean test
+# Keep this terminal open after the application starts:
+.\scripts\start-btc-historical-research.ps1
+~~~
+
+The database setup creates \`trading_bot_research\`, grants access only for
+the repository's existing local \`trading\` account, and does not delete or
+overwrite \`trading_bot\`. Startup explicitly uses Spring profiles
+\`backtest,research\` and \`RESEARCH_DB_URL\`; it cannot silently reuse the
+existing Testnet research data because the research URL is hard-coded to a
+different local schema.
+
+### Terminal 2: synchronize public BTC history
+
+Load at least the 1,000 × 15m MIDAS warmup before the first evaluation
+and at least 60 complete daily reference candles. July 2023 through
+December 2024 provides margin on both. Synchronization is idempotent:
+
+~~~powershell
+cd C:\Projetos\scalper-bot
+.\scripts\tests\test-btc-15m-shared-oos-syntax.ps1
+.\scripts\sync-independent-daily-weekly.ps1 -Symbols BTCUSDT -Intervals 15m,1d -FromUtc 2023-07-01 -UntilUtc 2024-12-31 -PrintOnly
+.\scripts\sync-independent-daily-weekly.ps1 -Symbols BTCUSDT -Intervals 15m,1d -FromUtc 2023-07-01 -UntilUtc 2024-12-31 -FailOnEmptyDaily
+~~~
+
+The public Binance endpoint must actually return complete continuous
+historical data. If it does not, stop and obtain/verifiably import official
+archived production klines separately; never fabricate missing 15m bars.
+Historical contract tick size, lot size, fees and liquidity can differ from
+today's metadata; the runner currently uses the exchange's present public
+metadata, a limitation to disclose when interpreting the holdout.
+
+### Terminal 2: run the three frozen shared-wallet books
+
+~~~powershell
+.\scripts\run-btc-15m-shared-oos.ps1 -HistoricalHoldout -Source production -ConfirmIsolatedDatabase -AsOfEpochMs 1735689599999 -Windows 12 -PrintOnly
+.\scripts\run-btc-15m-shared-oos.ps1 -HistoricalHoldout -Source production -ConfirmIsolatedDatabase -AsOfEpochMs 1735689599999 -Windows 12
+~~~
+
+Start with \`-Windows 1\` if you first want to verify that the latest
+900-hour period has complete data; then run 12 full disjoint windows.
+Outputs are in \`results/shared-*-BTC-MIDAS-SHARED-PRE_FROZEN_HISTORICAL_HOLDOUT-...\`.
+No new profits are implied by the capability to run this experiment. Compare
+performance by window, drawdown, number of trades, top-winner concentration
+and both side contributions. Research on true real funding remains a future
+addition; this model STILL ASSUMES ZERO funding.
+
+---
+
 ## Re-run the ORIGINAL historical window cohort immediately
 
 The `-InSample` switch is an explicitly labeled **historical diagnostic**,
