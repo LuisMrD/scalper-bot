@@ -61,7 +61,7 @@ class ForexCsvResearchTest {
                 START+1,b("1.10"),b("1.11"),b("1.09"),b("1.10"),
                 b("1.1001"),b("1.1101"),b("1.0901"),b("1.1001"),1L));
     }
-    @Test void strictCsvRefusesMissingMidweekBar() throws Exception {
+    @Test void boundedMissingMidweekBarsAreKeptAsRealQuoteGaps() throws Exception {
         var file=directory.resolve("EURUSD-15m.csv");
         var rows=new ArrayList<String>();
         rows.add("open_time_utc,bid_open,bid_high,bid_low,bid_close,"
@@ -72,8 +72,32 @@ class ForexCsvResearchTest {
                     +"1.10000,1.10010,1.10030,1.09990,1.10010,100");
         }
         Files.write(file,rows);
+        var observed=CsvForexHistoricalFeed.load(file);
+        assertEquals(300,observed.size());
+        assertEquals(2*ForexBar.FIFTEEN_MINUTES,
+                observed.get(5).openTime()-observed.get(4).openTime());
+        var report=new ForexPriceActionResearchService(
+                symbol -> observed).backtest(
+                    request(START,START+300L*900_000L));
+        assertEquals(1,report.quoteGapCount());
+        assertEquals(1,report.missingQuoteBars());
+        assertTrue(report.skippedWarmupBars()>0);
+        assertEquals(0,report.trades().size());
+    }
+    @Test void largeNonWeekendGapsStillFailWithoutFabricatedCandles() throws Exception {
+        var file=directory.resolve("EURUSD-long-gap.csv");
+        var rows=new ArrayList<String>();
+        rows.add("open_time_utc,bid_open,bid_high,bid_low,bid_close,"
+                +"ask_open,ask_high,ask_low,ask_close,tick_volume");
+        for(int i=0;i<300;i++) {
+            long time=START+(i+(i>=6?30:0))*900_000L;
+            rows.add(Instant.ofEpochMilli(time)+",1.10000,1.10020,1.09980,"
+                    +"1.10000,1.10010,1.10030,1.09990,1.10010,");
+        }
+        Files.write(file,rows);
         assertThrows(IllegalArgumentException.class,
-                ()->CsvForexHistoricalFeed.load(file),"Midweek missing bars must not be filled");
+                ()->CsvForexHistoricalFeed.load(file),
+                "Midweek gaps over four hours must still fail");
     }
     @Test void strictCsvParsesCompleteUtcBarsWithoutFabricatingVolume() throws Exception {
         var file=directory.resolve("EURUSD-15m.csv");
