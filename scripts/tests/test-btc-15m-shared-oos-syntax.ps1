@@ -19,6 +19,15 @@ if ($parseErrors.Count -gt 0) {
     throw "OOS PowerShell runner has $($parseErrors.Count) syntax error(s)"
 }
 Write-Host 'OK: shared OOS PowerShell runner parses without errors.'
+# Regression: the per-window prospective cutoff must NOT reject historical
+# holdout. The previous bug only surfaced during the LIVE window loop.
+$source=[System.IO.File]::ReadAllText($target)
+$protected='if (-not $InSample -and -not $HistoricalHoldout -and $start -lt $oosStart) {'
+if (-not $source.Contains($protected)) {
+    throw 'Regression: 2023-2024 historical holdout would be rejected as prospective OOS'
+}
+Write-Host 'OK: historical holdout is not gated by the prospective OOS cutoff.'
+
 foreach ($name in @('start-btc-historical-research.ps1','setup-btc-historical-research-db.ps1')) {
     $extra=Join-Path (Split-Path -Parent $PSScriptRoot) $name
     $extraTokens=$null
