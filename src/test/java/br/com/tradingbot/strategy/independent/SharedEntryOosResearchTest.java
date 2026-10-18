@@ -45,9 +45,13 @@ class SharedEntryOosResearchTest {
                 Clock.fixed(Instant.parse("2026-10-18T00:00:00Z"),ZoneOffset.UTC));
         var last2024=request(end("2024-12-31T23:59:59.999Z"));
         service.validateHistoricalHoldoutPeriod(last2024);
+        long step=IndependentSharedOosService.STEPS
+                * IndependentSharedOosService.BAR_MILLIS;
+        service.validateHistoricalHoldoutPeriod(request(last2024.asOf()-11L*step));
         for(var badClose:new String[]{
                 "2025-07-23T23:59:59.999Z",
                 "2026-10-15T23:59:59.999Z",
+                "2024-12-31T23:44:59.999Z", // cherry-picked 15m shift
                 "2023-01-01T00:14:59.999Z"}) {
             assertEquals(400,assertThrows(ResponseStatusException.class,
                     ()->service.backtestHistoricalHoldout(
