@@ -11,6 +11,7 @@
 [CmdletBinding()]
 param(
     [ValidateSet('EURUSD','GBPUSD','AUDUSD','NZDUSD')][string]$Pair='EURUSD',
+    [ValidateSet('Exness','Dukascopy')][string]$DataProvider='Exness',
     [ValidatePattern('^\d{4}-\d{2}-\d{2}$')][string]$StartUtc='2024-04-15',
     [ValidatePattern('^\d{4}-\d{2}-\d{2}$')][string]$UntilUtc='2024-05-31',
     [decimal]$CapitalUsd=600,
@@ -55,7 +56,7 @@ try {
     }
     if($PrintOnly) {
         Write-Output 'MODE=FOREX_OTC_PAPER_ONLY'
-        Write-Output 'MARKET_DATA=DUKASCOPY_PUBLIC_BID_ASK_M1_NO_KEY'
+        Write-Output "MARKET_DATA=$DataProvider-BID_ASK_NO_KEY"
         Write-Output 'STRATEGY=LONG_WEEKDAYS_AND_SHORT_PRICE_ACTION'
         Write-Output "IMPORT_PERIOD=$importFrom..$UntilUtc"
         Write-Output "TRADE_PERIOD=$StartUtc..$UntilUtc"
@@ -125,10 +126,11 @@ try {
             }catch {}
         }
         if(-not $ready) { throw "Spring startup timeout; see $stdout / $stderr" }
-        Write-Host "Downloading historical $Pair BID/ASK from Dukascopy (free, no key)..." -ForegroundColor Cyan
+        Write-Host "Downloading historical $Pair BID/ASK from $DataProvider (free, no key)..." -ForegroundColor Cyan
         $importBody=@{pair=$Pair;fromUtc=$importFrom;untilUtc=$UntilUtc} | ConvertTo-Json -Compress
+        $providerPath=if($DataProvider -eq 'Exness'){'exness'}else{'dukascopy'}
         try {
-            $download=Invoke-RestMethod -Method Post -Uri "$url/api/v1/research/forex/import/dukascopy" -Body ([Text.Encoding]::UTF8.GetBytes($importBody)) -ContentType 'application/json; charset=utf-8' -TimeoutSec 2400
+            $download=Invoke-RestMethod -Method Post -Uri "$url/api/v1/research/forex/import/$providerPath" -Body ([Text.Encoding]::UTF8.GetBytes($importBody)) -ContentType 'application/json; charset=utf-8' -TimeoutSec 2400
         } catch {
             # Windows PowerShell 5.1 otherwise hides the response JSON.
             $details=$null
@@ -145,7 +147,7 @@ try {
                 $details=$_.ErrorDetails.Message
             }
             if($details) {
-                Write-Host "`nDUKASCOPY IMPORT ROOT ERROR (HTTP response):" -ForegroundColor Red
+                Write-Host "`nFOREX IMPORT ROOT ERROR ($DataProvider HTTP response):" -ForegroundColor Red
                 Write-Host $details -ForegroundColor Red
             }
             throw
