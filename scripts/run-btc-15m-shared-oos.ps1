@@ -8,10 +8,15 @@
   Without -InSample, a complete first 900h OOS window is only possible
   after 2026-11-22 12:00 UTC. -InSample deliberately replays only the
   twelve known historical windows and labels them HISTORICAL_INSAMPLE_ONLY.
+  -HistoricalHoldout is a separate 2023-2024 data study, never prospective.
+  Production public market-data requires -Source production and
+  -ConfirmIsolatedDatabase and a dedicated research-only MySQL database.
 .EXAMPLE
   .\scripts\run-btc-15m-shared-oos.ps1 -PrintOnly
 .EXAMPLE
   .\scripts\run-btc-15m-shared-oos.ps1 -InSample -AsOfEpochMs 1792108799999 -Windows 12
+.EXAMPLE
+  .\scripts\run-btc-15m-shared-oos.ps1 -HistoricalHoldout -Source production -ConfirmIsolatedDatabase -AsOfEpochMs 1735689599999 -Windows 12
 .EXAMPLE
   .\scripts\run-btc-15m-shared-oos.ps1 -AsOfEpochMs 1795348799999 -Windows 1
 #>
@@ -23,10 +28,22 @@ param(
     [string]$BaseUrl = 'http://127.0.0.1:8080',
     [ValidateRange(30,1800)][int]$TimeoutSec = 900,
     [switch]$InSample,
+    [switch]$HistoricalHoldout,
+    [ValidateSet('testnet','production')][string]$Source = 'testnet',
+    [switch]$ConfirmIsolatedDatabase,
     [switch]$PrintOnly,
     [switch]$NoCsv
 )
 $ErrorActionPreference = 'Stop'
+if ($InSample -and $HistoricalHoldout) {
+    throw 'Choose at most one: -InSample or -HistoricalHoldout'
+}
+if ($Source -eq 'production' -and -not $ConfirmIsolatedDatabase) {
+    throw 'Production research requires -ConfirmIsolatedDatabase and a separate RESEARCH_DB_URL.'
+}
+if ($HistoricalHoldout -and $Source -ne 'production') {
+    throw 'Historical 2023-2024 BTCUSD-M requires production historical candles in an isolated database.'
+}
 $BaseUrl = $BaseUrl.TrimEnd('/')
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $configFile = Join-Path $root 'scripts/config/btc-15m-mixed-entry-selection-12x900h.json'
@@ -39,13 +56,18 @@ $steps = [long]3600
 $oosStart = [DateTimeOffset]::Parse('2026-10-16T00:00:00+00:00').ToUnixTimeMilliseconds()
 $selectionClose = [DateTimeOffset]::Parse('2026-10-15T23:59:59.999+00:00').ToUnixTimeMilliseconds()
 $windowMs = $steps * $barMs
-$sampleLabel = if ($InSample) { 'HISTORICAL_INSAMPLE_ONLY' } else { 'STRICT_PROSPECTIVE_OOS' }
-$researchRoute = if ($InSample) { 'backtest-insample' } else { 'backtest' }
+$sampleLabel = if ($InSample) { 'HISTORICAL_INSAMPLE_ONLY' }
+    elseif ($HistoricalHoldout) { 'PRE_FROZEN_HISTORICAL_HOLDOUT' }
+    else { 'STRICT_PROSPECTIVE_OOS' }
+$researchRoute = if ($InSample) { 'backtest-insample' }
+    elseif ($HistoricalHoldout) { 'backtest-historical-holdout' }
+    else { 'backtest' }
 $plans = @('CONTROL:LONG=BASELINE,SHORT=BASELINE',
            'CANDIDATE_A:LONG=WEEKDAYS_ONLY,SHORT=COMBINED_045',
            'CANDIDATE_B:LONG=WEEKDAYS_ONLY,SHORT=COMBINED_050')
 if ($PrintOnly) {
     Write-Output 'MODE=PAPER_ONLY'
+    Write-Output "SOURCE=$Source"
     Write-Output "EVIDENCE=$sampleLabel"
     Write-Output 'MARKET=BTCUSDT 15m/closed-1d; MIDAS_SHORT_RETEST; DYNAMIC_TREND_60'
     Write-Output 'WALLET=SHARED_USD_600; MAX_OPEN_POSITIONS=1; TIE_BREAK=LONG_FIRST'
@@ -64,8 +86,8 @@ if ($status.mode -cne 'PAPER_ONLY' -or $status.ordersEnabled -or
     throw 'Server is NOT running the correct paper-only shared OOS endpoint'
 }
 $mode = Invoke-RestMethod "$BaseUrl/api/v1/market-data/settings" -TimeoutSec 20
-if ([string]$mode.source -cne 'TESTNET') {
-    throw 'Use an isolated TESTNET research database; never mix production and testnet candles.'
+if ([string]$mode.source -cne $Source.ToUpperInvariant()) {
+    throw "Backend market source $($mode.source) differs from required $Source. Stop server and start research profile using a separate DB."
 }
 if ($AsOfEpochMs -eq 0) {
     $latest = @(Invoke-RestMethod "$BaseUrl/api/v1/market-data/candles?symbol=BTCUSDT&interval=15m&limit=1" -TimeoutSec 30)
@@ -84,16 +106,25 @@ if ($InSample) {
         [math]::Floor($offset / $windowMs) + $Windows -gt 12) {
         throw 'Historical mode requires an aligned subset of the 12 original 900h in-sample windows. Use -AsOfEpochMs 1792108799999 -Windows 12.'
     }
+} elseif ($HistoricalHoldout) {
+    [long]$holdoutStart=[DateTimeOffset]::Parse('2023-01-01T00:00:00+00:00').ToUnixTimeMilliseconds()
+    [long]$holdoutEnd=[DateTimeOffset]::Parse('2024-12-31T23:59:59.999+00:00').ToUnixTimeMilliseconds()
+    if ($firstOpen -lt $holdoutStart -or $AsOfEpochMs -gt $holdoutEnd) {
+        throw 'Historical holdout must lie entirely inside 2023-2024 UTC; no overlapping 2025-26 selection data.'
+    }
 } elseif ($firstOpen -lt $oosStart) {
     throw "Not genuine OOS: earliest requested open $firstOpen precedes 2026-10-16T00:00Z. No data can be relabeled as OOS."
 }
 # Public contract metadata; never approximate tick/lot/min-notional.
-$exchange = Invoke-RestMethod 'https://demo-fapi.binance.com/fapi/v1/exchangeInfo' -TimeoutSec 60
+$exchangeUrl = if ($Source -eq 'production') {
+    'https://fapi.binance.com/fapi/v1/exchangeInfo'
+} else { 'https://demo-fapi.binance.com/fapi/v1/exchangeInfo' }
+$exchange = Invoke-RestMethod $exchangeUrl -TimeoutSec 60
 $contract = @($exchange.symbols | Where-Object {
     $_.symbol -ceq 'BTCUSDT' -and $_.status -ceq 'TRADING' -and
     $_.contractType -ceq 'PERPETUAL' -and $_.quoteAsset -ceq 'USDT'
 })
-if ($contract.Count -ne 1) { throw 'No active TESTNET BTCUSDT perpetual' }
+if ($contract.Count -ne 1) { throw "No active $Source BTCUSDT perpetual" }
 $priceFilter = @($contract[0].filters | Where-Object filterType -eq 'PRICE_FILTER')
 $lot = @($contract[0].filters | Where-Object filterType -eq 'LOT_SIZE')
 $notional = @($contract[0].filters | Where-Object filterType -eq 'MIN_NOTIONAL')
@@ -121,6 +152,9 @@ foreach ($w in $Windows..1) {
     }
     if ($InSample -and $asOf -gt $selectionClose) {
         throw "Window $w exceeds the historical selection cutoff"
+    }
+    if ($HistoricalHoldout -and ($start -lt $holdoutStart -or $asOf -gt $holdoutEnd)) {
+        throw "Window $w exceeds frozen 2023-24 holdout bounds"
     }
     $body = [ordered]@{
         symbol = 'BTCUSDT'; steps = 3600; contextCandles = 60
@@ -152,7 +186,7 @@ foreach ($w in $Windows..1) {
         -not $report.executionModel.Contains($sampleLabel) -or
         -not $report.executionModel.Contains('ONE_POSITION_TOTAL') -or
         @($report.sharedPortfolios.PSObject.Properties).Count -ne 3) {
-        throw "Invalid or non-prospective shared result for window $w"
+        throw "Invalid/mislabeled shared research result for window $w"
     }
     foreach ($policy in @('CONTROL','CANDIDATE_A','CANDIDATE_B')) {
         $slot = $report.sharedPortfolios.PSObject.Properties[$policy]
@@ -217,7 +251,7 @@ if (-not $NoCsv) {
     $trades | Export-Csv (Join-Path $out "shared-trades-$stem.csv") -NoTypeInformation -Encoding UTF8
     $events | Export-Csv (Join-Path $out "shared-events-$stem.csv") -NoTypeInformation -Encoding UTF8
     ([ordered]@{asOfEpochMs=$AsOfEpochMs;windows=$Windows;sampleType=$sampleLabel;cutoffUtc='2026-10-15T23:59:59.999Z';
-        wallet='SHARED'; priority='LONG_FIRST'; funding='ASSUMED_0_NOT_HISTORICAL';
+        wallet='SHARED'; source=$Source; priority='LONG_FIRST'; funding='ASSUMED_0_NOT_HISTORICAL';
         policies=$plans; originalConfig=$config} |
         ConvertTo-Json -Depth 24) | Set-Content (Join-Path $out "shared-config-$stem.json") -Encoding UTF8
     Write-Host "Exported: $out\*$stem*"
