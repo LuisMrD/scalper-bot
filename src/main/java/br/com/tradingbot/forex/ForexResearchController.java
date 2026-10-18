@@ -12,8 +12,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/research/forex")
 public final class ForexResearchController {
     private final ForexPriceActionResearchService research;
-    public ForexResearchController(ForexPriceActionResearchService research) {
+    private final DukascopyForexDownloader downloader;
+    public ForexResearchController(ForexPriceActionResearchService research,
+            DukascopyForexDownloader downloader) {
         this.research=research;
+        this.downloader=downloader;
     }
     @GetMapping("/status")
     public Map<String,Object> status() {
@@ -25,18 +28,11 @@ public final class ForexResearchController {
                 "direction","LONG_AND_SHORT_INITIAL_BASELINE",
                 "priceSource","CSV_BID_ASK",
                 "volume","TICK_VOLUME_OPTIONAL_NOT_TAKER_VOLUME",
-                "strategies",java.util.List.of("FOREX_PA_V1_SHORT_PRICE_ONLY",
-                        "FOREX_PA_V1_TICK_VOLUME_MIDAS_PROXY_TREND"));
+                "strategies",java.util.List.of("FOREX_PA_V1_LONG_WEEKDAYS_AND_SHORT_PRICE_ACTION",
+                        "FOREX_PA_V1_TICK_VOLUME_MIDAS_PROXY_TREND_EXPERIMENTAL"));
     }
     public record DukascopyImportRequest(String pair,java.time.LocalDate fromUtc,
             java.time.LocalDate untilUtc) {}
-
-    private DukascopyForexDownloader downloader;
-
-    @org.springframework.beans.factory.annotation.Autowired
-    void setDownloader(DukascopyForexDownloader downloader) {
-        this.downloader=downloader;
-    }
 
     /** Fetch only public historical BID/ASK quotes; no keys, no orders. */
     @PostMapping("/import/dukascopy")
