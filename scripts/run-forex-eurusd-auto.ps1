@@ -158,6 +158,25 @@ try {
     }catch{
         Write-Host "`n========== FOREX ERROR ==========" -ForegroundColor Red
         Write-Host $_.Exception.Message -ForegroundColor Red
+        # The last 100 lines often contain only Tomcat stack frames.
+        # Surface the FIRST meaningful cause and provider/day failure marker.
+        if(Test-Path -LiteralPath $stdout) {
+            Write-Host "`n--- Root-cause markers from full Spring stdout ---" -ForegroundColor Yellow
+            $markers=@(Select-String -LiteralPath $stdout -Pattern @(
+                    'Caused by:', 'Dukascopy', 'Missing minute',
+                    'Partial M15', 'Non-weekend missing', 'Invalid Forex',
+                    'Unpaired', 'HTTP 429', 'HTTP 503',
+                    'org.springframework.web', 'IllegalArgumentException',
+                    'IllegalStateException', 'Exception:') |
+                    Select-Object -Last 25)
+            if($markers.Count -gt 0) {
+                $markers | ForEach-Object {
+                    Write-Host ("L{0}: {1}" -f $_.LineNumber,$_.Line.Trim())
+                }
+            } else {
+                Write-Host 'No matching root-cause marker in stdout log.'
+            }
+        }
         foreach($logFile in @($stdout,$stderr)) {
             Write-Host "`n--- $logFile (last 100 lines) ---" -ForegroundColor Yellow
             if(Test-Path -LiteralPath $logFile) {
