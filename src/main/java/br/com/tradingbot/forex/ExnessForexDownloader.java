@@ -20,8 +20,9 @@ public final class ExnessForexDownloader {
     private final Path folder;
     private final HttpClient http;
     public record DownloadReport(String pair,LocalDate fromUtc,LocalDate untilUtc,
-            int monthsDownloaded,long ticksProcessed,int bars15m,String csvPath,
-            String source,String warning) {}
+            int monthsDownloaded,long ticksProcessed,int bars15m,
+            long firstBarOpenEpochMs,long lastBarOpenEpochMs,
+            String csvPath,String source,String warning) {}
 
     @Autowired
     public ExnessForexDownloader(@Value("${forex.csv-directory:data/forex}") String dir) {
@@ -85,6 +86,7 @@ public final class ExnessForexDownloader {
                 Files.move(tmp,destination,StandardCopyOption.REPLACE_EXISTING);
             }
             return new DownloadReport(pair,from,until,months,ticks,bars.size(),
+                    bars.firstKey(),bars.lastKey(),
                     destination.toString(),"EXNESS_PUBLIC_STANDARD_BID_ASK_TICKS",
                     "Public indicative OTC quotes. No synthetic spreads/volume; swaps not included.");
         }catch(IOException e){throw new IllegalStateException("FX history CSV storage failed",e);}
