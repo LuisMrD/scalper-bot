@@ -109,8 +109,11 @@ if ($InSample) {
 } elseif ($HistoricalHoldout) {
     [long]$holdoutStart=[DateTimeOffset]::Parse('2023-01-01T00:00:00+00:00').ToUnixTimeMilliseconds()
     [long]$holdoutEnd=[DateTimeOffset]::Parse('2024-12-31T23:59:59.999+00:00').ToUnixTimeMilliseconds()
-    if ($firstOpen -lt $holdoutStart -or $AsOfEpochMs -gt $holdoutEnd) {
-        throw 'Historical holdout must lie entirely inside 2023-2024 UTC; no overlapping 2025-26 selection data.'
+    [long]$offset = $holdoutEnd - $AsOfEpochMs
+    if ($firstOpen -lt $holdoutStart -or $offset -lt 0 -or
+        $offset % $windowMs -ne 0 -or
+        [math]::Floor($offset / $windowMs) + $Windows -gt 12) {
+        throw 'Historical holdout requires an aligned subset of the 12 frozen 900h windows ending 2024-12-31T23:59:59.999Z.'
     }
 } elseif ($firstOpen -lt $oosStart) {
     throw "Not genuine OOS: earliest requested open $firstOpen precedes 2026-10-16T00:00Z. No data can be relabeled as OOS."
