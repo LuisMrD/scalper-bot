@@ -166,6 +166,16 @@ public final class ForexPriceActionResearchService {
         }
         return weight.signum()>0?numerator.divide(weight,MC):null;
     }
+    private static boolean trendStillValid(List<BigDecimal> closes,
+            List<BigDecimal> dailyClosed,boolean isLong) {
+        if(!dailyAligned(dailyClosed,isLong)||closes.size()<23)return false;
+        var fast=ema(closes,closes.size(),9);
+        var slow=ema(closes,closes.size(),21);
+        var prevSlow=ema(closes,closes.size()-1,21);
+        return isLong?fast.compareTo(slow)>0
+                    &&slow.compareTo(prevSlow)>0
+                :fast.compareTo(slow)<0 &&slow.compareTo(prevSlow)<0;
+    }
     private record Signal(boolean isLong,BigDecimal stop) {}
     private static Signal shortSignal(List<ForexBar> bars,int i,
             List<BigDecimal> closes,PivotHistory structure,
@@ -347,7 +357,9 @@ public final class ForexPriceActionResearchService {
             // A MAX_HOLD exit decided at the last CLOSE executes only NOW at
             // the next OPEN. Never retroactively trade a known candle close.
             if(exitAtNextOpen&&position!=null) {
-                Trade t=finish(position,bar.openTime(),bar.askOpen(),r,"MAX_HOLD_NEXT_OPEN");
+                Trade t=finish(position,bar.openTime(),
+                        position.isLong?bar.bidOpen():bar.askOpen(),r,
+                        "DYNAMIC_OR_MAX_HOLD_NEXT_OPEN");
                 cash=cash.add(t.netUsd().add(position.entryFee,MC),MC);
                 fees=fees.add(t.feesUsd().subtract(position.entryFee,MC),MC);
                 dailyPnl=dailyPnl.add(t.netUsd(),MC);
@@ -359,12 +371,15 @@ public final class ForexPriceActionResearchService {
             exitAtNextOpen=false;
             // Previous-bar entries also fill only on THIS bar OPEN.
             if(pending!=null &&position==null) {
-                BigDecimal fill=bar.bidOpen().subtract(slippage(r),MC);
+                BigDecimal fill=pending.isLong()
+                        ?bar.askOpen().add(slippage(r),MC)
+                        :bar.bidOpen().subtract(slippage(r),MC);
                 BigDecimal stop=pending.stop();
                 BigDecimal feeUnit=r.commissionUsdPer100kPerSide().multiply(
                         BigDecimal.valueOf(2),MC).divide(LOT,MC);
-                BigDecimal riskPerUnit=stop.subtract(fill).add(slippage(r),MC)
-                        .add(feeUnit,MC);
+                BigDecimal riskPerUnit=(pending.isLong()
+                        ?fill.subtract(stop,MC):stop.subtract(fill,MC))
+                        .add(slippage(r),MC).add(feeUnit,MC);
                 BigDecimal riskBudget=cash.multiply(pct(r.riskPerTradePct()),MC);
                 BigDecimal allowedDaily=r.capitalUsd().multiply(pct(r.dailyStopPct()),MC);
                 if(fill.signum()<=0 ||riskPerUnit.signum()<=0 ||
@@ -378,17 +393,22 @@ public final class ForexPriceActionResearchService {
                         BigDecimal fee=usdFee(units,r);
                         cash=cash.subtract(fee,MC);
                         fees=fees.add(fee,MC);
-                        position=new Position(bar.openTime(),fill,stop,units,fee);
+                        position=new Position(bar.openTime(),fill,stop,units,fee,
+                                pending.isLong());
                     }
                 }
             }
             pending=null;
             if(position!=null) {
                 position.barsHeld++;
-                boolean stopHit=bar.askHigh().compareTo(position.stop)>=0;
+                boolean stopHit=position.isLong
+                        ?bar.bidLow().compareTo(position.stop)<=0
+                        :bar.askHigh().compareTo(position.stop)>=0;
                 if(stopHit) {
-                    Trade t=finish(position,bar.openTime(),
-                            position.stop.max(bar.askOpen()),r,"STOP");
+                    BigDecimal stopFill=position.isLong
+                            ?position.stop.min(bar.bidOpen())
+                            :position.stop.max(bar.askOpen());
+                    Trade t=finish(position,bar.openTime(),stopFill,r,"STOP");
                     cash=cash.add(t.netUsd().add(position.entryFee,MC),MC);
                     fees=fees.add(t.feesUsd().subtract(position.entryFee,MC),MC);
                     dailyPnl=dailyPnl.add(t.netUsd(),MC);
@@ -396,17 +416,26 @@ public final class ForexPriceActionResearchService {
                     else losers=losers.add(t.netUsd().abs(),MC);
                     trades.add(t);
                     position=null;
-                } else if(position.barsHeld>=r.maxHoldingBars()) {
+                } else if(position.barsHeld>=r.maxHoldingBars()
+                        ||(position.barsHeld>=30 &&
+                          !trendStillValid(history,dailyCloses,position.isLong))) {
                     exitAtNextOpen=true;
                 }
             }
             BigDecimal marked=cash;
             if(position!=null) {
-                marked=marked.add(position.entry.subtract(bar.askClose())
-                        .multiply(position.units,MC),MC)
+                BigDecimal diff=position.isLong
+                        ?bar.bidClose().subtract(position.entry,MC)
+                        :position.entry.subtract(bar.askClose(),MC);
+                marked=marked.add(diff.multiply(position.units,MC),MC)
                         .subtract(usdFee(position.units,r),MC);
-                // A causally confirmed swing high can tighten the SHORT stop.
-                if(swings.highCurrent!=null
+                // Only AFTER the close: confirmed structure used on future bars.
+                if(position.isLong) {
+                    if(swings.lowCurrent!=null
+                            &&swings.lowCurrent.compareTo(position.stop)>0
+                            &&swings.lowCurrent.compareTo(bar.bidClose())<0)
+                        position.stop=swings.lowCurrent;
+                } else if(swings.highCurrent!=null
                         &&swings.highCurrent.compareTo(position.stop)<0
                         &&swings.highCurrent.compareTo(bar.askClose())>0)
                     position.stop=swings.highCurrent;
@@ -419,13 +448,16 @@ public final class ForexPriceActionResearchService {
             // Signal generated only after the close; next bar fill is optional
             // and is suppressed if an old position is still open.
             if(position==null &&i+1<bars.size()) {
-                var signal=shortSignal(bars,i,history,swings,
-                        dailyDown(dailyCloses),r);
-                if(signal!=null){
-                    signals++;
-                    ForexBar next=bars.get(i+1);
-                    if(next.openTime()==bar.openTime()+ForexBar.FIFTEEN_MINUTES)
-                        pending=signal; // no new entry over closed FX weekend
+                var next=bars.get(i+1);
+                if(next.openTime()==bar.openTime()+ForexBar.FIFTEEN_MINUTES
+                        &&next.weekday()<=5) {
+                    // The latest confirmed weekday-only LONG comes first,
+                    // when BOTH directions signal simultaneously.
+                    var signal=longSignal(bars,i,history,swings,
+                            dailyAligned(dailyCloses,true),r);
+                    if(signal==null)signal=shortSignal(bars,i,history,swings,
+                            dailyAligned(dailyCloses,false),r);
+                    if(signal!=null){signals++;pending=signal;}
                 }
             }
         }
@@ -435,13 +467,15 @@ public final class ForexPriceActionResearchService {
         if(position!=null) {
             ForexBar lastBar=bars.stream()
                     .filter(b->b.openTime()==last).findFirst().orElseThrow();
-            finalMarked=finalMarked.add(position.entry.subtract(
-                    lastBar.askClose(),MC).multiply(position.units,MC),MC)
+            BigDecimal diff=position.isLong
+                    ?lastBar.bidClose().subtract(position.entry,MC)
+                    :position.entry.subtract(lastBar.askClose(),MC);
+            finalMarked=finalMarked.add(diff.multiply(position.units,MC),MC)
                     .subtract(usdFee(position.units,r),MC);
         }
         return new Report(r.pair(),"FOREX_OTC_SPOT",
                 r.tickVolumeMidasProxy()?"FOREX_PA_V1_TICK_VOLUME_MIDAS_PROXY_TREND":
-                        "FOREX_PA_V1_SHORT_PRICE_ONLY",
+                        "FOREX_PA_V1_LONG_WEEKDAYS_AND_SHORT_PRICE_ACTION",
                 "CSV_BROKER_QUOTES","TICK_VOLUME_IS_NOT_TRADE_VOLUME_OR_TAKER_VOLUME",
                 "SELL_BID_BUY_ASK_WITH_EXPLICIT_SLIPPAGE",first,last,
                 (int)bars.stream().filter(b->b.openTime()>=first&&b.openTime()<=last).count(),
