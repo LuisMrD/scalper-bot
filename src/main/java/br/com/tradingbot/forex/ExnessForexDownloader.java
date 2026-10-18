@@ -32,7 +32,7 @@ public final class ExnessForexDownloader {
     ExnessForexDownloader(Path dir,HttpClient client) {
         folder=dir.toAbsolutePath().normalize();http=client;
     }
-    private static final class Acc {
+    static final class Acc {
         final long ms;
         BigDecimal bo,bh,bl,bc,ao,ah,al,ac;
         Acc(long ms,BigDecimal b,BigDecimal a) {
