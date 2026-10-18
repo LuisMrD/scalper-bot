@@ -13,10 +13,13 @@ import org.springframework.web.bind.annotation.RestController;
 public final class ForexResearchController {
     private final ForexPriceActionResearchService research;
     private final DukascopyForexDownloader downloader;
+    private final ExnessForexDownloader exness;
     public ForexResearchController(ForexPriceActionResearchService research,
-            DukascopyForexDownloader downloader) {
+            DukascopyForexDownloader downloader,
+            ExnessForexDownloader exness) {
         this.research=research;
         this.downloader=downloader;
+        this.exness=exness;
     }
     @GetMapping("/status")
     public Map<String,Object> status() {
@@ -39,6 +42,13 @@ public final class ForexResearchController {
     public DukascopyForexDownloader.DownloadReport importDukascopy(
             @RequestBody DukascopyImportRequest request) {
         return downloader.download(request.pair(),request.fromUtc(),request.untilUtc());
+    }
+
+    /** Free public monthly Exness Standard-account historical ticks. */
+    @PostMapping("/import/exness")
+    public ExnessForexDownloader.DownloadReport importExness(
+            @RequestBody DukascopyImportRequest request) {
+        return exness.download(request.pair(),request.fromUtc(),request.untilUtc());
     }
 
     @PostMapping("/backtest")
