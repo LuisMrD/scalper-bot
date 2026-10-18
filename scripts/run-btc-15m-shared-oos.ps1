@@ -118,7 +118,7 @@ foreach ($w in $Windows..1) {
         maxCostToInitialRiskPct = $config.maxCostToInitialRiskPct
         maxHoldingCandles = $config.maxHoldingCandles
     }
-    Write-Host "Replaying genuine OOS window $w: $start..$asOf"
+    Write-Host "Replaying genuine OOS window ${w}: $start..$asOf"
     $json = $body | ConvertTo-Json -Depth 24 -Compress
     $report = Invoke-RestMethod -Method Post `
         -Uri "$BaseUrl/api/v1/research/independent-setups/shared-oos/backtest" `
