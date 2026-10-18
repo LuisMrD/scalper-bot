@@ -71,8 +71,8 @@ public final class ForexPriceActionResearchService {
             long firstOpenUtc,long lastOpenUtc,int candles,int eligibleSignals,
             int blockedEntries,int winningTrades,BigDecimal startingUsd,
             BigDecimal finalMarkedEquityUsd,BigDecimal realizedUsd,
-            BigDecimal feesUsd,BigDecimal grossWinnersUsd,
-            BigDecimal grossLosersUsd,BigDecimal worstDrawdownPct,
+            BigDecimal feesUsd,BigDecimal winningTradesNetUsd,
+            BigDecimal losingTradesNetAbsUsd,BigDecimal worstDrawdownPct,
             boolean openAtEnd,List<Trade> trades,String limitations) {}
 
     private static void positive(BigDecimal v,String name) {
