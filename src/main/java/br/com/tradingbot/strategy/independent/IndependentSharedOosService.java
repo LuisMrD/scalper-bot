@@ -48,6 +48,7 @@ public final class IndependentSharedOosService {
             Map<String,SharedEntryPaperPortfolio.Summary> sharedPortfolios,
             List<Event> events) {}
 
+    @org.springframework.beans.factory.annotation.Autowired
     public IndependentSharedOosService(MarketDataService market,
             MarketContextService contexts,TradingProperties trading) {
         this(market,contexts,trading,Clock.systemUTC());
