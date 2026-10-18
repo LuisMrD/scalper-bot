@@ -5,9 +5,13 @@
 .DESCRIPTION
   NEVER uses in-sample CSV subsets as independent backtests.
   No live orders, no GPT requests, no modification of the strategy.
-  A complete first 900h OOS window is only possible after 2026-11-22 12:00 UTC.
+  Without -InSample, a complete first 900h OOS window is only possible
+  after 2026-11-22 12:00 UTC. -InSample deliberately replays only the
+  twelve known historical windows and labels them HISTORICAL_INSAMPLE_ONLY.
 .EXAMPLE
   .\scripts\run-btc-15m-shared-oos.ps1 -PrintOnly
+.EXAMPLE
+  .\scripts\run-btc-15m-shared-oos.ps1 -InSample -AsOfEpochMs 1792108799999 -Windows 12
 .EXAMPLE
   .\scripts\run-btc-15m-shared-oos.ps1 -AsOfEpochMs 1795348799999 -Windows 1
 #>
@@ -18,6 +22,7 @@ param(
     [ValidatePattern('^https?://(127\.0\.0\.1|localhost)(:\d+)?$')]
     [string]$BaseUrl = 'http://127.0.0.1:8080',
     [ValidateRange(30,1800)][int]$TimeoutSec = 900,
+    [switch]$InSample,
     [switch]$PrintOnly,
     [switch]$NoCsv
 )
@@ -32,15 +37,21 @@ if (@($config.symbols).Count -ne 1 -or $config.symbols[0] -cne 'BTCUSDT') {
 $barMs = [long]900000
 $steps = [long]3600
 $oosStart = [DateTimeOffset]::Parse('2026-10-16T00:00:00+00:00').ToUnixTimeMilliseconds()
+$selectionClose = [DateTimeOffset]::Parse('2026-10-15T23:59:59.999+00:00').ToUnixTimeMilliseconds()
+$windowMs = $steps * $barMs
+$sampleLabel = if ($InSample) { 'HISTORICAL_INSAMPLE_ONLY' } else { 'STRICT_PROSPECTIVE_OOS' }
+$researchRoute = if ($InSample) { 'backtest-insample' } else { 'backtest' }
 $plans = @('CONTROL:LONG=BASELINE,SHORT=BASELINE',
            'CANDIDATE_A:LONG=WEEKDAYS_ONLY,SHORT=COMBINED_045',
            'CANDIDATE_B:LONG=WEEKDAYS_ONLY,SHORT=COMBINED_050')
 if ($PrintOnly) {
     Write-Output 'MODE=PAPER_ONLY'
+    Write-Output "EVIDENCE=$sampleLabel"
     Write-Output 'MARKET=BTCUSDT 15m/closed-1d; MIDAS_SHORT_RETEST; DYNAMIC_TREND_60'
     Write-Output 'WALLET=SHARED_USD_600; MAX_OPEN_POSITIONS=1; TIE_BREAK=LONG_FIRST'
     Write-Output 'FROZEN_CUTOFF_UTC=2026-10-15T23:59:59.999Z'
     Write-Output 'FIRST_COMPLETE_OOS_END_UTC=2026-11-22T11:59:59.999Z'
+    Write-Output 'INSAMPLE_LAST_AS_OF_EPOCH_MS=1792108799999'
     Write-Output "AS_OF_EPOCH_MS=$(if($AsOfEpochMs -eq 0){'<latest stored closed 15m>'}else{$AsOfEpochMs})"
     Write-Output "WINDOWS=$Windows; WINDOW_BARS=$steps"
     $plans | ForEach-Object { Write-Output $_ }
@@ -67,7 +78,13 @@ if ($AsOfEpochMs % $barMs -ne $barMs - 1) {
     throw 'AsOfEpochMs must close exactly at the end of a UTC 15m candle'
 }
 $firstOpen = $AsOfEpochMs - ($steps * $Windows * $barMs) + 1L
-if ($firstOpen -lt $oosStart) {
+if ($InSample) {
+    [long]$offset = $selectionClose - $AsOfEpochMs
+    if ($offset -lt 0 -or $offset % $windowMs -ne 0 -or
+        [math]::Floor($offset / $windowMs) + $Windows -gt 12) {
+        throw 'Historical mode requires an aligned subset of the 12 original 900h in-sample windows. Use -AsOfEpochMs 1792108799999 -Windows 12.'
+    }
+} elseif ($firstOpen -lt $oosStart) {
     throw "Not genuine OOS: earliest requested open $firstOpen precedes 2026-10-16T00:00Z. No data can be relabeled as OOS."
 }
 # Public contract metadata; never approximate tick/lot/min-notional.
@@ -99,7 +116,12 @@ $events = [Collections.Generic.List[object]]::new()
 foreach ($w in $Windows..1) {
     [long]$asOf = $AsOfEpochMs - ($w - 1L) * $steps * $barMs
     [long]$start = $asOf - $steps * $barMs + 1L
-    if ($start -lt $oosStart) { throw "Window $w crosses frozen cutoff" }
+    if (-not $InSample -and $start -lt $oosStart) {
+        throw "Window $w crosses frozen OOS cutoff"
+    }
+    if ($InSample -and $asOf -gt $selectionClose) {
+        throw "Window $w exceeds the historical selection cutoff"
+    }
     $body = [ordered]@{
         symbol = 'BTCUSDT'; steps = 3600; contextCandles = 60
         entryInterval = '15m'; trendInterval = '1d'; asOf = $asOf
@@ -118,16 +140,16 @@ foreach ($w in $Windows..1) {
         maxCostToInitialRiskPct = $config.maxCostToInitialRiskPct
         maxHoldingCandles = $config.maxHoldingCandles
     }
-    Write-Host "Replaying genuine OOS window ${w}: $start..$asOf"
+    Write-Host "Replaying $sampleLabel window ${w}: $start..$asOf"
     $json = $body | ConvertTo-Json -Depth 24 -Compress
     $report = Invoke-RestMethod -Method Post `
-        -Uri "$BaseUrl/api/v1/research/independent-setups/shared-oos/backtest" `
+        -Uri "$BaseUrl/api/v1/research/independent-setups/shared-oos/$researchRoute" `
         -Body ([Text.Encoding]::UTF8.GetBytes($json)) `
         -ContentType 'application/json; charset=utf-8' -TimeoutSec $TimeoutSec
     if ($report.symbol -cne 'BTCUSDT' -or $report.interval -cne '15m' -or
         [long]$report.firstOpen -ne $start -or [long]$report.lastClose -ne $asOf -or
         [int]$report.completedBars -ne 3600 -or
-        -not $report.executionModel.Contains('STRICT_PROSPECTIVE_OOS') -or
+        -not $report.executionModel.Contains($sampleLabel) -or
         -not $report.executionModel.Contains('ONE_POSITION_TOTAL') -or
         @($report.sharedPortfolios.PSObject.Properties).Count -ne 3) {
         throw "Invalid or non-prospective shared result for window $w"
@@ -190,11 +212,11 @@ if (-not $NoCsv) {
     $out = Join-Path $root 'results'
     New-Item -ItemType Directory -Path $out -Force | Out-Null
     $tag = [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ')
-    $stem = "BTC-MIDAS-SHARED-OOS-900h-$AsOfEpochMs-$tag"
+    $stem = "BTC-MIDAS-SHARED-$sampleLabel-900h-$AsOfEpochMs-$tag"
     $rows | Export-Csv (Join-Path $out "shared-windows-$stem.csv") -NoTypeInformation -Encoding UTF8
     $trades | Export-Csv (Join-Path $out "shared-trades-$stem.csv") -NoTypeInformation -Encoding UTF8
     $events | Export-Csv (Join-Path $out "shared-events-$stem.csv") -NoTypeInformation -Encoding UTF8
-    ([ordered]@{asOfEpochMs=$AsOfEpochMs;windows=$Windows;cutoffUtc='2026-10-15T23:59:59.999Z';
+    ([ordered]@{asOfEpochMs=$AsOfEpochMs;windows=$Windows;sampleType=$sampleLabel;cutoffUtc='2026-10-15T23:59:59.999Z';
         wallet='SHARED'; priority='LONG_FIRST'; funding='ASSUMED_0_NOT_HISTORICAL';
         policies=$plans; originalConfig=$config} |
         ConvertTo-Json -Depth 24) | Set-Content (Join-Path $out "shared-config-$stem.json") -Encoding UTF8
