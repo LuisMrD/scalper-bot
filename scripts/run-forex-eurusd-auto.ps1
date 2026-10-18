@@ -127,7 +127,29 @@ try {
         if(-not $ready) { throw "Spring startup timeout; see $stdout / $stderr" }
         Write-Host "Downloading historical $Pair BID/ASK from Dukascopy (free, no key)..." -ForegroundColor Cyan
         $importBody=@{pair=$Pair;fromUtc=$importFrom;untilUtc=$UntilUtc} | ConvertTo-Json -Compress
-        $download=Invoke-RestMethod -Method Post -Uri "$url/api/v1/research/forex/import/dukascopy" -Body ([Text.Encoding]::UTF8.GetBytes($importBody)) -ContentType 'application/json; charset=utf-8' -TimeoutSec 2400
+        try {
+            $download=Invoke-RestMethod -Method Post -Uri "$url/api/v1/research/forex/import/dukascopy" -Body ([Text.Encoding]::UTF8.GetBytes($importBody)) -ContentType 'application/json; charset=utf-8' -TimeoutSec 2400
+        } catch {
+            # Windows PowerShell 5.1 otherwise hides the response JSON.
+            $details=$null
+            if($_.Exception.Response -and
+                    $_.Exception.Response.PSObject.Methods.Name -contains 'GetResponseStream') {
+                $stream=$_.Exception.Response.GetResponseStream()
+                if($stream) {
+                    $reader=New-Object System.IO.StreamReader($stream)
+                    try { $details=$reader.ReadToEnd() }
+                    finally { $reader.Dispose() }
+                }
+            }
+            if(-not $details -and $_.ErrorDetails) {
+                $details=$_.ErrorDetails.Message
+            }
+            if($details) {
+                Write-Host "`nDUKASCOPY IMPORT ROOT ERROR (HTTP response):" -ForegroundColor Red
+                Write-Host $details -ForegroundColor Red
+            }
+            throw
+        }
         if($download.pair -cne $Pair -or $download.bars15m -lt 300) {
             throw 'Incomplete historical quote import'
         }
@@ -168,7 +190,7 @@ try {
                     'Unpaired', 'HTTP 429', 'HTTP 503',
                     'org.springframework.web', 'IllegalArgumentException',
                     'IllegalStateException', 'Exception:') |
-                    Select-Object -Last 25)
+                    Select-Object -First 25)
             if($markers.Count -gt 0) {
                 $markers | ForEach-Object {
                     Write-Host ("L{0}: {1}" -f $_.LineNumber,$_.Line.Trim())
